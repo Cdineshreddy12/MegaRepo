@@ -1,0 +1,8 @@
+{
+  "project": {
+    "managedIndexingEnabled": true,
+    "id": "MegaRepo",
+    "baseBranch": "main"
+  }
+}
+
