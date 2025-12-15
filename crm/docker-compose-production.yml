@@ -1,0 +1,79 @@
+version: "3.8"
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      # If your frontend build uses Vite, these ARGs let it see the right URLs at build time
+      args:
+        VITE_KINDE_DOMAIN: https://auth.zopkit.com
+        VITE_API_BASE_URL: https://zopkit.com/crm/api
+    environment:
+      # runtime env (harmless even if only build-time is used)
+      - VITE_KINDE_DOMAIN=https://auth.zopkit.com
+      - VITE_API_BASE_URL=https://zopkit.com/crm/api
+      - FRONTEND_URL=https://zopkit.com/crm
+    expose:
+      - "80"
+    ports:
+      - "4001:80"
+    networks:
+      - app-network
+    depends_on:
+      - backend
+    restart: always
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    expose:
+      - "4000"
+    ports:
+      - "4000:4000"
+    environment:
+      - PORT=4000
+      - NODE_ENV=production
+
+      # ==== DB & JWT ====
+      - MONGODB_URI=mongodb+srv://letszopkit:t41z0qaCIoK8vnDr@letszop.gog5bym.mongodb.net/zopkit_crm?retryWrites=true&w=majority&appName=letszop
+      - JWT_SECRET=b94c2d49d97d68a36a9fed759351fadff39a7a141861b2150d989fffa85605ba40f3043505e9a45d2aff1ea00cec08f12e595d86849fa9e28621c40984c5354b
+
+      # ==== FRONTEND / CORS / CSP ====
+      # This is what your Express server uses for cors() and CSP
+      - FRONTEND_URL=https://zopkit.com/crm
+      # Keep CLIENT_URL for any older code that still reads it
+      - CLIENT_URL=https://zopkit.com/crm
+
+      # ==== KINDE AUTH ====
+      - KINDE_DOMAIN=https://auth.zopkit.com
+      - VITE_KINDE_DOMAIN=https://auth.zopkit.com
+
+      # ==== API URL used in CSP (and possibly frontend) ====
+      # Express CSP will read VITE_API_BASE_URL / API_BASE_URL as API_ORIGIN
+      - VITE_API_BASE_URL=https://zopkit.com/crm/api
+      - API_BASE_URL=https://zopkit.com/crm/api
+
+      # ==== WRAPPER SERVICE ====
+      - WRAPPER_API_URL=https://zopkit.com
+      - WRAPPER_API_KEY=Dinesh@wrapper
+
+      # ==== AWS / REDIS / LLM KEYS ====
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION}
+      - AWS_S3_BUCKET_NAME=${AWS_S3_BUCKET_NAME}
+
+      - REDIS_URL=${REDIS_URL}
+
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GROK_API_KEY=${GROK_API_KEY}
+
+    networks:
+      - app-network
+    restart: always
+
+networks:
+  app-network:
+    driver: bridge
