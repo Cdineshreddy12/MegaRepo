@@ -1,0 +1,35 @@
+# ---- Build frontend (Vite) ----
+FROM node:18-alpine AS frontend-build
+WORKDIR /app
+
+# Install frontend deps
+COPY package*.json ./
+RUN npm install
+
+# Copy all frontend sources and build to /app/dist
+COPY . .
+RUN npm run build   # produces /app/dist
+
+# ---- Backend image ----
+FROM node:18-alpine
+WORKDIR /app
+
+# ⬇️ Copy env from server folder to /app/.env (where dotenv/config will look)
+COPY server/.env .env
+
+# Install backend deps
+COPY server/package*.json ./server/
+RUN cd server && npm install --omit=dev
+
+# Copy backend source
+COPY server ./server
+
+# Copy built frontend into /dist (server.js serves from /dist)
+COPY --from=frontend-build /app/dist ./dist
+
+ENV NODE_ENV=production
+ENV PORT=4000
+EXPOSE 4000
+
+# No PM2, just start the node server
+CMD ["node", "server/server.js"]

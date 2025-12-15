@@ -1,0 +1,59 @@
+{/* Sales Orders Table */}
+        <div className="bg-white shadow-sm rounded-lg">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Order</TableHead>
+                <TableHead>Amount</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Order Date</TableHead>
+                <TableHead>Delivery Date</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {salesOrders.map((order) => (
+                <TableRow key={order.id} className="hover:bg-gray-50">
+                  <TableCell>
+                    <div className="flex items-center">
+                      <div className="h-10 w-10 flex-shrink-0">
+                        <div className="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center">
+                          <Package className="h-5 w-5 text-indigo-600" />
+                        </div>
+                      </div>
+                      <div className="ml-4">
+                        <div className="text-sm font-medium text-gray-900">
+                          {order.orderNumber}
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {order.customer}
+                        </div>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>${order.amount.toLocaleString()}</TableCell>
+                  <TableCell>
+                    <StatusBadge status={getStatusVariant(order.status)}>
+                      {order.status}
+                    </StatusBadge>
+                  </TableCell>
+                  <TableCell>{order.orderDate}</TableCell>
+                  <TableCell>{order.deliveryDate}</TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end space-x-2">
+                      <Button variant="ghost" size="icon">
+                        <Edit2 className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon">
+                        <MoreVertical className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>

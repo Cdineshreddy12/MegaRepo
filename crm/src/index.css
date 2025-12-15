@@ -1,0 +1,580 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+}
+
+::-webkit-scrollbar {
+  width: 2px;
+  height: 2px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #e1e1e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #e2e2e2;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 210 59% 38%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 210 59% 38%;
+    --radius: .75rem;
+    --chart-1: 12 76% 61%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 210 59% 20%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 224.3 76.3% 48%;
+    --chart-1: 220 70% 50%;
+    --chart-2: 160 60% 45%;
+    --chart-3: 30 80% 55%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 210 59% 20%;
+  }
+}
+
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+
+@layer base {
+  @property --pos-x {
+    syntax: '<percentage>';
+    initial-value: 11.14%;
+    inherits: false;
+  }
+
+  @property --pos-y {
+    syntax: '<percentage>';
+    initial-value: 140%;
+    inherits: false;
+  }
+
+  @property --spread-x {
+    syntax: '<percentage>';
+    initial-value: 150%;
+    inherits: false;
+  }
+
+  @property --spread-y {
+    syntax: '<percentage>';
+    initial-value: 180.06%;
+    inherits: false;
+  }
+
+  @property --color-1 {
+    syntax: '<color>';
+    initial-value: #000;
+    inherits: false;
+  }
+
+  @property --color-2 {
+    syntax: '<color>';
+    initial-value: #08012c;
+    inherits: false;
+  }
+
+  @property --color-3 {
+    syntax: '<color>';
+    initial-value: #4e1e40;
+    inherits: false;
+  }
+
+  @property --color-4 {
+    syntax: '<color>';
+    initial-value: #70464e;
+    inherits: false;
+  }
+
+  @property --color-5 {
+    syntax: '<color>';
+    initial-value: #88394c;
+    inherits: false;
+  }
+
+  @property --border-angle {
+    syntax: '<angle>';
+    initial-value: 20deg;
+    inherits: true;
+  }
+
+  @property --border-color-1 {
+    syntax: '<color>';
+    initial-value: hsla(340, 75%, 60%, 0.2);
+    inherits: true;
+  }
+
+  @property --border-color-2 {
+    syntax: '<color>';
+    initial-value: hsla(340, 75%, 40%, 0.75);
+    inherits: true;
+  }
+
+  @property --stop-1 {
+    syntax: '<percentage>';
+    initial-value: 37.35%;
+    inherits: false;
+  }
+
+  @property --stop-2 {
+    syntax: '<percentage>';
+    initial-value: 61.36%;
+    inherits: false;
+  }
+
+  @property --stop-3 {
+    syntax: '<percentage>';
+    initial-value: 78.42%;
+    inherits: false;
+  }
+
+  @property --stop-4 {
+    syntax: '<percentage>';
+    initial-value: 89.52%;
+    inherits: false;
+  }
+
+  @property --stop-5 {
+    syntax: '<percentage>';
+    initial-value: 100%;
+    inherits: false;
+  }
+}
+
+@layer components {
+  .gradient-button {
+    @apply relative appearance-none cursor-pointer;
+    background: radial-gradient(
+      var(--spread-x) var(--spread-y) at var(--pos-x) var(--pos-y),
+      var(--color-1) var(--stop-1),
+      var(--color-2) var(--stop-2),
+      var(--color-3) var(--stop-3),
+      var(--color-4) var(--stop-4),
+      var(--color-5) var(--stop-5)
+    );
+    transition:
+      --pos-x 0.5s,
+      --pos-y 0.5s,
+      --spread-x 0.5s,
+      --spread-y 0.5s,
+      --color-1 0.5s,
+      --color-2 0.5s,
+      --color-3 0.5s,
+      --color-4 0.5s,
+      --color-5 0.5s,
+      --border-angle 0.5s,
+      --border-color-1 0.5s,
+      --border-color-2 0.5s,
+      --stop-1 0.5s,
+      --stop-2 0.5s,
+      --stop-3 0.5s,
+      --stop-4 0.5s,
+      --stop-5 0.5s;
+  }
+
+  .gradient-button::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      var(--border-angle),
+      var(--border-color-1),
+      var(--border-color-2)
+    );
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .gradient-button:hover {
+    --pos-x: 0%;
+    --pos-y: 91.51%;
+    --spread-x: 120.24%;
+    --spread-y: 103.18%;
+    --color-1: #c96287;
+    --color-2: #c66c64;
+    --color-3: #cc7d23;
+    --color-4: #37140a;
+    --color-5: #000;
+    --border-angle: 190deg;
+    --border-color-1: hsla(340, 78%, 90%, 0.1);
+    --border-color-2: hsla(340, 75%, 90%, 0.6);
+    --stop-1: 0%;
+    --stop-2: 8.8%;
+    --stop-3: 21.44%;
+    --stop-4: 71.34%;
+    --stop-5: 85.76%;
+  }
+
+  .gradient-button-variant {
+    --color-1: #000022;
+    --color-2: #1f3f6d;
+    --color-3: #469396;
+    --color-4: #f1ffa5;
+    --border-angle: 200deg;
+    --border-color-1: hsla(320, 75%, 90%, 0.6);
+    --border-color-2: hsla(320, 50%, 90%, 0.15);
+  }
+
+  .gradient-button-variant:hover {
+    --pos-x: 0%;
+    --pos-y: 95.51%;
+    --spread-x: 110.24%;
+    --spread-y: 110.2%;
+    --color-1: #000020;
+    --color-2: #f1ffa5;
+    --color-3: #469396;
+    --color-4: #1f3f6d;
+    --color-5: #000;
+    --stop-1: 0%;
+    --stop-2: 10%;
+    --stop-3: 35.44%;
+    --stop-4: 71.34%;
+    --stop-5: 90.76%;
+    --border-angle: 210deg;
+    --border-color-1: hsla(320, 75%, 90%, 0.2);
+    --border-color-2: hsla(320, 50%, 90%, 0.75);
+  }
+  .gradient-button-theme {
+    /* Use HSL theme colors */
+    --color-1: hsl(var(--primary)); /* Deep primary */
+    --color-2: hsl(var(--accent)); /* Accent */
+    --color-3: hsl(var(--chart-2)); /* Themed color */
+    --color-4: hsl(var(--chart-4)); /* Themed lighter accent */
+    --color-5: hsl(var(--background)); /* Background blend */
+
+    --border-angle: 120deg;
+    --border-color-1: hsl(var(--primary) / 0.6);
+    --border-color-2: hsl(var(--primary) / 0.2);
+  }
+
+  .gradient-button-theme:hover {
+    --pos-x: 10%;
+    --pos-y: 90%;
+    --spread-x: 120%;
+    --spread-y: 110%;
+    --color-1: hsl(var(--chart-3)); /* Warmer on hover */
+    --color-2: hsl(var(--chart-5));
+    --color-3: hsl(var(--chart-4));
+    --color-4: hsl(var(--accent));
+    --color-5: hsl(var(--background));
+    --stop-1: 0%;
+    --stop-2: 15%;
+    --stop-3: 45%;
+    --stop-4: 60%;
+    --stop-5: 100%;
+    --border-angle: 275deg;
+    --border-color-1: hsl(var(--accent) / 0.5);
+    --border-color-2: hsl(var(--primary) / 0.3);
+  }
+}
+/* Table density styles - ENHANCED */
+/* Compact density */
+.data-table-density-compact th,
+.data-table-density-compact td {
+  padding-top: 0.35rem !important;
+  padding-bottom: 0.35rem !important;
+  font-size: 0.8125rem !important;
+}
+
+.data-table-density-compact th {
+  font-weight: 600 !important;
+}
+
+.data-table-density-compact .user-card-avatar {
+  height: 1.5rem !important;
+  width: 1.5rem !important;
+}
+
+.data-table-density-compact .user-card-text {
+  font-size: 0.8125rem !important;
+}
+
+.data-table-density-compact .user-card-email {
+  font-size: 0.75rem !important;
+}
+
+/* Default density */
+.data-table-density-default th,
+.data-table-density-default td {
+  padding-top: 0.75rem !important;
+  padding-bottom: 0.75rem !important;
+  font-size: 0.875rem !important;
+}
+
+.data-table-density-default th {
+  font-weight: 500 !important;
+}
+
+/* Spacious density */
+.data-table-density-spacious th,
+.data-table-density-spacious td {
+  padding-top: 1.125rem !important;
+  padding-bottom: 1.125rem !important;
+  font-size: 0.9375rem !important;
+}
+
+.data-table-density-spacious th {
+  font-weight: 500 !important;
+}
+
+.data-table-density-spacious .user-card-avatar {
+  height: 2.25rem !important;
+  width: 2.25rem !important;
+}
+
+.data-table-density-spacious .user-card-text {
+  font-size: 0.9375rem !important;
+}
+
+.data-table-density-spacious .user-card-email {
+  font-size: 0.8125rem !important;
+}
+
+/* Keyboard navigation focus styles */
+[role="row"]:focus {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: -2px;
+  position: relative;
+  z-index: 10;
+}
+
+/* Table container with horizontal scroll */
+.data-table-container {
+  position: relative;
+  width: 100%;
+  max-height: 70vh;
+  overflow: auto;
+  border-radius: inherit;
+}
+
+/* Make sure the table takes full width */
+.data-table-container table {
+  width: 100%;
+  max-height: 100%;
+}
+
+/* Pinned columns styles - IMPROVED */
+.table-cell-pinned-left,
+.table-head-pinned-left {
+  position: sticky !important;
+  left: 0;
+  z-index: 20;
+  background-color: hsl(var(--background));
+}
+
+.table-cell-pinned-right,
+.table-head-pinned-right {
+  position: sticky !important;
+  right: 0;
+  z-index: 20;
+  background-color: hsl(var(--background));
+}
+
+/* Add shadow effect only to the last left pinned and first right pinned columns */
+.table-cell-pinned-left-last {
+  box-shadow: 4px 0 6px -2px rgba(0, 0, 0, 0.1);
+}
+
+.table-cell-pinned-right-first {
+  box-shadow: -4px 0 6px -2px rgba(0, 0, 0, 0.1);
+}
+
+/* Adjust z-index for header cells to appear above body cells */
+.table-head-pinned-left,
+.table-head-pinned-right {
+  z-index: 30;
+}
+
+.table-head-pinned-left-last {
+  box-shadow: 4px 0 6px -2px rgba(0, 0, 0, 0.1);
+}
+
+.table-head-pinned-right-first {
+  box-shadow: -4px 0 6px -2px rgba(0, 0, 0, 0.1);
+}
+
+/* For multiple pinned columns, we need to set specific left/right positions */
+.table-pinned-left-0 {
+  left: 0;
+}
+.table-pinned-left-1 {
+  left: var(--pinned-left-1-width, 50px);
+}
+.table-pinned-left-2 {
+  left: var(--pinned-left-2-width, 100px);
+}
+.table-pinned-left-3 {
+  left: var(--pinned-left-3-width, 150px);
+}
+
+.table-pinned-right-0 {
+  right: 0;
+}
+.table-pinned-right-1 {
+  right: var(--pinned-right-1-width, 50px);
+}
+.table-pinned-right-2 {
+  right: var(--pinned-right-2-width, 100px);
+}
+.table-pinned-right-3 {
+  right: var(--pinned-right-3-width, 150px);
+}
+
+/* Visual indicator for pinned columns */
+.column-pinned-indicator {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+  color: hsl(var(--primary));
+}
+
+/* Dark mode adjustments */
+.dark .table-cell-pinned-left,
+.dark .table-head-pinned-left,
+.dark .table-cell-pinned-right,
+.dark .table-head-pinned-right {
+  background-color: hsl(var(--background));
+}
+
+.dark .table-cell-pinned-left-last,
+.dark .table-head-pinned-left-last {
+  box-shadow: 4px 0 6px -2px rgba(0, 0, 0, 0.3);
+}
+
+.dark .table-cell-pinned-right-first,
+.dark .table-head-pinned-right-first {
+  box-shadow: -4px 0 6px -2px rgba(0, 0, 0, 0.3);
+}
+
+/* Fix for border continuity */
+.data-table-container th,
+.data-table-container td {
+  border-right: 1px solid hsl(var(--border));
+}
+
+.data-table-container tr th:last-child,
+.data-table-container tr td:last-child {
+  border-right: none;
+}
+
+.data-table-container tr th:has([role="checkbox"]),
+.data-table-container tr td:has([role="checkbox"]) {
+  padding-right: 1rem;
+} 
+
+
+/* Fix for border overlap with shadows */
+.table-cell-pinned-left-last,
+.table-head-pinned-left-last {
+  border-right: none !important;
+}
+
+.table-cell-pinned-right-first,
+.table-head-pinned-right-first {
+  border-left: none !important;
+}
+
+/* Add visual indicator for pinned status in dropdown menu */
+.column-pin-active {
+  color: hsl(var(--primary));
+  font-weight: 500;
+}

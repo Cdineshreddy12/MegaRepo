@@ -1,0 +1,303 @@
+/**
+ * Location Service - Handles Location Management for Organizations
+ * Follows SOLID principles with single responsibility for location operations
+ * Updated to work without locationAssignments and organizationLocations tables
+ */
+
+import { db } from '../../../db/index.js';
+import { entities } from '../../../db/schema/unified-entities.js';
+import { eq, and, sql } from 'drizzle-orm';
+import { v4 as uuidv4 } from 'uuid';
+import HierarchyManager from '../../../utils/hierarchy-manager.js';
+
+export class LocationService {
+
+  /**
+   * Create a new location for an organization (using unified entities)
+   */
+  async createLocation(data, createdBy) {
+    const { name, address, city, state, zipCode, country, organizationId, responsiblePersonId } = data;
+
+    console.log('📍 Received location data:', { name, address, city, state, zipCode, country, organizationId });
+
+    // Validate input
+    this.validateLocationData(data);
+
+    // Check if parent organization exists in entities table
+    const parentEntity = await db
+      .select()
+      .from(entities)
+      .where(and(
+        eq(entities.entityId, organizationId),
+        eq(entities.entityType, 'organization'),
+        eq(entities.isActive, true)
+      ))
+      .limit(1);
+
+    if (parentEntity.length === 0) {
+      throw new Error('Parent organization not found or inactive');
+    }
+
+    const entityId = uuidv4();
+    const addressData = {
+      street: address || '',
+      city: city || '',
+      state: state || '',
+      zipCode: zipCode || '',
+      country: country || '',
+      additionalDetails: ''
+    };
+
+    // Insert location as entity
+    const location = await db.insert(entities).values({
+      entityId,
+      tenantId: parentEntity[0].tenantId,
+      entityType: 'location',
+      parentEntityId: organizationId, // Link to parent organization
+      entityName: name,
+      entityCode: `LOC_${entityId.substring(0, 8)}`, // Generate code for locations
+      locationType: 'office', // Default location type
+      address: addressData,
+      responsiblePersonId: responsiblePersonId || null,
+      isActive: true,
+      createdBy: createdBy,
+      createdAt: new Date()
+    }).returning();
+
+    console.log('📍 Location entity inserted:', location[0]);
+    // Note: Hierarchy paths are automatically maintained by database triggers
+
+    // Get updated location data with hierarchy paths
+    const updatedLocation = await db
+      .select()
+      .from(entities)
+      .where(eq(entities.entityId, entityId))
+      .limit(1);
+
+    const responseData = {
+      success: true,
+      location: {
+        entityId: updatedLocation[0].entityId,
+        entityName: updatedLocation[0].entityName,
+        entityType: updatedLocation[0].entityType,
+        address: addressData,
+        city: city,
+        country: country,
+        hierarchyPath: updatedLocation[0].hierarchyPath, // Include hierarchy path
+        entityLevel: updatedLocation[0].entityLevel, // Include entity level
+        fullHierarchyPath: updatedLocation[0].fullHierarchyPath
+      }
+    };
+
+    console.log('📍 Location created successfully:', responseData);
+    return responseData;
+  }
+
+  /**
+   * Get locations for an organization (using unified entities)
+   */
+  async getLocationsByOrganization(organizationId) {
+    // Get organization first to verify it exists
+    const organization = await db
+      .select()
+      .from(entities)
+      .where(and(
+        eq(entities.entityId, organizationId),
+        eq(entities.entityType, 'organization')
+      ))
+      .limit(1);
+
+    if (organization.length === 0) {
+      throw new Error('Organization not found');
+    }
+
+    // Get all location entities that have this organization as parent
+    const locationsList = await db
+      .select()
+      .from(entities)
+      .where(and(
+        eq(entities.parentEntityId, organizationId),
+        eq(entities.entityType, 'location')
+      ));
+
+    return {
+      success: true,
+      locations: locationsList
+    };
+  }
+
+  /**
+   * Get location by ID
+   */
+  async getLocationById(locationId) {
+    const location = await db
+      .select()
+      .from(entities)
+      .where(and(
+        eq(entities.entityId, locationId),
+        eq(entities.entityType, 'location')
+      ))
+      .limit(1);
+
+    if (location.length === 0) {
+      throw new Error('Location not found');
+    }
+
+    return {
+      success: true,
+      location: location[0]
+    };
+  }
+
+  /**
+   * Update location
+   */
+  async updateLocation(locationId, data, updatedBy) {
+    const { name, address, city, state, zipCode, country, responsiblePersonId } = data;
+
+    // Validate input
+    this.validateLocationData(data);
+
+    const addressData = {
+      street: address || '',
+      city: city || '',
+      state: state || '',
+      zipCode: zipCode || '',
+      country: country || '',
+      additionalDetails: ''
+    };
+
+    const updatedLocation = await db
+      .update(entities)
+      .set({
+        entityName: name,
+        address: addressData,
+        responsiblePersonId: responsiblePersonId || null,
+        updatedBy: updatedBy,
+        updatedAt: new Date()
+      })
+      .where(and(
+        eq(entities.entityId, locationId),
+        eq(entities.entityType, 'location')
+      ))
+      .returning();
+
+    if (updatedLocation.length === 0) {
+      throw new Error('Location not found');
+    }
+
+    return {
+      success: true,
+      location: updatedLocation[0]
+    };
+  }
+
+  /**
+   * Delete location
+   */
+  async deleteLocation(locationId) {
+    const deletedLocation = await db
+      .delete(entities)
+      .where(and(
+        eq(entities.entityId, locationId),
+        eq(entities.entityType, 'location')
+      ))
+      .returning();
+
+    if (deletedLocation.length === 0) {
+      throw new Error('Location not found');
+    }
+
+    return {
+      success: true,
+      message: 'Location deleted successfully'
+    };
+  }
+
+  /**
+   * Get all locations for a tenant
+   */
+  async getLocationsByTenant(tenantId) {
+    const locationsList = await db
+      .select()
+      .from(entities)
+      .where(and(
+        eq(entities.tenantId, tenantId),
+        eq(entities.entityType, 'location')
+      ));
+
+    return {
+      success: true,
+      locations: locationsList
+    };
+  }
+
+  /**
+   * Alias for getLocationsByTenant - used by routes
+   */
+  async getTenantLocations(tenantId) {
+    return this.getLocationsByTenant(tenantId);
+  }
+
+  /**
+   * Get complete entity hierarchy including locations
+   */
+  async getEntityHierarchyWithLocations(tenantId) {
+    try {
+      // Use HierarchyManager to get the complete entity hierarchy
+      const hierarchyResult = await HierarchyManager.getEntityHierarchyTree(tenantId);
+
+      if (!hierarchyResult.success) {
+        throw new Error(hierarchyResult.message);
+      }
+
+      return {
+        success: true,
+        hierarchy: hierarchyResult.hierarchy,
+        totalEntities: hierarchyResult.totalEntities,
+        message: 'Complete entity hierarchy retrieved successfully'
+      };
+    } catch (error) {
+      console.error('Error in getEntityHierarchyWithLocations:', error);
+
+      // Fallback to simple query
+      const allEntities = await db
+        .select()
+        .from(entities)
+        .where(and(
+          eq(entities.tenantId, tenantId),
+          eq(entities.isActive, true)
+        ))
+        .orderBy(entities.entityLevel, entities.createdAt);
+
+      return {
+        success: true,
+        hierarchy: allEntities,
+        totalEntities: allEntities.length,
+        message: 'Complete entity hierarchy retrieved (fallback mode)'
+      };
+    }
+  }
+
+  /**
+   * Validate location data
+   */
+  validateLocationData(data) {
+    const { name, organizationId } = data;
+
+    if (!name || name.trim() === '') {
+      throw new Error('Location name is required');
+    }
+
+    if (!organizationId) {
+      throw new Error('Organization ID is required');
+    }
+
+    // Additional validation can be added here
+    if (name.length > 255) {
+      throw new Error('Location name is too long');
+    }
+  }
+}
+
+export default new LocationService();

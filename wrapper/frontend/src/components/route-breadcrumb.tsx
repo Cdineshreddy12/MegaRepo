@@ -1,0 +1,309 @@
+import React from 'react'
+import { useLocation, Link } from 'react-router-dom'
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb'
+import { cn } from '@/lib/utils'
+
+// Route mapping configuration
+const routeMap: Record<string, string> = {
+  // Main routes
+  '/': 'Home',
+  '/dashboard': 'Dashboard',
+  '/dashboard/overview': 'Overview',
+  '/dashboard/users': 'Users',
+  '/dashboard/user-apps': 'User Applications',
+  '/dashboard/user-application-management': 'App Management',
+  '/dashboard/billing': 'Billing',
+  '/dashboard/analytics': 'Analytics',
+  '/dashboard/usage': 'Usage',
+  '/dashboard/permissions': 'Permissions',
+  
+  // Organization routes
+  '/org': 'Organization',
+  
+  // Admin routes
+  '/admin': 'Admin',
+  
+  // Suite routes
+  '/suite': 'Business Suite',
+  
+  // Public routes
+  '/landing': 'Landing',
+  '/login': 'Login',
+  '/onboarding': 'Onboarding',
+  '/auth/callback': 'Authentication',
+  '/invite/accept': 'Accept Invitation',
+  
+  // Demo routes
+  '/design-system': 'Design System',
+  '/form-demo': 'Form Demo',
+  '/context-demo': 'Context Demo',
+  '/perfect-form': 'Perfect Form',
+  '/form-layout-test': 'Form Layout Test',
+  '/form-error-test': 'Form Error Test',
+  '/breadcrumb-demo': 'Breadcrumb Demo',
+}
+
+// Special handling for organization routes
+const getOrgRouteLabel = (pathname: string): string | null => {
+  const orgMatch = pathname.match(/^\/org\/([^\/]+)(?:\/(.*))?$/)
+  if (orgMatch) {
+    const [, orgCode, subPath] = orgMatch
+    if (subPath) {
+      return routeMap[`/dashboard/${subPath}`] || subPath.charAt(0).toUpperCase() + subPath.slice(1)
+    }
+    return `Organization (${orgCode})`
+  }
+  return null
+}
+
+// Special handling for dashboard with query parameters
+const getDashboardTabLabel = (pathname: string, search: string): string | null => {
+  if (pathname === '/dashboard') {
+    const urlParams = new URLSearchParams(search)
+    const tab = urlParams.get('tab')
+    if (tab) {
+      const tabLabels: Record<string, string> = {
+        overview: 'Overview',
+        applications: 'Applications',
+        users: 'Users',
+        roles: 'Roles',
+        analytics: 'Analytics',
+      }
+      return tabLabels[tab] || tab.charAt(0).toUpperCase() + tab.slice(1)
+    }
+  }
+  return null
+}
+
+interface RouteBreadcrumbProps {
+  className?: string
+  showHome?: boolean
+  maxItems?: number
+}
+
+export function RouteBreadcrumb({ 
+  className,
+  showHome = true,
+  maxItems = 5
+}: RouteBreadcrumbProps) {
+  const location = useLocation()
+  const { pathname, search } = location
+
+  // Generate breadcrumb items
+  const generateBreadcrumbs = () => {
+    const breadcrumbs: Array<{ label: string; href: string; isLast: boolean }> = []
+    
+    // Handle special cases first
+    const orgRouteLabel = getOrgRouteLabel(pathname)
+    if (orgRouteLabel) {
+      const orgMatch = pathname.match(/^\/org\/([^\/]+)(?:\/(.*))?$/)
+      if (orgMatch) {
+        const [, orgCode, subPath] = orgMatch
+        breadcrumbs.push({
+          label: 'Organizations',
+          href: '/org',
+          isLast: false
+        })
+        breadcrumbs.push({
+          label: orgCode,
+          href: `/org/${orgCode}`,
+          isLast: !subPath
+        })
+        if (subPath) {
+          breadcrumbs.push({
+            label: orgRouteLabel,
+            href: pathname,
+            isLast: true
+          })
+        }
+        return breadcrumbs
+      }
+    }
+
+    // Handle dashboard with tabs
+    const dashboardTabLabel = getDashboardTabLabel(pathname, search)
+    if (dashboardTabLabel) {
+      breadcrumbs.push({
+        label: 'Dashboard',
+        href: '/dashboard',
+        isLast: false
+      })
+      breadcrumbs.push({
+        label: dashboardTabLabel,
+        href: pathname + search,
+        isLast: true
+      })
+      return breadcrumbs
+    }
+
+    // Split pathname into segments
+    const pathSegments = pathname.split('/').filter(Boolean)
+    
+    // Add home if requested and not already at root
+    if (showHome && pathname !== '/') {
+      breadcrumbs.push({
+        label: 'Home',
+        href: '/',
+        isLast: false
+      })
+    }
+
+    // Build breadcrumbs from path segments
+    let currentPath = ''
+    pathSegments.forEach((segment, index) => {
+      currentPath += `/${segment}`
+      const isLast = index === pathSegments.length - 1
+      
+      // Get label from route map or format segment
+      const label = routeMap[currentPath] || 
+                   segment.charAt(0).toUpperCase() + segment.slice(1)
+      
+      breadcrumbs.push({
+        label,
+        href: currentPath,
+        isLast
+      })
+    })
+
+    // If no segments and showHome is true, add home
+    if (pathSegments.length === 0 && showHome) {
+      breadcrumbs.push({
+        label: 'Home',
+        href: '/',
+        isLast: true
+      })
+    }
+
+    return breadcrumbs
+  }
+
+  const breadcrumbs = generateBreadcrumbs()
+
+  // Limit number of items if maxItems is specified
+  const displayBreadcrumbs = maxItems && breadcrumbs.length > maxItems
+    ? [
+        ...breadcrumbs.slice(0, 1), // Keep first item
+        ...breadcrumbs.slice(-(maxItems - 1)) // Keep last items
+      ]
+    : breadcrumbs
+
+  if (breadcrumbs.length <= 1 && !showHome) {
+    return null
+  }
+
+  return (
+    <Breadcrumb className={cn("mb-4", className)}>
+      <BreadcrumbList>
+        {displayBreadcrumbs.map((breadcrumb, index) => (
+          <React.Fragment key={breadcrumb.href}>
+            <BreadcrumbItem>
+              {breadcrumb.isLast ? (
+                <BreadcrumbPage>{breadcrumb.label}</BreadcrumbPage>
+              ) : (
+                <BreadcrumbLink asChild>
+                  <Link to={breadcrumb.href}>{breadcrumb.label}</Link>
+                </BreadcrumbLink>
+              )}
+            </BreadcrumbItem>
+            {!breadcrumb.isLast && <BreadcrumbSeparator />}
+          </React.Fragment>
+        ))}
+      </BreadcrumbList>
+    </Breadcrumb>
+  )
+}
+
+// Hook for getting current breadcrumb data
+export function useRouteBreadcrumbs() {
+  const location = useLocation()
+  const { pathname, search } = location
+
+  const getCurrentBreadcrumbs = () => {
+    const breadcrumbs: Array<{ label: string; href: string; isLast: boolean }> = []
+    
+    // Handle special cases first
+    const orgRouteLabel = getOrgRouteLabel(pathname)
+    if (orgRouteLabel) {
+      const orgMatch = pathname.match(/^\/org\/([^\/]+)(?:\/(.*))?$/)
+      if (orgMatch) {
+        const [, orgCode, subPath] = orgMatch
+        breadcrumbs.push({
+          label: 'Organizations',
+          href: '/org',
+          isLast: false
+        })
+        breadcrumbs.push({
+          label: orgCode,
+          href: `/org/${orgCode}`,
+          isLast: !subPath
+        })
+        if (subPath) {
+          breadcrumbs.push({
+            label: orgRouteLabel,
+            href: pathname,
+            isLast: true
+          })
+        }
+        return breadcrumbs
+      }
+    }
+
+    // Handle dashboard with tabs
+    const dashboardTabLabel = getDashboardTabLabel(pathname, search)
+    if (dashboardTabLabel) {
+      breadcrumbs.push({
+        label: 'Dashboard',
+        href: '/dashboard',
+        isLast: false
+      })
+      breadcrumbs.push({
+        label: dashboardTabLabel,
+        href: pathname + search,
+        isLast: true
+      })
+      return breadcrumbs
+    }
+
+    // Split pathname into segments
+    const pathSegments = pathname.split('/').filter(Boolean)
+    
+    // Add home
+    breadcrumbs.push({
+      label: 'Home',
+      href: '/',
+      isLast: false
+    })
+
+    // Build breadcrumbs from path segments
+    let currentPath = ''
+    pathSegments.forEach((segment, index) => {
+      currentPath += `/${segment}`
+      const isLast = index === pathSegments.length - 1
+      
+      // Get label from route map or format segment
+      const label = routeMap[currentPath] || 
+                   segment.charAt(0).toUpperCase() + segment.slice(1)
+      
+      breadcrumbs.push({
+        label,
+        href: currentPath,
+        isLast
+      })
+    })
+
+    return breadcrumbs
+  }
+
+  return {
+    breadcrumbs: getCurrentBreadcrumbs(),
+    currentPath: pathname,
+    currentSearch: search
+  }
+}

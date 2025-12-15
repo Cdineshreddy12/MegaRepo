@@ -1,0 +1,29 @@
+FROM node:18-alpine AS build
+
+WORKDIR /app
+
+# Install frontend deps
+COPY package*.json ./
+RUN npm install
+
+# Copy frontend source
+COPY . .
+
+# Build static assets (uses "build" script from package.json)
+RUN npm run build
+
+# --- Runtime image using a simple static file server ---
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install a simple static file server
+RUN npm install -g serve
+
+# Copy built assets from build stage
+COPY --from=build /app/dist ./dist
+
+# Serve on port 80
+EXPOSE 80
+
+CMD ["serve", "-s", "dist", "-l", "80"]

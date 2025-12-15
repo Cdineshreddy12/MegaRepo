@@ -1,0 +1,206 @@
+/* Enhanced dashboard.css with optimizations for smooth dragging */
+
+/* Base styles for drag handles */
+.drag-handle {
+  position: relative;
+  transition: background-color 0.2s ease;
+  z-index: 1;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Visual indicator in drag handle */
+.drag-handle::after {
+  content: '';
+  width: 40px;
+  height: 4px;
+  background-color: #d1d5db;
+  border-radius: 2px;
+  transition: all 0.2s ease;
+}
+
+/* Enhanced hover effect */
+.drag-handle:hover {
+  background-color: #e5e7eb;
+}
+
+.drag-handle:hover::after {
+  background-color: #9ca3af;
+  width: 50px;
+}
+
+/* Active dragging state */
+.drag-handle:active {
+  cursor: grabbing;
+  background-color: #f3f4f6;
+}
+
+/* Apply hardware acceleration globally for smoother animations */
+.react-grid-layout, 
+.react-grid-item {
+  transform: translateZ(0);
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
+/* Improved styling for items being dragged */
+.react-grid-item.react-draggable-dragging {
+  z-index: 999 !important;
+  box-shadow: 0 15px 30px -5px rgba(0, 0, 0, 0.12), 
+              0 10px 15px -5px rgba(0, 0, 0, 0.08);
+  opacity: 0.95;
+  border: 2px dashed #4f46e5;
+  background-color: white;
+  transition: none !important;
+  cursor: grabbing;
+  pointer-events: none; /* Prevent hover effects during drag */
+}
+
+/* Enhanced styling for resizing */
+.react-grid-item.resizing {
+  z-index: 899 !important;
+  box-shadow: 0 15px 30px -5px rgba(0, 0, 0, 0.12), 
+              0 10px 15px -5px rgba(0, 0, 0, 0.08);
+  opacity: 0.9;
+  border: 2px dashed #4f46e5;
+  transition: none !important;
+}
+
+/* Clearer and more visible placeholder */
+.react-grid-placeholder {
+  background: rgba(79, 70, 229, 0.15);
+  border: 2px dashed #4f46e5;
+  border-radius: 0.5rem;
+  opacity: 0.6;
+  z-index: 10;
+  transition: transform 100ms ease;
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+/* Add subtle background to the entire grid during dragging */
+body.dragging-active .react-grid-layout {
+  background-color: rgba(79, 70, 229, 0.03);
+}
+
+/* Enhanced placeholder visibility during active dragging */
+body.dragging-active .react-grid-placeholder {
+  opacity: 0.8;
+  background: rgba(79, 70, 229, 0.2);
+}
+
+/* Make sure we show the dragging cursor globally during drag operations */
+body.dragging-active {
+  cursor: grabbing !important;
+}
+
+/* Ensure cards have proper z-index and don't flicker */
+.dashboard-grid-item {
+  position: relative;
+  transition: none; /* Remove transition to avoid flickering */
+  overflow: visible; /* Allow for shadows to be visible */
+}
+
+/* Override default transitions for smoother dragging */
+.react-grid-item {
+  transition: transform 200ms ease, opacity 100ms ease;
+  transition-property: transform, opacity;
+}
+
+/* When not actively dragging, use normal transitions */
+.react-grid-item:not(.react-draggable-dragging):not(.resizing) {
+  transition: transform 200ms ease, left 200ms ease, top 200ms ease, 
+              width 200ms ease, height 200ms ease;
+}
+
+/* Add a small delay to other items when one is being dragged */
+body.dragging-active .react-grid-item:not(.react-draggable-dragging) {
+  transition-delay: 30ms;
+}
+
+/* Smaller resize handles for better precision */
+.react-resizable-handle {
+  width: 12px;
+  height: 12px;
+  bottom: 2px;
+  right: 2px;
+}
+
+/* Make cards more visually distinct during interaction */
+.dashboard-grid-item:hover {
+  z-index: 9;
+}
+
+/* Add some spacing at the bottom for better UX */
+.dashboard-grid-wrapper {
+  min-height: 100vh;
+  width: 100%;
+  padding-bottom: 120px;
+}
+
+/* High-performance animations */
+@media (prefers-reduced-motion: no-preference) {
+  .react-grid-item.react-draggable-dragging {
+    animation: item-shadow 0.2s forwards;
+  }
+  
+  @keyframes item-shadow {
+    from {
+      box-shadow: 0 5px 15px -3px rgba(0, 0, 0, 0.1);
+    }
+    to {
+      box-shadow: 0 15px 30px -5px rgba(0, 0, 0, 0.12), 
+                  0 10px 15px -5px rgba(0, 0, 0, 0.08);
+    }
+  }
+}
+
+/* Style for the grid container */
+.react-grid-layout {
+  position: relative;
+  transition: background-color 0.2s ease;
+}
+
+/* Make sure the grid is properly rendered */
+.layout {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+/* Add better focus indicators for accessibility */
+.dashboard-grid-item:focus-within {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
+}
+
+/* Ensure smooth transitions between different devices */
+@media (max-width: 768px) {
+  .react-grid-item {
+    transition-duration: 250ms; /* Slightly slower transitions on mobile */
+  }
+  
+  .drag-handle {
+    height: 24px; /* Larger drag handle on mobile */
+  }
+  
+  .drag-handle::after {
+    width: 32px; /* Larger indicator on mobile */
+  }
+}
+
+/* Fix for transition issues on Safari */
+@supports (-webkit-touch-callout: none) {
+  .react-grid-item {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* Prevent text selection during drag operations */
+body.dragging-active * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
