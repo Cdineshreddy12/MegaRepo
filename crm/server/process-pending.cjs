@@ -5,7 +5,11 @@ async function processPending() {
   console.log('🔄 Processing All Pending Credit Events');
   console.log('=' .repeat(45));
 
-  const redisUrl = process.env.REDIS_URL || 'redis://default:k9PVaIlCi1uWh5v6bS7zomT6vYJfnbWU@redis-18875.crce182.ap-south-1-1.ec2.redns.redis-cloud.com:18875';
+  const redisUrl = process.env.REDIS_URL;
+  if (!redisUrl) {
+    console.error('❌ REDIS_URL environment variable is required');
+    process.exit(1);
+  }
   const redisClient = Redis.createClient({ url: redisUrl });
   await redisClient.connect();
   console.log('✅ Redis connected');

@@ -4,8 +4,11 @@
  * Test script to test role deletion via API
  */
 
-// Set Redis URL for the test
-process.env.REDIS_URL = 'redis://default:k9PVaIlCi1uWh5v6bS7zomT6vYJfnbWU@redis-18875.crce182.ap-south-1-1.ec2.redns.redis-cloud.com:18875';
+// Redis URL should be set via environment variable
+if (!process.env.REDIS_URL) {
+  console.error('❌ REDIS_URL environment variable is required');
+  process.exit(1);
+}
 
 import { CustomRoleService } from './backend/src/services/custom-role-service.js';
 

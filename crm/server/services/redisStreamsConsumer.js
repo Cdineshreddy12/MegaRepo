@@ -15,7 +15,7 @@ import CircuitBreaker from '../utils/circuitBreaker.js';
 class RedisStreamsCRMConsumer {
   constructor(options = {}) {
     this.options = {
-      redisUrl: process.env.REDIS_URL || 'redis://default:k9PVaIlCi1uWh5v6bS7zomT6vYJfnbWU@redis-18875.crce182.ap-south-1-1.ec2.redns.redis-cloud.com:18875',
+      redisUrl: process.env.REDIS_URL,
       consumerGroup: process.env.CRM_CONSUMER_GROUP || 'crm-consumers',
       consumerName: process.env.CRM_CONSUMER_NAME || 'crm-credit-consumer',
       tenantId: process.env.CRM_TENANT_ID || 'b0a6e370-c1e5-43d1-94e0-55ed792274c4',

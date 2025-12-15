@@ -13,7 +13,12 @@ async function connectToDatabase() {
   try {
     console.log('🔄 Connecting to MongoDB...');
 
-    await mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://letszopkit:t41z0qaCIoK8vnDr@letszop.gog5bym.mongodb.net/zopkit_crm?retryWrites=true&w=majority&appName=letszop', {
+    const mongoUri = process.env.MONGODB_URI;
+    if (!mongoUri) {
+      console.error('❌ MONGODB_URI environment variable is required');
+      process.exit(1);
+    }
+    await mongoose.connect(mongoUri, {
       maxPoolSize: 10,
       serverSelectionTimeoutMS: 10000,
       socketTimeoutMS: 60000

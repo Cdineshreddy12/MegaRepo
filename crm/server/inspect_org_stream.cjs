@@ -10,14 +10,22 @@ async function inspectOrgStream() {
   
   try {
     // Connect to Redis
-    const redisUrl = process.env.REDIS_URL || 'redis://default:k9PVaIlCi1uWh5v6bS7zomT6vYJfnbWU@redis-18875.crce182.ap-south-1-1.ec2.redns.redis-cloud.com:18875';
+    const redisUrl = process.env.REDIS_URL;
+    if (!redisUrl) {
+      console.error('❌ REDIS_URL environment variable is required');
+      process.exit(1);
+    }
     console.log('🔗 Connecting to Redis...');
     redisClient = createClient({ url: redisUrl });
     await redisClient.connect();
     console.log('✅ Redis connected\n');
 
     // Connect to MongoDB
-    const mongoUri = process.env.MONGODB_URI || 'mongodb+srv://letszopkit:t41z0qaCIoK8vnDr@letszop.gog5bym.mongodb.net/zopkit_crm?retryWrites=true&w=majority&appName=letszop';
+    const mongoUri = process.env.MONGODB_URI;
+    if (!mongoUri) {
+      console.error('❌ MONGODB_URI environment variable is required');
+      process.exit(1);
+    }
     console.log('🔗 Connecting to MongoDB...');
     await mongoose.connect(mongoUri, {
         serverSelectionTimeoutMS: 5000,

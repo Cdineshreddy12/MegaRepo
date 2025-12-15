@@ -6,7 +6,11 @@ async function simulateSyncFailure() {
     console.log('🔧 Simulating sync failure for testing...\n');
 
     // Connect to MongoDB using the same connection as the server
-    const mongoUri = process.env.MONGODB_URI || 'mongodb+srv://letszopkit:t41z0qaCIoK8vnDr@letszop.gog5bymongodb.net/zopkit_crm?retryWrites=true&w=majority&appName=letszop';
+    const mongoUri = process.env.MONGODB_URI;
+    if (!mongoUri) {
+      console.error('❌ MONGODB_URI environment variable is required');
+      process.exit(1);
+    }
 
     console.log('🔌 Connecting to MongoDB...');
     await mongoose.connect(mongoUri, {

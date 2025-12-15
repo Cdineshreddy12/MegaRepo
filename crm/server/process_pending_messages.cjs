@@ -3,8 +3,16 @@ import dotenv from 'dotenv';
 dotenv.config();
 const { createClient } = require('redis');
 
-const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb+srv://letszopkit:t41z0qaCIoK8vnDr@letszop.gog5bymongodb.net/zopkit_crm?retryWrites=true&w=majority&appName=letszop';
-const redisUrl = process.env.REDIS_URL || 'redis://default:k9PVaIlCi1uWh5v6bS7zomT6vYJfnbWU@redis-18875.crce182.ap-south-1-1.ec2.redns.redis-cloud.com:18875';
+const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+const redisUrl = process.env.REDIS_URL;
+if (!mongoUri) {
+  console.error('❌ MONGODB_URI or MONGO_URI environment variable is required');
+  process.exit(1);
+}
+if (!redisUrl) {
+  console.error('❌ REDIS_URL environment variable is required');
+  process.exit(1);
+}
 
 async function processPendingMessages() {
   console.log('🚀 FORCE PROCESSING ALL PENDING MESSAGES...\n');

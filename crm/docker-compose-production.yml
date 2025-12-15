@@ -37,8 +37,8 @@ services:
       - NODE_ENV=production
 
       # ==== DB & JWT ====
-      - MONGODB_URI=mongodb+srv://letszopkit:t41z0qaCIoK8vnDr@letszop.gog5bym.mongodb.net/zopkit_crm?retryWrites=true&w=majority&appName=letszop
-      - JWT_SECRET=b94c2d49d97d68a36a9fed759351fadff39a7a141861b2150d989fffa85605ba40f3043505e9a45d2aff1ea00cec08f12e595d86849fa9e28621c40984c5354b
+      - MONGODB_URI=${MONGODB_URI}
+      - JWT_SECRET=${JWT_SECRET}
 
       # ==== FRONTEND / CORS / CSP ====
       # This is what your Express server uses for cors() and CSP
@@ -56,8 +56,8 @@ services:
       - API_BASE_URL=https://zopkit.com/crm/api
 
       # ==== WRAPPER SERVICE ====
-      - WRAPPER_API_URL=https://zopkit.com
-      - WRAPPER_API_KEY=Dinesh@wrapper
+      - WRAPPER_API_URL=${WRAPPER_API_URL:-https://zopkit.com}
+      - WRAPPER_API_KEY=${WRAPPER_API_KEY}
 
       # ==== AWS / REDIS / LLM KEYS ====
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}

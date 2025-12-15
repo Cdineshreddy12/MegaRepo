@@ -3,7 +3,12 @@ import mongoose from 'mongoose';
 async function clearDatabase() {
   try {
     console.log('🔌 Connecting to MongoDB...');
-    await mongoose.connect('mongodb+srv://letszopkit:t41z0qaCIoK8vnDr@letszop.gog5bym.mongodb.net/zopkit_crm?retryWrites=true&w=majority&appName=letszop');
+    const MONGODB_URI = process.env.MONGODB_URI;
+    if (!MONGODB_URI) {
+      console.error('❌ MONGODB_URI environment variable is required');
+      process.exit(1);
+    }
+    await mongoose.connect(MONGODB_URI);
 
     console.log('🗑️ Clearing all CRM collections...');
 

@@ -38,7 +38,11 @@ import CrmCreditConfig from './models/CrmCreditConfig.js';
 import dotenv from 'dotenv';
 dotenv.config();
 const ADMIN_API_URL = process.env.ADMIN_API_URL || 'http://localhost:3000';
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://letszopkit:t41z0qaCIoK8vnDr@letszop.gog5bym.mongodb.net/zopkit_crm?retryWrites=true&w=majority&appName=letszop';
+const MONGODB_URI = process.env.MONGODB_URI;
+if (!MONGODB_URI) {
+  console.error('❌ MONGODB_URI environment variable is required');
+  process.exit(1);
+}
 
 /**
  * Fetch global credit configurations from admin API

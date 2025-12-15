@@ -10,10 +10,14 @@ const mongoose = require('mongoose');
 const axios = require('axios');
 
 // Configuration
-const MONGO_URI = process.env.MONGODB_URI || 'mongodb+srv://letszopkit:t41z0qaCIoK8vnDr@letszop.gog5bym.mongodb.net/zopkit_crm?retryWrites=true&w=majority&appName=letszop';
+const MONGO_URI = process.env.MONGODB_URI;
+if (!MONGO_URI) {
+  console.error('❌ MONGODB_URI environment variable is required');
+  process.exit(1);
+}
 const TEST_TENANT_ID = process.argv[2] || process.env.TENANT_ID || 'b0a6e370-c1e5-43d1-94e0-55ed792274c4';
 const WRAPPER_BASE_URL = 'http://localhost:3000';
-const KINDE_TOKEN = 'eyJhbGciOiJSUzI1NiIsImtpZCI6IjNjOmUyOmI1OjQwOmRkOmM4OjQzOjg3OjcwOmM3OjViOjhiOjFiOjYyOjRiOmI3IiwidHlwIjoiSldUIn0.eyJhdWQiOltdLCJhenAiOiI2NzdjNWY2ODFkYzE0YzhmYTFkNDJmYmFiNTUwYWViNiIsImV4cCI6MTc1OTk0OTQxNywiaWF0IjoxNzU5ODYzMDE2LCJpc3MiOiJodHRwczovL2F1dGguem9wa2l0LmNvbSIsImp0aSI6IjIyZmQyZTk3LTRhZTYtNDBhMS04NWQzLTEzMzZmMmI0MGI2NCIsIm9yZ19jb2RlIjoib3JnX2NiNTkzZDEzNjA5OTlhIiwicGVybWlzc2lvbnMiOltdLCJzY3AiOlsiZW1haWwiLCJwcm9maWxlIiwib3BlbmlkIiwib2ZmbGluZSJdLCJzdWIiOiJrcF9hZTcwZDM4MjQ0YjE0OWQwYWRiNWE3MzVmYzQ5YTNkMiJ9.JdTpFTIiC52h1Cpcd_moeMISSJIU8g3MnCcQaz_ao33hgf7GHi0nLywVLolGIcQnE74OYcNm-6XSLYMRsRUEBJRJ_xqWTuIDdKcIvoEFVMQYBv14d23Dtk3W-j_LcSu9kYifz4_oBwvUPHcF30ywGCGo64A5iWLKEIzL9dlEPtZqSWOKIPPsOVboW_0buAb-HPhjOL9hWqAetVA2jfqFPk5PsQjOIMAh05hrBMgrh3L2pqtwiOhHj3ZiFY6-BQUg6nGuFa_evqfjmqfbDq-Hhfwp6Htz-dtnc28yZZhQ2H0LfnJE7jG6Iltfiy9gzoSFz3A7X4b3pwe157sUvCuVSg';
+const KINDE_TOKEN = process.env.KINDE_TOKEN || '';
 
 // Import CRM models dynamically
 let Tenant, UserProfile, Organization, CrmCreditConfig, CrmEntityCredit, EmployeeOrgAssignment, CrmRoleAssignment;

@@ -80,7 +80,11 @@ class TenantDataSyncService {
       // Ensure database connection with optimized settings
       if (mongoose.connection.readyState !== 1) {
         console.log('🔌 Establishing database connection...');
-        await mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://letszopkit:t41z0qaCIoK8vnDr@letszop.gog5bym.mongodb.net/zopkit_crm?retryWrites=true&w=majority&appName=letszop', {
+        const mongoUri = process.env.MONGODB_URI;
+        if (!mongoUri) {
+          throw new Error('MONGODB_URI environment variable is required');
+        }
+        await mongoose.connect(mongoUri, {
           maxPoolSize: 10,
           serverSelectionTimeoutMS: 10000,
           socketTimeoutMS: 60000,

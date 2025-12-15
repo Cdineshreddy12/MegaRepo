@@ -7,7 +7,11 @@
 import mongoose from 'mongoose';
 import CrmCreditConfig from './server/models/CrmCreditConfig.js';
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://letszopkit:t41z0qaCIoK8vnDr@letszop.gog5bym.mongodb.net/zopkit_crm?retryWrites=true&w=majority&appName=letszop';
+const MONGODB_URI = process.env.MONGODB_URI;
+if (!MONGODB_URI) {
+  console.error('❌ MONGODB_URI environment variable is required');
+  process.exit(1);
+}
 
 async function testGlobalFallback() {
   try {

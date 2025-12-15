@@ -8,7 +8,11 @@ async function resetRedisStreams() {
   // Safety delay
   await new Promise(resolve => setTimeout(resolve, 5000));
 
-  const redisUrl = process.env.REDIS_URL || 'redis://default:k9PVaIlCi1uWh5v6bS7zomT6vYJfnbWU@redis-18875.crce182.ap-south-1-1.ec2.redns.redis-cloud.com:18875';
+  const redisUrl = process.env.REDIS_URL;
+  if (!redisUrl) {
+    console.error('❌ REDIS_URL environment variable is required');
+    process.exit(1);
+  }
 
   let client;
   try {
