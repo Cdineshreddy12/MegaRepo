@@ -1,8 +1,0 @@
-[submodule "crm"]
-	path = crm
-	url = https://github.com/I2ISolutions/B2B-CRM.git
-	branch = code-refactor
-[submodule "wrapper"]
-	path = wrapper
-	url = git@github.com:Cdineshreddy12/Wrapper.git
-	branch = wrapper-v2-ui-upgrade
