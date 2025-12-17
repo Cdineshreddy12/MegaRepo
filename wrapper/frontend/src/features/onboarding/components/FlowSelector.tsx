@@ -158,7 +158,7 @@ export const FlowSelector: React.FC<FlowSelectorProps> = ({
                     time: flowId === 'newBusiness' ? '5-8 min' : '8-12 min',
                     features: flowId === 'newBusiness'
                       ? ['Employee Profile', 'Role Assignment', 'Access Setup']
-                      : ['Employee Migration', 'Corporate Integration', 'Team Setup']
+                      : ['Employee Migration', 'Corporate Integration', 'Access Setup']
                   };
                 case 'founder':
                   return {

@@ -150,6 +150,26 @@ class OnboardingValidationService {
       if (data.hasGstin && !data.gstin) {
         errors.push({ field: 'gstin', message: 'GSTIN is required when hasGstin is true' });
       }
+
+      // New field validations
+      if (data.billingEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.billingEmail)) {
+        errors.push({ field: 'billingEmail', message: 'Invalid billing email format' });
+      }
+      if (data.supportEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.supportEmail)) {
+        errors.push({ field: 'supportEmail', message: 'Invalid support email format' });
+      }
+      if (data.contactDirectPhone && !/^\+?[\d\s\-\(\)]+$/.test(data.contactDirectPhone)) {
+        errors.push({ field: 'contactDirectPhone', message: 'Invalid phone number format' });
+      }
+      if (data.contactMobilePhone && !/^\+?[\d\s\-\(\)]+$/.test(data.contactMobilePhone)) {
+        errors.push({ field: 'contactMobilePhone', message: 'Invalid mobile phone number format' });
+      }
+      if (data.preferredContactMethod && !['email', 'phone', 'sms'].includes(data.preferredContactMethod)) {
+        errors.push({ field: 'preferredContactMethod', message: 'Preferred contact method must be email, phone, or sms' });
+      }
+      if (data.contactPreferredContactMethod && !['email', 'phone', 'sms'].includes(data.contactPreferredContactMethod)) {
+        errors.push({ field: 'contactPreferredContactMethod', message: 'Contact preferred contact method must be email, phone, or sms' });
+      }
     } else if (type === 'enhanced') {
       if (!data.companyName) {
         errors.push({ field: 'companyName', message: 'Company name is required' });

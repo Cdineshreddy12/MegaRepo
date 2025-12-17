@@ -2,6 +2,8 @@
  * Flow Configuration for Onboarding
  */
 
+import { Building2, Rocket } from 'lucide-react';
+
 export interface StepConfig {
   id: string;
   number: number;
@@ -16,6 +18,16 @@ export interface FlowConfig {
   steps: StepConfig[];
 }
 
+// Flow selector configuration (for UI display)
+export interface FlowSelectorConfig {
+  id: 'newBusiness' | 'existingBusiness';
+  title: string;
+  description: string;
+  icon: React.ComponentType<{ className?: string }>;
+  color: 'blue' | 'green';
+  steps: StepConfig[];
+}
+
 export const getFlowConfig = (flowId: 'newBusiness' | 'existingBusiness'): FlowConfig | null => {
   const configs: Record<string, FlowConfig> = {
     newBusiness: {
@@ -23,14 +35,10 @@ export const getFlowConfig = (flowId: 'newBusiness' | 'existingBusiness'): FlowC
       name: 'New Business',
       description: 'Onboard a new business',
       steps: [
-        { id: 'companyType', number: 1, title: 'Company Type' },
-        { id: 'state', number: 2, title: 'State' },
-        { id: 'businessDetails', number: 3, title: 'Business Details' },
-        { id: 'team', number: 4, title: 'Team' },
-        { id: 'personalDetails', number: 5, title: 'Personal Details' },
-        { id: 'taxDetails', number: 6, title: 'Tax Details' },
-        { id: 'adminDetails', number: 7, title: 'Admin Details' },
-        { id: 'review', number: 8, title: 'Review' },
+        { id: 'businessDetails', number: 1, title: 'Business Details', description: 'Company information and business profile' },
+        { id: 'taxDetails', number: 2, title: 'Tax Details', description: 'Tax registration and compliance information' },
+        { id: 'adminDetails', number: 3, title: 'Admin Details', description: 'Administrator and contact information' },
+        { id: 'review', number: 4, title: 'Review & Submit', description: 'Review all information before submission' },
       ],
     },
     existingBusiness: {
@@ -38,14 +46,10 @@ export const getFlowConfig = (flowId: 'newBusiness' | 'existingBusiness'): FlowC
       name: 'Existing Business',
       description: 'Onboard an existing business',
       steps: [
-        { id: 'companyType', number: 1, title: 'Company Type' },
-        { id: 'state', number: 2, title: 'State' },
-        { id: 'businessDetails', number: 3, title: 'Business Details' },
-        { id: 'team', number: 4, title: 'Team' },
-        { id: 'personalDetails', number: 5, title: 'Personal Details' },
-        { id: 'taxDetails', number: 6, title: 'Tax Details' },
-        { id: 'adminDetails', number: 7, title: 'Admin Details' },
-        { id: 'review', number: 8, title: 'Review' },
+        { id: 'businessDetails', number: 1, title: 'Business Details', description: 'Company information and business profile' },
+        { id: 'taxDetails', number: 2, title: 'Tax Details', description: 'Tax registration and compliance information' },
+        { id: 'adminDetails', number: 3, title: 'Admin Details', description: 'Administrator and contact information' },
+        { id: 'review', number: 4, title: 'Review & Submit', description: 'Review all information before submission' },
       ],
     },
   };
@@ -53,10 +57,25 @@ export const getFlowConfig = (flowId: 'newBusiness' | 'existingBusiness'): FlowC
   return configs[flowId] || null;
 };
 
-export const flowConfigs = {
-  newBusiness: getFlowConfig('newBusiness'),
-  existingBusiness: getFlowConfig('existingBusiness'),
-};
+// Flow configs for selector UI (array format)
+export const flowConfigs: FlowSelectorConfig[] = [
+  {
+    id: 'newBusiness',
+    title: 'New Business',
+    description: 'Start fresh with a new business setup. Perfect for startups and new ventures.',
+    icon: Rocket,
+    color: 'blue',
+    steps: getFlowConfig('newBusiness')?.steps || [],
+  },
+  {
+    id: 'existingBusiness',
+    title: 'Existing Business',
+    description: 'Migrate your existing business. Already have GST and business details ready.',
+    icon: Building2,
+    color: 'green',
+    steps: getFlowConfig('existingBusiness')?.steps || [],
+  },
+];
 
 // Export default for convenience
 export default { flowConfigs, getFlowConfig };

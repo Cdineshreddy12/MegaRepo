@@ -43,6 +43,27 @@ export class UnifiedOnboardingService {
       timezone,
       currency,
       termsAccepted,
+      // New fields from onboarding analysis
+      taxRegistered = false,
+      vatGstRegistered = false,
+      billingEmail,
+      contactJobTitle,
+      preferredContactMethod,
+      mailingAddressSameAsRegistered = true,
+      mailingStreet,
+      mailingCity,
+      mailingState,
+      mailingZip,
+      mailingCountry,
+      supportEmail,
+      contactSalutation,
+      contactMiddleName,
+      contactDepartment,
+      contactDirectPhone,
+      contactMobilePhone,
+      contactPreferredContactMethod,
+      contactAuthorityLevel,
+      taxRegistrationDetails = {},
       // Enhanced-specific fields
       planName = 'Trial Plan',
       planPrice = 0,
@@ -67,7 +88,28 @@ export class UnifiedOnboardingService {
         country,
         timezone,
         currency,
-        termsAccepted
+        termsAccepted,
+        // New validation fields
+        taxRegistered,
+        vatGstRegistered,
+        billingEmail,
+        contactJobTitle,
+        preferredContactMethod,
+        mailingAddressSameAsRegistered,
+        mailingStreet,
+        mailingCity,
+        mailingState,
+        mailingZip,
+        mailingCountry,
+        supportEmail,
+        contactSalutation,
+        contactMiddleName,
+        contactDepartment,
+        contactDirectPhone,
+        contactMobilePhone,
+        contactPreferredContactMethod,
+        contactAuthorityLevel,
+        taxRegistrationDetails
       } : {
         companyName,
         adminEmail,
@@ -138,7 +180,28 @@ export class UnifiedOnboardingService {
         businessType,
         country,
         timezone,
-        currency
+        currency,
+        // New fields
+        taxRegistered,
+        vatGstRegistered,
+        billingEmail,
+        contactJobTitle,
+        preferredContactMethod,
+        mailingAddressSameAsRegistered,
+        mailingStreet,
+        mailingCity,
+        mailingState,
+        mailingZip,
+        mailingCountry,
+        supportEmail,
+        contactSalutation,
+        contactMiddleName,
+        contactDepartment,
+        contactDirectPhone,
+        contactMobilePhone,
+        contactPreferredContactMethod,
+        contactAuthorityLevel,
+        taxRegistrationDetails
       });
 
       // 6. CREATE SUBSCRIPTION
@@ -376,7 +439,28 @@ export class UnifiedOnboardingService {
     businessType,
     country,
     timezone,
-    currency
+    currency,
+    // New fields
+    taxRegistered,
+    vatGstRegistered,
+    billingEmail,
+    contactJobTitle,
+    preferredContactMethod,
+    mailingAddressSameAsRegistered,
+    mailingStreet,
+    mailingCity,
+    mailingState,
+    mailingZip,
+    mailingCountry,
+    supportEmail,
+    contactSalutation,
+    contactMiddleName,
+    contactDepartment,
+    contactDirectPhone,
+    contactMobilePhone,
+    contactPreferredContactMethod,
+    contactAuthorityLevel,
+    taxRegistrationDetails
   }) {
     console.log('🏗️ Creating database records for tenant:', companyName);
 
@@ -385,54 +469,92 @@ export class UnifiedOnboardingService {
     // Use system connection for critical operations (RLS bypassed)
     const result = await systemDbConnection.transaction(async (tx) => {
       // 1. Create tenant
-      const [tenant] = await tx
-        .insert(tenants)
-        .values({
-          tenantId: uuidv4(),
-          companyName,
-          subdomain,
-          kindeOrgId,
-          adminEmail,
-          gstin: hasGstin && gstin ? gstin.toUpperCase() : null,
-          subscriptionTier: selectedPlan,
-          onboardingCompleted: true,
-          onboardingStep: 'completed',
-          onboardingProgress: {
-            accountSetup: { completed: true, completedAt: currentTime },
-            companyInfo: { completed: true, completedAt: currentTime },
-            planSelection: { completed: true, completedAt: currentTime },
-            teamInvites: { completed: false, completedAt: null }
-          },
-          onboardedAt: currentTime,
-          onboardingStartedAt: currentTime,
-          setupCompletionRate: 100,
-          trialStartedAt: currentTime,
-          trialStatus: 'active',
-          subscriptionStatus: 'trial',
-          featuresEnabled: {
-            crm: true,
-            users: true,
-            roles: true,
-            dashboard: true
-          },
-          firstLoginAt: currentTime,
-          initialSetupData: {
-            selectedPlan,
-            planName: selectedPlan === 'trial' ? 'Trial Plan' : (selectedPlan === 'free' ? 'Free Plan' : 'Professional Plan'),
-            planPrice: selectedPlan === 'trial' ? 0 : (selectedPlan === 'free' ? 0 : 99),
-            maxUsers: selectedPlan === 'trial' ? 2 : (selectedPlan === 'free' ? 5 : 50),
-            maxProjects: selectedPlan === 'trial' ? 5 : (selectedPlan === 'free' ? 10 : 100),
-            teamInviteCount: 0,
-            onboardingCompletedAt: currentTime,
-            businessType: businessType || null,
-            companySize: companySize || null,
-            country: country || null,
-            timezone: timezone || null,
-            currency: currency || null,
-            hasGstin: hasGstin || false,
-            gstinProvided: hasGstin && gstin ? true : false
-          }
-        })
+       const [tenant] = await tx
+         .insert(tenants)
+         .values({
+           tenantId: uuidv4(),
+           companyName,
+           subdomain,
+           kindeOrgId,
+           adminEmail,
+           gstin: hasGstin && gstin ? gstin.toUpperCase() : null,
+           subscriptionTier: selectedPlan,
+           onboardingCompleted: true,
+           onboardingStep: 'completed',
+           onboardingProgress: {
+             accountSetup: { completed: true, completedAt: currentTime },
+             companyInfo: { completed: true, completedAt: currentTime },
+             planSelection: { completed: true, completedAt: currentTime },
+             teamInvites: { completed: false, completedAt: null }
+           },
+           onboardedAt: currentTime,
+           onboardingStartedAt: currentTime,
+           setupCompletionRate: 100,
+           trialStartedAt: currentTime,
+           trialStatus: 'active',
+           subscriptionStatus: 'trial',
+           featuresEnabled: {
+             crm: true,
+             users: true,
+             roles: true,
+             dashboard: true
+           },
+           firstLoginAt: currentTime,
+           // New fields
+           taxRegistered: taxRegistered || false,
+           vatGstRegistered: vatGstRegistered || false,
+           organizationSize: companySize || null,
+           billingEmail: billingEmail || null,
+           contactJobTitle: contactJobTitle || null,
+           preferredContactMethod: preferredContactMethod || null,
+           mailingAddressSameAsRegistered: mailingAddressSameAsRegistered !== undefined ? mailingAddressSameAsRegistered : true,
+           mailingStreet: mailingStreet || null,
+           mailingCity: mailingCity || null,
+           mailingState: mailingState || null,
+           mailingZip: mailingZip || null,
+           mailingCountry: mailingCountry || null,
+           supportEmail: supportEmail || null,
+           contactSalutation: contactSalutation || null,
+           contactMiddleName: contactMiddleName || null,
+           contactDepartment: contactDepartment || null,
+           contactDirectPhone: contactDirectPhone || null,
+           contactMobilePhone: contactMobilePhone || null,
+           contactPreferredContactMethod: contactPreferredContactMethod || null,
+           contactAuthorityLevel: contactAuthorityLevel || null,
+           taxRegistrationDetails: taxRegistrationDetails || {},
+           initialSetupData: {
+             selectedPlan,
+             planName: selectedPlan === 'trial' ? 'Trial Plan' : (selectedPlan === 'free' ? 'Free Plan' : 'Professional Plan'),
+             planPrice: selectedPlan === 'trial' ? 0 : (selectedPlan === 'free' ? 0 : 99),
+             maxUsers: selectedPlan === 'trial' ? 2 : (selectedPlan === 'free' ? 5 : 50),
+             maxProjects: selectedPlan === 'trial' ? 5 : (selectedPlan === 'free' ? 10 : 100),
+             teamInviteCount: 0,
+             onboardingCompletedAt: currentTime,
+             businessType: businessType || null,
+             companySize: companySize || null,
+             country: country || null,
+             timezone: timezone || null,
+             currency: currency || null,
+             hasGstin: hasGstin || false,
+             gstinProvided: hasGstin && gstin ? true : false,
+             // New fields in initial setup data
+             taxRegistered: taxRegistered || false,
+             vatGstRegistered: vatGstRegistered || false,
+             billingEmail: billingEmail || null,
+             contactJobTitle: contactJobTitle || null,
+             preferredContactMethod: preferredContactMethod || null,
+             mailingAddressSameAsRegistered: mailingAddressSameAsRegistered !== undefined ? mailingAddressSameAsRegistered : true,
+             supportEmail: supportEmail || null,
+             contactSalutation: contactSalutation || null,
+             contactMiddleName: contactMiddleName || null,
+             contactDepartment: contactDepartment || null,
+             contactDirectPhone: contactDirectPhone || null,
+             contactMobilePhone: contactMobilePhone || null,
+             contactPreferredContactMethod: contactPreferredContactMethod || null,
+             contactAuthorityLevel: contactAuthorityLevel || null,
+             taxRegistrationDetails: taxRegistrationDetails || {}
+           }
+         })
         .returning({
           tenantId: tenants.tenantId,
           companyName: tenants.companyName,
@@ -501,6 +623,15 @@ export class UnifiedOnboardingService {
       if (firstName) formData.firstName = firstName;
       if (lastName) formData.lastName = lastName;
       if (termsAccepted !== undefined) formData.termsAccepted = termsAccepted;
+
+      // New contact fields
+      if (contactSalutation) formData.contactSalutation = contactSalutation;
+      if (contactMiddleName) formData.contactMiddleName = contactMiddleName;
+      if (contactDepartment) formData.contactDepartment = contactDepartment;
+      if (contactDirectPhone) formData.contactDirectPhone = contactDirectPhone;
+      if (contactMobilePhone) formData.contactMobilePhone = contactMobilePhone;
+      if (contactPreferredContactMethod) formData.contactPreferredContactMethod = contactPreferredContactMethod;
+      if (contactAuthorityLevel) formData.contactAuthorityLevel = contactAuthorityLevel;
 
       const [adminUser] = await tx
         .insert(tenantUsers)

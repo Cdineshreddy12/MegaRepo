@@ -1,7 +1,7 @@
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { COMPANY_TYPES } from '../../schemas';
 import { UserClassification } from '../FlowSelector';
+import { CheckCircle2, Building, Briefcase, Globe } from 'lucide-react';
 
 interface CompanyTypeStepProps {
   selectedType: string;
@@ -10,96 +10,109 @@ interface CompanyTypeStepProps {
 }
 
 export const CompanyTypeStep = ({ selectedType, onSelect, userClassification }: CompanyTypeStepProps) => {
-  // Get personalized content based on user classification
   const getPersonalizedContent = () => {
     switch (userClassification) {
       case 'aspiringFounder':
         return {
-          title: 'Choose your startup structure',
-          description: 'Select the legal structure that best fits your startup vision and growth plans.',
-          recommended: 'llc' // Recommend LLC for startups
-        };
-      case 'corporateEmployee':
-        return {
-          title: 'Corporate Structure Selection',
-          description: 'Choose the company structure that aligns with your corporate requirements.',
-          recommended: 'corporation' // Recommend corporation for corporate
+          title: 'Legal Structure',
+          description: 'Choose the entity type that fits your fundraising needs.',
+          recommended: 'llc'
         };
       case 'enterprise':
         return {
-          title: 'Enterprise Structure Setup',
-          description: 'Select the appropriate legal structure for your enterprise organization.',
+          title: 'Enterprise Entity',
+          description: 'Select the structure for your large-scale organization.',
           recommended: 'corporation'
         };
       default:
         return {
-          title: 'Choose company type',
-          description: 'Select the type of company you want to incorporate.',
+          title: 'Company Type',
+          description: 'Select the legal structure that best fits your business.',
           recommended: 'llc'
         };
     }
   };
+  const content = getPersonalizedContent();
 
-  const personalizedContent = getPersonalizedContent();
+  const getIcon = (id: string) => {
+    switch (id) {
+      case 'llc': return <Briefcase className="w-6 h-6" />;
+      case 'corporation': return <Building className="w-6 h-6" />;
+      default: return <Globe className="w-6 h-6" />;
+    }
+  };
 
   return (
-    <div>
-      <div className="mb-6">
-        {userClassification && (
-          <Badge
-            variant="secondary"
-            className="mb-4 px-3 py-1 text-sm"
-          >
-            {userClassification.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
-          </Badge>
-        )}
+    <div className="space-y-8">
+      <div>
+        <div className="mb-4">
+          {userClassification && (
+            <Badge variant="outline" className="bg-white/50 text-slate-600 border-slate-200 px-3 py-1 rounded-full text-[10px] font-bold tracking-widest uppercase shadow-sm">
+              {userClassification.replace(/([A-Z])/g, ' $1').trim()}
+            </Badge>
+          )}
+        </div>
+        <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900 mb-3 drop-shadow-sm">
+          {content.title}
+        </h1>
+        <p className="text-lg text-slate-500 leading-relaxed max-w-2xl font-light">
+          {content.description}
+        </p>
       </div>
-
-      <h1 className="text-3xl font-bold text-gray-900 mb-3">
-        {personalizedContent.title}
-      </h1>
-      <p className="text-gray-600 text-lg mb-12">
-        {personalizedContent.description}
-      </p>
-      <div className="space-y-4 max-w-lg">
+      
+      <div className="grid grid-cols-1 gap-5 max-w-2xl">
         {COMPANY_TYPES.map((type) => {
-          const isRecommended = type.id === personalizedContent.recommended;
+          const isRecommended = type.id === content.recommended;
           const isSelected = selectedType === type.id;
 
           return (
-            <Button
+            <div
               key={type.id}
-              type="button"
-              variant="outline"
               onClick={() => onSelect(type.id)}
-              className={`w-full p-6 h-auto border-2 rounded-xl text-left transition-colors duration-200 ease-out justify-start ${
+              className={`group relative p-6 rounded-2xl border transition-all duration-300 cursor-pointer overflow-hidden ${
                 isSelected
-                  ? 'border-blue-500 bg-blue-50 shadow-sm'
-                  : isRecommended
-                    ? 'border-green-300 bg-green-50 hover:border-green-400 hover:shadow-sm'
-                    : 'border-gray-200 hover:border-gray-300 bg-white hover:shadow-sm'
+                  ? 'glass-card border-slate-400 shadow-glow scale-[1.01]'
+                  : 'glass-card border-slate-100/50 shadow-soft hover:border-slate-300 hover:shadow-glow'
               }`}
             >
-              <div className="text-left">
-                <div className="flex items-center justify-between mb-1">
-                  <h3 className={`font-semibold text-lg transition-colors duration-150 ${
-                    isSelected ? 'text-blue-700' : 'text-gray-900'
-                  }`}>
-                    {type.name}
-                  </h3>
-                  {isRecommended && !isSelected && (
-                    <Badge variant="secondary" className="text-xs bg-green-100 text-green-700">
-                      Recommended
-                    </Badge>
-                  )}
-                </div>
-                <p className={`mt-1 transition-colors duration-150 ${
-                  isSelected ? 'text-blue-600' : 'text-gray-600'
+              {/* Subtle background gradient on hover/select */}
+              <div className={`absolute inset-0 bg-gradient-to-r from-slate-50 to-transparent opacity-0 transition-opacity duration-500 ${isSelected ? 'opacity-100' : 'group-hover:opacity-50'}`} />
+
+              <div className="relative flex items-start gap-5 z-10">
+                <div className={`shrink-0 w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-300 ${
+                  isSelected 
+                    ? 'bg-slate-900 text-white shadow-lg rotate-3' 
+                    : 'bg-slate-50 text-slate-400 group-hover:bg-white group-hover:text-slate-700 group-hover:shadow-sm'
                 }`}>
-                  {type.description}
-                </p>
+                  {getIcon(type.id)}
+                </div>
+                
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className={`text-lg font-bold ${isSelected ? 'text-slate-900' : 'text-slate-700 group-hover:text-slate-900'}`}>
+                      {type.name}
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      {isRecommended && !isSelected && (
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full border border-emerald-100">
+                          Recommended
+                        </span>
+                      )}
+                      {isSelected && (
+                         <CheckCircle2 className="w-6 h-6 text-slate-900 fill-white" />
+                      )}
+                    </div>
+                  </div>
+                  <p className={`text-sm leading-relaxed ${isSelected ? 'text-slate-600' : 'text-slate-400 group-hover:text-slate-500'}`}>
+                    {type.name === 'Private Limited Company' ? 'Most popular for startups and growing businesses' :
+                     type.name === 'Public Limited Company' ? 'For large-scale businesses seeking public investment' :
+                     type.name === 'Limited Liability Partnership (LLP)' ? 'Flexible structure with limited liability protection' :
+                     type.name === 'Partnership Firm' ? 'Simple structure for business partnerships' :
+                     'Select this company type'}
+                  </p>
+                </div>
               </div>
-            </Button>
+            </div>
           );
         })}
       </div>

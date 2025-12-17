@@ -15,6 +15,7 @@ import {
     MobileNavToggle,
     MobileNavMenu,
 } from "@/components/ui/resizable-navbar";
+import { LandingFooter } from '@/components/layout/LandingFooter';
 
 interface FeatureCardProps {
     feature: {
@@ -263,19 +264,20 @@ const ProductPage: React.FC = () => {
                             </a>
                         ))}
                     </div>
-                    <div className="flex  items-center gap-4">
+                    <div className="flex items-center gap-3">
                         <NavbarButton
-                            variant="secondary"
+                            variant="ghost"
                             onClick={() => navigate('/')}
                             as="button"
-                            className="rounded-xl bg-slate-700 text-slate-700"
+                            className="rounded-xl px-6 py-2.5"
                         >
                             Home
                         </NavbarButton>
                         <NavbarButton
-                            variant="dark"
+                            variant="gradient"
                             onClick={() => navigate('/onboarding')}
                             as="button"
+                            className="rounded-xl px-6 py-2.5"
                         >
                             Start Free Trial
                         </NavbarButton>
@@ -305,14 +307,14 @@ const ProductPage: React.FC = () => {
                                 <span className="block">{item.name}</span>
                             </a>
                         ))}
-                        <div className="flex w-full flex-col gap-4">
+                        <div className="flex w-full flex-col gap-3">
                             <NavbarButton
                                 onClick={() => {
                                     setIsMobileMenuOpen(false);
                                     navigate('/');
                                 }}
-                                variant="primary"
-                                className="w-full"
+                                variant="ghost"
+                                className="w-full rounded-xl"
                                 as="button"
                             >
                                 Home
@@ -322,8 +324,8 @@ const ProductPage: React.FC = () => {
                                     setIsMobileMenuOpen(false);
                                     navigate('/onboarding');
                                 }}
-                                variant="dark"
-                                className="w-full"
+                                variant="gradient"
+                                className="w-full rounded-xl"
                                 as="button"
                             >
                                 Start Free Trial
@@ -862,17 +864,7 @@ const ProductPage: React.FC = () => {
                 </div>
             </section>
 
-            {/* Footer */}
-            <footer className="bg-white border-t border-slate-200 py-8">
-                <div className="container mx-auto px-4 text-center">
-                    <button
-                        onClick={() => navigate('/')}
-                        className="text-blue-600 hover:text-blue-700 font-medium transition"
-                    >
-                        ← Back to Home
-                    </button>
-                </div>
-            </footer>
+            <LandingFooter />
         </div>
     );
 };

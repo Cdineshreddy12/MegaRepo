@@ -25,6 +25,8 @@ import {
   MobileNavToggle,
   MobileNavMenu,
 } from "@/components/ui/resizable-navbar"
+import { LandingFooter } from "@/components/layout/LandingFooter"
+
 
 // Removed local products definition
 
@@ -146,20 +148,21 @@ const Landing: React.FC = () => {
         <NavBody>
           <NavbarLogo />
           <NavItems items={navItems} />
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <NavbarButton
-              variant="secondary"
+              variant="outline"
               onClick={handleLogin}
               disabled={isLoading}
               as="button"
-              className='rounded-xl bg-black '
+              className="rounded-xl px-6 py-2.5"
             >
               {isLoading ? 'Loading...' : 'Sign In'}
             </NavbarButton>
             <NavbarButton
-              variant="dark"
+              variant="gradient"
               onClick={() => setShowDemo(true)}
               as="button"
+              className="rounded-xl px-6 py-2.5"
             >
               Start Free Trial
             </NavbarButton>
@@ -190,14 +193,14 @@ const Landing: React.FC = () => {
                 <span className="block">{item.name}</span>
               </a>
             ))}
-            <div className="flex w-full flex-col gap-4">
+            <div className="flex w-full flex-col gap-3">
               <NavbarButton
                 onClick={() => {
                   setIsMobileMenuOpen(false);
                   handleLogin();
                 }}
-                variant="primary"
-                className="w-full"
+                variant="outline"
+                className="w-full rounded-xl"
                 as="button"
                 disabled={isLoading}
               >
@@ -208,8 +211,8 @@ const Landing: React.FC = () => {
                   setIsMobileMenuOpen(false);
                   setShowDemo(true);
                 }}
-                variant="dark"
-                className="w-full"
+                variant="gradient"
+                className="w-full rounded-xl"
                 as="button"
               >
                 Start Free Trial
@@ -560,6 +563,7 @@ const Landing: React.FC = () => {
           </motion.div>
         )}
       </AnimatePresence>
+      <LandingFooter />
     </div>
   )
 }

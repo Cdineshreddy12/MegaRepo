@@ -3,16 +3,16 @@ import { Form } from '@/components/ui/form';
 import { UseFormReturn } from 'react-hook-form';
 import { newBusinessData, existingBusinessData } from '../schemas';
 import { StepConfig } from '../config/flowConfigs';
-import { useStepNavigation, useTeamManagement } from '../hooks';
+import { useStepNavigation } from '../hooks';
 import { OnboardingLayout } from './OnboardingLayout';
 import { UserClassification } from './FlowSelector';
+import { useToast } from './Toast';
+import { formatValidationErrors } from '../utils/validationHelpers';
 
 interface MultiStepFormProps {
   form: UseFormReturn<newBusinessData | existingBusinessData>;
   stepsConfig: StepConfig[];
   onSubmit: (data: newBusinessData | existingBusinessData) => void;
-  onCompanyTypeSelect?: (typeId: string) => void;
-  onStateSelect?: (stateId: string) => void;
   onEditStep?: (stepNumber: number) => void;
   onStepClick?: (stepNumber: number) => void;
   currentStep?: number;
@@ -25,8 +25,6 @@ export const MultiStepForm: React.FC<MultiStepFormProps> = ({
   form,
   stepsConfig,
   onSubmit,
-  onCompanyTypeSelect,
-  onStateSelect,
   onEditStep,
   onStepClick,
   currentStep: externalCurrentStep,
@@ -44,36 +42,76 @@ export const MultiStepForm: React.FC<MultiStepFormProps> = ({
     goToStep 
   } = useStepNavigation(form, stepsConfig);
   
-  // Use external currentStep if provided, otherwise use internal
+  const { addToast } = useToast();
   const currentStep = externalCurrentStep ?? internalCurrentStep;
-  const { addTeamMember, updateTeamMember, removeTeamMember } = useTeamManagement(form);
-
-  const handleCompanyTypeSelect = async (typeId: string) => {
-    form.setValue('companyType', typeId, { shouldValidate: false, shouldDirty: true });
-    onCompanyTypeSelect?.(typeId);
-  };
-
-  const handleStateSelect = async (stateId: string) => {
-    form.setValue('state', stateId, { shouldValidate: false, shouldDirty: true });
-    onStateSelect?.(stateId);
-  };
 
   const handleEditStep = (stepNumber: number) => {
-    // Navigate to the specified step
     goToStep(stepNumber);
     onStepChange?.(stepNumber);
     onEditStep?.(stepNumber);
   };
 
   const handleStepClick = (stepNumber: number) => {
-    // Navigate to the specified step
     goToStep(stepNumber);
     onStepChange?.(stepNumber);
     onStepClick?.(stepNumber);
   };
 
+  const handleValidationError = (errors: any, stepNumber: number) => {
+    const { message, fields } = formatValidationErrors(errors);
+    
+    // Show toast with clickable action to navigate to first error field
+    if (fields.length > 0) {
+      const firstField = fields[0];
+      
+      const navigateToField = () => {
+        // Navigate to the step with the error
+        goToStep(firstField.stepNumber);
+        onStepChange?.(firstField.stepNumber);
+        
+        // Scroll to the field after a brief delay
+        setTimeout(() => {
+          // Try multiple selectors to find the field
+          const selectors = [
+            `[name="${firstField.fieldPath}"]`,
+            `[name="${firstField.fieldPath.replace('businessDetails.', '')}"]`,
+            `input[name*="${firstField.fieldPath.split('.').pop()}"]`,
+          ];
+          
+          let fieldElement: HTMLElement | null = null;
+          for (const selector of selectors) {
+            fieldElement = document.querySelector(selector) as HTMLElement;
+            if (fieldElement) break;
+          }
+          
+          if (fieldElement) {
+            fieldElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            fieldElement.focus();
+            // Highlight the field
+            fieldElement.classList.add('ring-2', 'ring-red-500', 'border-red-500');
+            setTimeout(() => {
+              fieldElement?.classList.remove('ring-2', 'ring-red-500', 'border-red-500');
+            }, 3000);
+          }
+        }, 300);
+      };
+      
+      addToast(message, {
+        type: 'error',
+        duration: 6000,
+        action: {
+          label: 'Go to Field',
+          onClick: navigateToField,
+        },
+      });
+      
+      // Auto-navigate after a short delay
+      setTimeout(navigateToField, 500);
+    }
+  };
+
   const handleNext = async () => {
-    await nextStep();
+    await nextStep(handleValidationError);
     onStepChange?.(currentStep + 1);
   };
 
@@ -99,11 +137,7 @@ export const MultiStepForm: React.FC<MultiStepFormProps> = ({
             getStepStatus={getStepStatus}
             onPrev={handlePrev}
             onNext={handleNext}
-            onCompanyTypeSelect={handleCompanyTypeSelect}
-            onStateSelect={handleStateSelect}
-            onAddTeamMember={addTeamMember}
-            onUpdateTeamMember={updateTeamMember}
-            onRemoveTeamMember={removeTeamMember}
+            onSubmit={() => form.handleSubmit(handleSubmit)()}
             onEditStep={handleEditStep}
             onStepClick={handleStepClick}
             userClassification={userClassification}

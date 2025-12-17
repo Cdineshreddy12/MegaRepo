@@ -46,14 +46,15 @@
     "node-cron": "^4.1.0",
     "node-fetch": "^3.3.2",
     "nodemailer": "^6.9.7",
+    "openai": "^4.104.0",
     "postgres": "^3.4.3",
     "recharts": "^2.15.3",
     "redis": "^4.6.12",
     "stripe": "^14.8.0",
     "uuid": "^9.0.1",
-    "zod": "^3.22.4",
     "winston": "^3.11.0",
-    "winston-elasticsearch": "^0.15.9"
+    "winston-elasticsearch": "^0.15.9",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
     "eslint": "^8.54.0",

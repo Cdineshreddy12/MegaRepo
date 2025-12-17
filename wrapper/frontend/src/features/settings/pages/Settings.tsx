@@ -4,9 +4,11 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ThemeToggle } from '@/components/theme/ThemeToggle'
-import { Monitor, Palette, Sparkles, Eye, EyeOff } from 'lucide-react'
+import { Monitor, Palette, Sparkles, Eye, EyeOff, Building2 } from 'lucide-react'
 import { useTheme } from '@/components/theme/ThemeProvider'
+import AccountSettings from './AccountSettings'
 
 export const Settings: React.FC = () => {
   const { actualTheme, glassmorphismEnabled, setGlassmorphismEnabled } = useTheme()
@@ -26,15 +28,28 @@ export const Settings: React.FC = () => {
   }
 
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-8">
+    <div className="max-w-6xl mx-auto p-6 space-y-8">
       <div className="space-y-2">
         <h1 className="text-3xl font-bold text-foreground">Settings</h1>
         <p className="text-muted-foreground">
-          Customize your dashboard experience and preferences
+          Manage your account details, preferences, and dashboard customization
         </p>
       </div>
 
-      {/* Appearance Settings */}
+      <Tabs defaultValue="general" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="general">
+            <Monitor className="h-4 w-4 mr-2" />
+            General
+          </TabsTrigger>
+          <TabsTrigger value="account">
+            <Building2 className="h-4 w-4 mr-2" />
+            Account Details
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="general" className="space-y-8">
+          {/* Appearance Settings */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -200,6 +215,12 @@ export const Settings: React.FC = () => {
           </div>
         </CardContent>
       </Card>
+        </TabsContent>
+
+        <TabsContent value="account">
+          <AccountSettings />
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

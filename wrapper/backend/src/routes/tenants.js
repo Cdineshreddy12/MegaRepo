@@ -65,7 +65,7 @@ export default async function tenantRoutes(fastify, options) {
     }
   });
 
-  // Update tenant settings
+  // Update tenant settings (full update)
   fastify.put('/current/settings', {
     schema: {
       body: {
@@ -119,6 +119,174 @@ export default async function tenantRoutes(fastify, options) {
     } catch (error) {
       request.log.error('Error updating tenant settings:', error);
       return reply.code(500).send({ error: 'Failed to update tenant settings' });
+    }
+  });
+
+  // Update tenant account details (partial update - PATCH)
+  fastify.patch('/current', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          // Company Information
+          legalCompanyName: { type: 'string', maxLength: 255 },
+          logoUrl: { type: 'string' },
+          
+          // Contact Details
+          billingEmail: { type: 'string', format: 'email' },
+          supportEmail: { type: 'string', format: 'email' },
+          contactSalutation: { type: 'string', maxLength: 20 },
+          contactMiddleName: { type: 'string', maxLength: 100 },
+          contactDepartment: { type: 'string', maxLength: 100 },
+          contactJobTitle: { type: 'string', maxLength: 150 },
+          contactDirectPhone: { type: 'string', maxLength: 50 },
+          contactMobilePhone: { type: 'string', maxLength: 50 },
+          contactPreferredContactMethod: { type: 'string', maxLength: 20 },
+          contactAuthorityLevel: { type: 'string', maxLength: 50 },
+          preferredContactMethod: { type: 'string', maxLength: 20 },
+          
+          // Mailing Address
+          mailingAddressSameAsRegistered: { type: 'boolean' },
+          mailingStreet: { type: 'string', maxLength: 255 },
+          mailingCity: { type: 'string', maxLength: 100 },
+          mailingState: { type: 'string', maxLength: 100 },
+          mailingZip: { type: 'string', maxLength: 20 },
+          mailingCountry: { type: 'string', maxLength: 100 },
+          
+          // Banking & Financial Information
+          bankName: { type: 'string', maxLength: 255 },
+          bankBranch: { type: 'string', maxLength: 255 },
+          accountHolderName: { type: 'string', maxLength: 255 },
+          accountNumber: { type: 'string', maxLength: 50 },
+          accountType: { type: 'string', maxLength: 50 },
+          bankAccountCurrency: { type: 'string', maxLength: 3 },
+          swiftBicCode: { type: 'string', maxLength: 11 },
+          iban: { type: 'string', maxLength: 34 },
+          routingNumberUs: { type: 'string', maxLength: 9 },
+          sortCodeUk: { type: 'string', maxLength: 6 },
+          ifscCodeIndia: { type: 'string', maxLength: 11 },
+          bsbNumberAustralia: { type: 'string', maxLength: 6 },
+          paymentTerms: { type: 'string', maxLength: 50 },
+          creditLimit: { type: 'number' },
+          preferredPaymentMethod: { type: 'string', maxLength: 50 },
+          
+          // Tax & Compliance
+          taxRegistrationDetails: { type: 'object' },
+          taxResidenceCountry: { type: 'string', maxLength: 100 },
+          taxExemptStatus: { type: 'boolean' },
+          taxExemptionCertificateNumber: { type: 'string', maxLength: 50 },
+          taxExemptionExpiryDate: { type: 'string', format: 'date' },
+          withholdingTaxApplicable: { type: 'boolean' },
+          withholdingTaxRate: { type: 'number' },
+          taxTreatyCountry: { type: 'string', maxLength: 100 },
+          w9StatusUs: { type: 'string', maxLength: 50 },
+          w8FormTypeUs: { type: 'string', maxLength: 50 },
+          reverseChargeMechanism: { type: 'boolean' },
+          vatGstRateApplicable: { type: 'string', maxLength: 50 },
+          regulatoryComplianceStatus: { type: 'string', maxLength: 50 },
+          industrySpecificLicenses: { type: 'string' },
+          dataProtectionRegistration: { type: 'string', maxLength: 50 },
+          professionalIndemnityInsurance: { type: 'boolean' },
+          insurancePolicyNumber: { type: 'string', maxLength: 50 },
+          insuranceExpiryDate: { type: 'string', format: 'date' },
+          
+          // Localization
+          defaultLanguage: { type: 'string', maxLength: 10 },
+          defaultLocale: { type: 'string', maxLength: 20 },
+          defaultCurrency: { type: 'string', maxLength: 3 },
+          defaultTimeZone: { type: 'string', maxLength: 50 },
+          fiscalYearStartMonth: { type: 'integer' },
+          fiscalYearEndMonth: { type: 'integer' },
+          fiscalYearStartDay: { type: 'integer' },
+          fiscalYearEndDay: { type: 'integer' },
+          
+          // Branding
+          primaryColor: { type: 'string', pattern: '^#[0-9A-Fa-f]{6}$' },
+          customDomain: { type: 'string', maxLength: 255 },
+          brandingConfig: { type: 'object' }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    if (!request.userContext?.isAuthenticated) {
+      return reply.code(401).send({ error: 'Unauthorized' });
+    }
+
+    try {
+      const tenantId = request.userContext.tenantId;
+      
+      if (!tenantId) {
+        return ErrorResponses.notFound(reply, 'Tenant', 'Tenant not found');
+      }
+
+      // Prepare update data - only include fields that are provided
+      const updateData = {};
+      const allowedFields = [
+        'legalCompanyName', 'logoUrl', 'billingEmail', 'supportEmail',
+        'contactSalutation', 'contactMiddleName', 'contactDepartment',
+        'contactJobTitle', 'contactDirectPhone', 'contactMobilePhone',
+        'contactPreferredContactMethod', 'contactAuthorityLevel',
+        'preferredContactMethod', 'mailingAddressSameAsRegistered',
+        'mailingStreet', 'mailingCity', 'mailingState', 'mailingZip',
+        'mailingCountry', 'taxRegistrationDetails', 'primaryColor',
+        'customDomain', 'brandingConfig',
+        // Banking fields
+        'bankName', 'bankBranch', 'accountHolderName', 'accountNumber',
+        'accountType', 'bankAccountCurrency', 'swiftBicCode', 'iban',
+        'routingNumberUs', 'sortCodeUk', 'ifscCodeIndia', 'bsbNumberAustralia',
+        'paymentTerms', 'creditLimit', 'preferredPaymentMethod',
+        // Tax & Compliance fields
+        'taxResidenceCountry', 'taxExemptStatus', 'taxExemptionCertificateNumber',
+        'taxExemptionExpiryDate', 'withholdingTaxApplicable', 'withholdingTaxRate',
+        'taxTreatyCountry', 'w9StatusUs', 'w8FormTypeUs', 'reverseChargeMechanism',
+        'vatGstRateApplicable', 'regulatoryComplianceStatus', 'industrySpecificLicenses',
+        'dataProtectionRegistration', 'professionalIndemnityInsurance',
+        'insurancePolicyNumber', 'insuranceExpiryDate',
+        // Localization fields
+        'defaultLanguage', 'defaultLocale', 'defaultCurrency', 'defaultTimeZone',
+        'fiscalYearStartMonth', 'fiscalYearEndMonth', 'fiscalYearStartDay', 'fiscalYearEndDay'
+      ];
+
+      // Only include fields that are present in request body
+      allowedFields.forEach(field => {
+        if (request.body[field] !== undefined) {
+          updateData[field] = request.body[field];
+        }
+      });
+
+      // Add updatedAt timestamp
+      updateData.updatedAt = new Date();
+
+      const updatedTenant = await TenantService.updateTenant(
+        tenantId,
+        updateData
+      );
+
+      // Log tenant account update activity
+      await ActivityLogger.logActivity(
+        request.userContext.internalUserId,
+        tenantId,
+        null,
+        ACTIVITY_TYPES.TENANT_SETTINGS_UPDATED,
+        {
+          updatedFields: Object.keys(updateData),
+          tenantId: tenantId,
+          userEmail: request.userContext.email
+        },
+        ActivityLogger.createRequestContext(request)
+      );
+
+      return {
+        success: true,
+        data: updatedTenant,
+        message: 'Account settings updated successfully'
+      };
+    } catch (error) {
+      request.log.error('Error updating account settings:', error);
+      return reply.code(500).send({ 
+        error: 'Failed to update account settings',
+        message: error.message 
+      });
     }
   });
 

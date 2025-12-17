@@ -256,7 +256,7 @@ export const NavbarButton = ({
     as?: React.ElementType;
     children: React.ReactNode;
     className?: string;
-    variant?: "primary" | "secondary" | "dark" | "gradient";
+    variant?: "primary" | "secondary" | "dark" | "gradient" | "outline" | "ghost";
 } & (
         | React.ComponentPropsWithoutRef<"a">
         | React.ComponentPropsWithoutRef<"button">
@@ -267,10 +267,12 @@ export const NavbarButton = ({
     const variantStyles = {
         primary:
             "shadow-[0_0_24px_rgba(34,_42,_53,_0.06),_0_1px_1px_rgba(0,_0,_0,_0.05),_0_0_0_1px_rgba(34,_42,_53,_0.04),_0_0_4px_rgba(34,_42,_53,_0.08),_0_16px_68px_rgba(47,_48,_55,_0.05),_0_1px_0_rgba(255,_255,_255,_0.1)_inset]",
-        secondary: "bg-transparent shadow-none dark:text-white",
-        dark: "bg-black text-white shadow-[0_0_24px_rgba(34,_42,_53,_0.06),_0_1px_1px_rgba(0,_0,_0,_0.05),_0_0_0_1px_rgba(34,_42,_53,_0.04),_0_0_4px_rgba(34,_42,_53,_0.08),_0_16px_68px_rgba(47,_48,_55,_0.05),_0_1px_0_rgba(255,_255,_255,_0.1)_inset]",
+        secondary: "bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100/50 border border-transparent hover:border-slate-200 shadow-none dark:text-white dark:hover:bg-slate-800",
+        dark: "bg-slate-900 text-white hover:bg-slate-800 shadow-[0_4px_14px_0_rgba(0,0,0,0.39)] hover:shadow-[0_6px_20px_rgba(0,0,0,0.23)] hover:-translate-y-0.5 transition-all duration-200",
         gradient:
-            "bg-gradient-to-b from-blue-500 to-blue-700 text-white shadow-[0px_2px_0px_0px_rgba(255,255,255,0.3)_inset]",
+            "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-[0_4px_14px_0_rgba(0,118,255,0.39)] hover:shadow-[0_6px_20px_rgba(0,118,255,0.23)] hover:-translate-y-0.5 transition-all duration-200 border-none",
+        outline: "bg-white/80 backdrop-blur-sm text-slate-700 hover:text-slate-900 border-2 border-slate-300 hover:border-blue-500 hover:bg-blue-50/50 shadow-sm hover:shadow-md transition-all duration-300 font-semibold",
+        ghost: "bg-slate-50/80 backdrop-blur-sm text-slate-700 hover:text-white hover:bg-gradient-to-r hover:from-slate-700 hover:to-slate-800 border border-slate-200 hover:border-slate-700 shadow-sm hover:shadow-lg transition-all duration-300 font-semibold",
     };
 
     return (

@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, timestamp, jsonb, boolean, text, integer, decimal, date } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, timestamp, jsonb, boolean, text, integer, decimal, date, numeric } from 'drizzle-orm/pg-core';
 
 // Main tenants table
 export const tenants = pgTable('tenants', {
@@ -17,6 +17,35 @@ export const tenants = pgTable('tenants', {
   industry: varchar('industry', { length: 100 }),
   website: varchar('website', { length: 500 }),
 
+  // New Essential Fields from Onboarding Analysis
+  taxRegistered: boolean('tax_registered').default(false),
+  vatGstRegistered: boolean('vat_gst_registered').default(false),
+  organizationSize: varchar('organization_size', { length: 50 }), // '1-10', '11-50', etc.
+  billingEmail: varchar('billing_email', { length: 255 }),
+  contactJobTitle: varchar('contact_job_title', { length: 150 }),
+  preferredContactMethod: varchar('preferred_contact_method', { length: 20 }), // 'email', 'phone', 'sms'
+
+  // Mailing Address (if different from registered)
+  mailingAddressSameAsRegistered: boolean('mailing_address_same_as_registered').default(true),
+  mailingStreet: varchar('mailing_street', { length: 255 }),
+  mailingCity: varchar('mailing_city', { length: 100 }),
+  mailingState: varchar('mailing_state', { length: 100 }),
+  mailingZip: varchar('mailing_zip', { length: 20 }),
+  mailingCountry: varchar('mailing_country', { length: 100 }),
+
+  // Additional Contact Details
+  supportEmail: varchar('support_email', { length: 255 }),
+  contactSalutation: varchar('contact_salutation', { length: 20 }),
+  contactMiddleName: varchar('contact_middle_name', { length: 100 }),
+  contactDepartment: varchar('contact_department', { length: 100 }),
+  contactDirectPhone: varchar('contact_direct_phone', { length: 50 }),
+  contactMobilePhone: varchar('contact_mobile_phone', { length: 50 }),
+  contactPreferredContactMethod: varchar('contact_preferred_contact_method', { length: 20 }),
+  contactAuthorityLevel: varchar('contact_authority_level', { length: 50 }),
+
+  // Country-specific tax registration details (flexible storage)
+  taxRegistrationDetails: jsonb('tax_registration_details').default('{}'),
+
   // Essential Contact & Address Fields
   billingStreet: varchar('billing_street', { length: 255 }),
   billingCity: varchar('billing_city', { length: 100 }),
@@ -30,6 +59,48 @@ export const tenants = pgTable('tenants', {
   defaultLocale: varchar('default_locale', { length: 20 }).default('en-US'),
   defaultCurrency: varchar('default_currency', { length: 3 }).default('USD'),
   defaultTimeZone: varchar('default_timezone', { length: 50 }).default('UTC'),
+  
+  // Fiscal Year Settings
+  fiscalYearStartMonth: integer('fiscal_year_start_month').default(1),
+  fiscalYearEndMonth: integer('fiscal_year_end_month').default(12),
+  fiscalYearStartDay: integer('fiscal_year_start_day').default(1),
+  fiscalYearEndDay: integer('fiscal_year_end_day').default(31),
+  
+  // Banking & Financial Information
+  bankName: varchar('bank_name', { length: 255 }),
+  bankBranch: varchar('bank_branch', { length: 255 }),
+  accountHolderName: varchar('account_holder_name', { length: 255 }),
+  accountNumber: varchar('account_number', { length: 50 }), // Encrypted in application
+  accountType: varchar('account_type', { length: 50 }),
+  bankAccountCurrency: varchar('bank_account_currency', { length: 3 }),
+  swiftBicCode: varchar('swift_bic_code', { length: 11 }),
+  iban: varchar('iban', { length: 34 }),
+  routingNumberUs: varchar('routing_number_us', { length: 9 }),
+  sortCodeUk: varchar('sort_code_uk', { length: 6 }),
+  ifscCodeIndia: varchar('ifsc_code_india', { length: 11 }),
+  bsbNumberAustralia: varchar('bsb_number_australia', { length: 6 }),
+  paymentTerms: varchar('payment_terms', { length: 50 }),
+  creditLimit: decimal('credit_limit', { precision: 15, scale: 2 }),
+  preferredPaymentMethod: varchar('preferred_payment_method', { length: 50 }),
+  
+  // Enhanced Tax & Compliance
+  taxResidenceCountry: varchar('tax_residence_country', { length: 100 }),
+  taxExemptStatus: boolean('tax_exempt_status').default(false),
+  taxExemptionCertificateNumber: varchar('tax_exemption_certificate_number', { length: 50 }),
+  taxExemptionExpiryDate: date('tax_exemption_expiry_date'),
+  withholdingTaxApplicable: boolean('withholding_tax_applicable').default(false),
+  withholdingTaxRate: decimal('withholding_tax_rate', { precision: 5, scale: 2 }),
+  taxTreatyCountry: varchar('tax_treaty_country', { length: 100 }),
+  w9StatusUs: varchar('w9_status_us', { length: 50 }),
+  w8FormTypeUs: varchar('w8_form_type_us', { length: 50 }),
+  reverseChargeMechanism: boolean('reverse_charge_mechanism').default(false),
+  vatGstRateApplicable: varchar('vat_gst_rate_applicable', { length: 50 }),
+  regulatoryComplianceStatus: varchar('regulatory_compliance_status', { length: 50 }).default('Pending'),
+  industrySpecificLicenses: text('industry_specific_licenses'),
+  dataProtectionRegistration: varchar('data_protection_registration', { length: 50 }),
+  professionalIndemnityInsurance: boolean('professional_indemnity_insurance').default(false),
+  insurancePolicyNumber: varchar('insurance_policy_number', { length: 50 }),
+  insuranceExpiryDate: date('insurance_expiry_date'),
 
   // Essential Branding & Customization
   logoUrl: varchar('logo_url', { length: 500 }),
