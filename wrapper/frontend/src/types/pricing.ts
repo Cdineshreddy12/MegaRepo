@@ -39,4 +39,5 @@ export interface PricingCardProps {
   annualPrice?: number; // Used for application cards
   freeCredits?: number; // Used for application cards
   type?: 'application' | 'topup';
+  isPremium?: boolean;
 }

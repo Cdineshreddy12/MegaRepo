@@ -57,27 +57,6 @@ export function TeamSwitcher({
 
     return (
       <div className="space-y-2">
-        {/* Tenant Name Display */}
-        {tenantName && (
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                size="lg"
-                className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground cursor-default"
-                disabled
-              >
-                <div className="bg-sidebar-primary text-sidebar-primary-foreground -ml-2 flex aspect-square size-8 items-center justify-center rounded-lg">
-                  <Building2 className="size-4" />
-                </div>
-                <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-semibold">{tenantName}</span>
-                  <span className="truncate text-xs text-muted-foreground">Tenant</span>
-                </div>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        )}
-        
         {/* Organization Selector */}
         <SidebarMenu>
           <SidebarMenuItem>

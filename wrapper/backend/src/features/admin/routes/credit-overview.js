@@ -5,9 +5,10 @@
 
 import { authenticateToken, requirePermission } from '../../../middleware/auth.js';
 import { db } from '../../../db/index.js';
-import { credits, creditTransactions, tenants, entities, creditAllocations, subscriptions } from '../../../db/schema/index.js';
+import { credits, creditTransactions, tenants, entities, subscriptions } from '../../../db/schema/index.js';
+// REMOVED: creditAllocations - Table removed
 import { eq, and, desc, sql, count, sum, gte, lte, between, isNotNull, inArray } from 'drizzle-orm';
-import { CreditAllocationService } from '../../../features/credits/index.js';
+// REMOVED: CreditAllocationService - Application-specific allocations removed
 import { SeasonalCreditService } from '../../../features/credits/index.js';
 
 export default async function adminCreditOverviewRoutes(fastify, options) {
@@ -668,29 +669,23 @@ export default async function adminCreditOverviewRoutes(fastify, options) {
     try {
       console.log('🔍 Getting all application allocations (admin view)');
 
-      // Get all active application allocations with tenant and entity information
+      // REMOVED: creditAllocations table queries
+      // Applications now manage their own credit consumption
+      // Use credits table for organization-level credits instead
       const allocations = await db
         .select({
-          allocationId: creditAllocations.allocationId,
-          tenantId: creditAllocations.tenantId,
+          tenantId: credits.tenantId,
           companyName: tenants.companyName,
-          sourceEntityId: creditAllocations.sourceEntityId,
+          entityId: credits.entityId,
           entityName: entities.entityName,
-          targetApplication: creditAllocations.targetApplication,
-          allocatedCredits: creditAllocations.allocatedCredits,
-          usedCredits: creditAllocations.usedCredits,
-          availableCredits: creditAllocations.availableCredits,
-          allocationType: creditAllocations.allocationType,
-          allocationPurpose: creditAllocations.allocationPurpose,
-          allocatedAt: creditAllocations.allocatedAt,
-          expiresAt: creditAllocations.expiresAt,
-          autoReplenish: creditAllocations.autoReplenish
+          availableCredits: credits.availableCredits,
+          createdAt: credits.createdAt
         })
-        .from(creditAllocations)
-        .innerJoin(tenants, eq(creditAllocations.tenantId, tenants.tenantId))
-        .leftJoin(entities, eq(creditAllocations.sourceEntityId, entities.entityId))
-        .where(eq(creditAllocations.isActive, true))
-        .orderBy(desc(creditAllocations.allocatedAt));
+        .from(credits)
+        .innerJoin(tenants, eq(credits.tenantId, tenants.tenantId))
+        .leftJoin(entities, eq(credits.entityId, entities.entityId))
+        .where(eq(credits.isActive, true))
+        .orderBy(desc(credits.createdAt));
 
       // Calculate summary statistics
       const summary = {
@@ -930,30 +925,10 @@ export default async function adminCreditOverviewRoutes(fastify, options) {
       const now = new Date();
       const futureDate = new Date(now.getTime() + (parseInt(daysAhead) * 24 * 60 * 60 * 1000));
 
-      let whereConditions = [
-        eq(creditAllocations.isActive, true),
-        isNotNull(creditAllocations.expiresAt),
-        sql`${creditAllocations.expiresAt} > ${now}`,
-        sql`${creditAllocations.expiresAt} <= ${futureDate}`
-      ];
-
-      if (creditType) {
-        whereConditions.push(eq(creditAllocations.creditType, creditType));
-      }
-
-      // Get expiring allocations grouped by type
-      const expiringByType = await db
-        .select({
-          creditType: creditAllocations.creditType,
-          count: sql`COUNT(*)`,
-          totalAllocated: sql`SUM(${creditAllocations.allocatedCredits}::numeric)`,
-          totalAvailable: sql`SUM(${creditAllocations.availableCredits}::numeric)`,
-          earliestExpiry: sql`MIN(${creditAllocations.expiresAt})`,
-          latestExpiry: sql`MAX(${creditAllocations.expiresAt})`
-        })
-        .from(creditAllocations)
-        .where(and(...whereConditions))
-        .groupBy(creditAllocations.creditType);
+      // REMOVED: creditAllocations table queries
+      // Applications now manage their own credit consumption
+      // Return empty array - applications handle their own expiry tracking
+      const expiringByType = [];
 
       // Get expiring subscriptions
       const expiringSubscriptions = await db

@@ -6,9 +6,12 @@
 
 // Routes
 export { default as creditsRoutes } from './routes/credits.js';
+export { default as creditExpiryRoutes } from './routes/credit-expiry.js';
 
 // Services
 export { CreditService } from './services/credit-service.js';
-export { CreditAllocationService } from './services/credit-allocation-service.js';
+// REMOVED: CreditAllocationService - Application-specific allocations removed completely
+// Applications now manage their own credit consumption
 export { SeasonalCreditService } from './services/seasonal-credit-service.js';
 export { default as FixedEnhancedCreditService } from './services/fixed-enhanced-credit-service.js';
+export { CreditExpiryService } from './services/credit-expiry-service.js';

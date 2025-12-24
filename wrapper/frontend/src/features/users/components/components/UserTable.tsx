@@ -1,23 +1,26 @@
 import { useMemo } from 'react';
-import { 
-  Mail, 
-  Edit,
-  Trash2,
-  Eye,
-  Crown,
-  UserX,
-  UserCheck,
-  Building2,
-  Shield,
+import {
+  Mail,
+  MoreHorizontal,
   Copy,
+  MapPin,
   UserCog
 } from 'lucide-react';
-import { ReusableTable, TableColumn, TableAction } from '@/components/table/ReusableTable';
+import { ReusableTable, TableColumn } from '@/components/table/ReusableTable';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { PearlButton } from '@/components/ui/pearl-button';
 import { User } from '@/types/user-management';
 import { useUserManagement } from '../context/UserManagementContext';
 import { useUserActions } from '../hooks/useUserActions';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface UserTableProps {
   users: User[];
@@ -27,268 +30,198 @@ interface UserTableProps {
   loading: boolean;
 }
 
-/**
- * Enhanced User Table Component
- * 
- * Features:
- * - User information display
- * - Organizations and roles display
- * - Invitation URL display
- * - Quick actions for managing user access
- */
-export function UserTable({ 
-  users, 
-  selectedUsers, 
-  onSelectionChange, 
-  onUserAction, 
-  loading 
+export function UserTable({
+  users,
+  selectedUsers,
+  onSelectionChange,
+  onUserAction,
+  loading
 }: UserTableProps) {
   const { userMutations } = useUserManagement();
-  const { 
-    getUserStatus, 
+  const {
+    getUserStatus,
     getStatusColor,
     generateInvitationUrl,
     copyInvitationUrl
   } = useUserActions();
-  
-  // Table columns configuration
+
   const userTableColumns: TableColumn<User>[] = useMemo(() => [
     {
-      key: 'user',
+      key: 'name',
       label: 'User',
-      width: '280px',
+      width: '240px',
       render: (user) => (
-        <div className="flex items-center gap-3">
-          <div 
-            className="w-10 h-10 rounded-full flex items-center justify-center text-white font-medium shadow-sm"
-            style={{ 
-              background: user.avatar ? `url(${user.avatar})` : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-            }}
-          >
-            {!user.avatar && (user.name?.charAt(0) || user.email?.charAt(0) || '?').toUpperCase()}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="font-medium text-gray-900 truncate flex items-center gap-2">
+        <div className="flex items-center gap-3.5">
+          <Avatar className="h-9 w-9 border-2 border-white shadow-sm ring-1 ring-sky-100">
+            <AvatarImage src={user.avatar} alt={user.name || 'User'} />
+            <AvatarFallback className="bg-gradient-to-br from-blue-500 to-sky-600 text-white font-black text-xs">
+              {(user.name?.charAt(0) || user.email?.charAt(0) || '?').toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex flex-col min-w-0">
+            <span className="font-semibold text-sm truncate text-foreground/90">
               {user.name || 'Unnamed User'}
-              {user.isTenantAdmin && (
-                <Crown className="w-4 h-4 text-purple-600" />
-              )}
-            </div>
-            <div className="text-sm text-gray-500 truncate">{user.email}</div>
-            {user.department && (
-              <div className="text-xs text-gray-400 truncate">{user.department}</div>
-            )}
+            </span>
+            <span className="text-xs text-muted-foreground truncate font-normal">
+              {user.email}
+            </span>
           </div>
         </div>
       )
     },
     {
-      key: 'organizations',
-      label: 'Organizations',
-      width: '250px',
+      key: 'primaryLocation',
+      label: 'Location',
+      width: '180px',
       render: (user) => {
-        const orgs = user.organizations || [];
-        if (orgs.length === 0) {
-          return <div className="text-sm text-gray-400 italic">No organizations</div>;
-        }
-        const primaryOrg = orgs.find(org => org.isPrimary);
-        const otherOrgs = orgs.filter(org => !org.isPrimary);
-        
+        const primaryOrg = user.organizations?.find(org => org.isPrimary);
+        if (!primaryOrg) return <span className="text-xs text-muted-foreground/50 italic">Unassigned</span>;
+
         return (
-          <div className="flex flex-col gap-1">
-            {primaryOrg && (
-              <div className="flex items-center gap-1.5">
-                <Building2 className="w-3 h-3 text-blue-600" />
-                <span className="text-sm font-medium text-gray-900 truncate" title={primaryOrg.organizationName}>
-                  {primaryOrg.organizationName}
-                </span>
-                <Badge variant="outline" className="text-[10px] px-1 py-0 bg-purple-50 text-purple-700 border-purple-200">
-                  Primary
-                </Badge>
-              </div>
-            )}
-            {otherOrgs.length > 0 && (
-              <div className="flex flex-wrap gap-1">
-                {otherOrgs.slice(0, 2).map(org => (
-                  <Badge key={org.membershipId} variant="outline" className="text-xs truncate max-w-[200px]" title={org.organizationName}>
-                    {org.organizationName}
-                  </Badge>
-                ))}
-                {otherOrgs.length > 2 && (
-                  <Badge variant="outline" className="text-xs">
-                    +{otherOrgs.length - 2} more
-                  </Badge>
-                )}
-              </div>
+          <div className="flex items-center gap-2 text-sm text-foreground/80 group">
+            <div className="p-1 rounded-md bg-slate-50 text-slate-500 group-hover:bg-slate-100 transition-colors">
+              <MapPin className="h-3.5 w-3.5" />
+            </div>
+            <span className="truncate font-medium" title={primaryOrg.organizationName}>
+              {primaryOrg.organizationName}
+            </span>
+          </div>
+        );
+      }
+    },
+    {
+      key: 'role',
+      label: 'Role',
+      width: '160px',
+      render: (user) => {
+        if (!user.roles || user.roles.length === 0) return <span className="text-xs text-muted-foreground/50 italic">No roles</span>;
+
+        const firstRole = user.roles[0];
+        const extraCount = user.roles.length - 1;
+
+        return (
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="font-bold bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100 px-2 py-0.5 rounded-md">
+              {firstRole.roleName}
+            </Badge>
+            {extraCount > 0 && (
+              <span className="text-xs text-muted-foreground font-medium px-1.5 py-0.5 bg-muted rounded-md">
+                +{extraCount}
+              </span>
             )}
           </div>
         );
       }
     },
     {
-      key: 'roles',
-      label: 'Roles',
+      key: 'invitation',
+      label: 'Invite Link',
       width: '200px',
-      render: (user) => (
-        <div className="flex flex-wrap gap-1.5">
-          {user.roles?.map(role => (
-            <Badge key={role.roleId} variant="outline" className="text-xs flex items-center gap-1">
-              <Shield className="w-3 h-3 text-indigo-600" />
-              {role.roleName}
-            </Badge>
-          ))}
-          {(!user.roles || user.roles.length === 0) && (
-            <div className="text-sm text-gray-400 italic">No roles</div>
-          )}
-        </div>
-      )
-    },
-    { 
-      key: 'status', 
-      label: 'Status', 
-      width: '120px', 
-      render: (user) => (
-        <Badge className={getStatusColor(user)}>
-          {getUserStatus(user)}
-        </Badge>
-      )
-    },
-    {
-      key: 'invitationUrl',
-      label: 'Invitation URL',
-      width: '300px',
       render: (user) => {
-        if (user.invitationStatus === 'pending') {
-          const invitationUrl = generateInvitationUrl(user);
-          return (
-            <div className="space-y-1">
-              <div className="text-xs text-gray-600 font-medium">Pending Invitation</div>
-              {invitationUrl ? (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={invitationUrl}
-                    readOnly
-                    className="text-xs px-2 py-1.5 border border-gray-300 rounded bg-gray-50 flex-1 font-mono"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-8 p-0"
-                    onClick={() => copyInvitationUrl(user)}
-                    title="Copy invitation URL"
-                  >
-                    <Copy className="w-4 h-4 text-blue-600" />
-                  </Button>
-                </div>
-              ) : (
-                <div className="text-xs text-red-600">No URL available</div>
-              )}
+        if (user.invitationStatus !== 'pending') return null;
+
+        const url = generateInvitationUrl(user);
+        if (!url) return null;
+
+        return (
+          <div className="flex items-center gap-2">
+            <div className="max-w-[140px] truncate text-xs font-mono text-muted-foreground bg-muted/30 px-2 py-1 rounded select-all border border-transparent hover:border-border transition-colors">
+              {url}
             </div>
-          );
-        }
-        return <div className="text-xs text-gray-400">-</div>;
+            <PearlButton
+              variant="outline"
+              size="sm"
+              className="h-7 w-7 p-0 flex items-center justify-center rounded-lg"
+              onClick={() => copyInvitationUrl(user)}
+            >
+              <Copy className="h-3 w-3" />
+            </PearlButton>
+          </div>
+        );
       }
     },
     {
-      key: 'activity',
-      label: 'Last Activity',
-      width: '140px',
+      key: 'status',
+      label: 'Status',
+      width: '120px',
+      render: (user) => {
+        if (user.invitationStatus === 'pending') {
+          return (
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+              </span>
+              <span className="text-sm font-medium text-amber-700">Pending</span>
+            </div>
+          );
+        }
+        if (user.isActive) {
+          return (
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-blue-500 shadow-[0_0_8px_-2px_rgba(59,130,246,0.5)]"></span>
+              <span className="text-sm font-black text-blue-700">Active</span>
+            </div>
+          );
+        }
+        return (
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-slate-400"></span>
+            <span className="text-sm font-medium text-slate-600">Inactive</span>
+          </div>
+        );
+      }
+    },
+    {
+      key: 'actions',
+      label: '',
+      width: '50px',
       render: (user) => (
-        <div className="text-sm">
-          <div className="text-gray-900 font-medium">
-            {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleDateString() : 'Never'}
-          </div>
-          <div className="text-xs text-gray-500">
-            {user.lastLoginAt ? 'Last login' : 'No login'}
-          </div>
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <PearlButton variant="outline" size="sm" className="h-8 w-8 p-0 flex items-center justify-center rounded-lg">
+              <span className="sr-only">Open menu</span>
+              <MoreHorizontal className="h-4 w-4" />
+            </PearlButton>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-[180px]">
+            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+            <DropdownMenuItem onClick={() => onUserAction('view', user)}>
+              <UserCog className="mr-2 h-4 w-4" />
+              Manage User
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => onUserAction('edit', user)}>
+              Edit Details
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => userMutations.resendInvite.mutate(user.userId)} disabled={user.isActive || !user.email}>
+              <Mail className="mr-2 h-4 w-4" />
+              Resend Invite
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={() => onUserAction('delete', user)}
+            >
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       )
     }
-  ], [getUserStatus, getStatusColor, generateInvitationUrl, copyInvitationUrl]);
-  
-  // Table actions configuration
-  const userTableActions: TableAction<User>[] = useMemo(() => [
-    {
-      key: 'view',
-      label: 'View Details',
-      icon: Eye,
-      onClick: (user) => onUserAction('view', user)
-    },
-    {
-      key: 'manageAccess',
-      label: 'Manage Access',
-      icon: UserCog,
-      onClick: (user) => onUserAction('manageAccess', user)
-    },
-    {
-      key: 'edit',
-      label: 'Edit User',
-      icon: Edit,
-      onClick: (user) => onUserAction('edit', user)
-    },
-    {
-      key: 'promote',
-      label: 'Promote to Admin',
-      icon: Crown,
-      onClick: (user) => {
-        if (confirm(`Promote ${user.name || user.email} to organization admin?`)) {
-          userMutations.promoteUser.mutate(user.userId);
-        }
-      },
-      disabled: (user) => user.isTenantAdmin
-    },
-    {
-      key: 'reactivate',
-      label: 'Reactivate User',
-      icon: UserCheck,
-      onClick: (user) => {
-        if (confirm(`Reactivate ${user.name || user.email}?`)) {
-          userMutations.reactivateUser.mutate(user.userId);
-        }
-      },
-      disabled: (user) => user.isActive,
-      separator: true
-    },
-    {
-      key: 'deactivate',
-      label: 'Deactivate User',
-      icon: UserX,
-      onClick: (user) => {
-        if (confirm(`Deactivate ${user.name || user.email}?`)) {
-          userMutations.deactivateUser.mutate(user.userId);
-        }
-      },
-      disabled: (user) => !user.isActive
-    },
-    {
-      key: 'delete',
-      label: 'Delete User',
-      icon: Trash2,
-      onClick: (user) => onUserAction('delete', user),
-      destructive: true,
-      separator: true
-    },
-    {
-      key: 'resendInvite',
-      label: 'Resend Invite',
-      icon: Mail,
-      onClick: (user) => userMutations.resendInvite.mutate(user.userId),
-      disabled: (user) => user.isActive && user.onboardingCompleted
-    }
-  ], [onUserAction, userMutations]);
-  
+  ], [getUserStatus, getStatusColor, generateInvitationUrl, copyInvitationUrl, userMutations]);
+
   return (
     <ReusableTable<User>
       data={users}
       columns={userTableColumns}
-      actions={userTableActions}
       selectable={true}
       selectedItems={selectedUsers}
       onSelectionChange={onSelectionChange}
       getItemId={(user) => user.userId}
       loading={loading}
       emptyMessage="No users found matching your filters"
+      className="border-none"
     />
   );
 }

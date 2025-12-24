@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { motion } from 'framer-motion'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useKindeAuth } from '@kinde-oss/kinde-auth-react'
@@ -27,21 +28,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import {
-  CreditCard,
-  CreditCardFlipper,
-  CreditCardFront,
-  CreditCardBack,
-  CreditCardChip,
-  CreditCardLogo,
-  CreditCardServiceProvider,
-  CreditCardName,
-  CreditCardNumber,
-  CreditCardExpiry,
-  CreditCardCvv,
-  CreditCardMagStripe,
-} from '@/components/ui/shadcn-io/credit-card'
+
 import { subscriptionAPI, creditAPI, setKindeTokenGetter, api } from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import toast from 'react-hot-toast'
@@ -51,15 +38,14 @@ import PricingCard from '@/components/common/PricingCard'
 import { ApplicationPlan, CreditTopup } from '@/types/pricing'
 import {
   CreditBalanceIcon,
-  UsageAnalyticsIcon,
+
   PaymentHistoryIcon,
   CreditPackagesIcon,
-  SubscriptionIcon,
-  BillingIcon,
+
   WalletIcon,
   ReceiptIcon,
   StatsIcon,
-  SparklesIcon
+
 } from '@/components/common/BillingIcons'
 
 // Application Plans (Subscription-based)
@@ -92,7 +78,8 @@ const applicationPlans: ApplicationPlan[] = [
       'All modules + Affiliate',
       '300,000 free credits/year',
       'Priority support'
-    ]
+    ],
+    popular: true
   },
   {
     id: 'enterprise',
@@ -193,6 +180,18 @@ const ChaseMark = ({ className }: { className?: string }) => (
 );
 
 export function Billing() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: "easeOut" }}
+    >
+      <BillingContent />
+    </motion.div>
+  )
+}
+
+function BillingContent() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const queryClient = useQueryClient()
@@ -431,24 +430,24 @@ export function Billing() {
 
   // Use API data or fallback to mock data for credit top-ups
   const displayCreditTopups = packagesData || creditTopups;
-  
+
   // Ensure subscription data has valid date
   const ensureValidSubscription = (sub: any) => {
     if (!sub) return null;
-    
+
     // Ensure currentPeriodEnd is a valid date
     let validCurrentPeriodEnd = sub.currentPeriodEnd;
     if (!validCurrentPeriodEnd || isNaN(new Date(validCurrentPeriodEnd).getTime())) {
       // If no valid date, default to 1 year from now for free plans, or current date for others
       validCurrentPeriodEnd = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
     }
-    
+
     return {
       ...sub,
       currentPeriodEnd: validCurrentPeriodEnd
     };
   };
-  
+
   const displaySubscription = ensureValidSubscription(subscription) || {
     plan: 'free',
     status: 'active',
@@ -482,7 +481,7 @@ export function Billing() {
   const createCheckoutMutation = useMutation({
     mutationFn: async ({ planId, billingCycle }: { planId: string; billingCycle: 'monthly' | 'yearly' }) => {
       console.log('🔄 Creating checkout session for:', { planId, billingCycle });
-      
+
       // If in mock mode, simulate the process
       if (mockMode) {
         await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate API delay
@@ -490,7 +489,7 @@ export function Billing() {
           checkoutUrl: `https://checkout.stripe.com/pay/mock-${planId}-${billingCycle}#test`
         };
       }
-      
+
       try {
         const response = await subscriptionAPI.createCheckout({
           planId,
@@ -498,16 +497,16 @@ export function Billing() {
           successUrl: `${window.location.origin}/payment-success?type=credit_purchase&session_id={CHECKOUT_SESSION_ID}`,
           cancelUrl: `${window.location.origin}/billing?payment=cancelled`
         });
-        
+
         console.log('✅ Checkout session created - Full response:', response);
         console.log('✅ Response data:', response.data);
         console.log('✅ Actual checkout data:', response.data.data);
-        
+
         // Return the actual data (response.data.data) not the wrapper (response.data)
         return response.data.data;
       } catch (error: any) {
         console.error('❌ Checkout creation failed:', error);
-        
+
         // Handle different error types
         if (error.response?.status === 401) {
           throw new Error('Authentication required. Please log in again or use mock mode by adding "?mock=true" to the URL.');
@@ -527,14 +526,14 @@ export function Billing() {
       console.log('🔍 data type:', typeof data);
       console.log('🔍 data keys:', Object.keys(data));
       console.log('🔍 Stringified data:', JSON.stringify(data, null, 2));
-      
+
       if (data.checkoutUrl) {
         console.log('✅ Checkout URL found, redirecting to:', data.checkoutUrl);
         // Show success message before redirecting
         toast.success('Redirecting to secure payment page...', {
           duration: 2000,
         });
-        
+
         // Small delay to show the message
         setTimeout(() => {
           if (mockMode) {
@@ -560,9 +559,9 @@ export function Billing() {
     },
     onError: (error: any) => {
       console.error('❌ Checkout mutation failed:', error);
-      
+
       const errorMessage = error.message || 'Failed to create checkout session';
-      
+
       // Check if user needs onboarding
       if (error.response?.data?.action === 'redirect_to_onboarding') {
         setNeedsOnboarding(true);
@@ -571,11 +570,11 @@ export function Billing() {
         });
         return;
       }
-      
+
       toast.error(errorMessage, {
         duration: 8000,
       });
-      
+
       setIsUpgrading(false);
     }
   });
@@ -584,23 +583,23 @@ export function Billing() {
   const changePlanMutation = useMutation({
     mutationFn: async ({ planId, billingCycle }: { planId: string; billingCycle: 'monthly' | 'yearly' }) => {
       console.log('🔄 Changing plan to:', { planId, billingCycle });
-      
+
       const response = await subscriptionAPI.changePlan({
         planId,
         billingCycle
       });
-      
+
       return response.data;
     },
     onSuccess: (data) => {
       console.log('✅ Plan change successful:', data);
-      
+
       if (data.checkoutUrl) {
         // For paid plans, redirect to checkout
         toast.success('Redirecting to secure payment page...', {
           duration: 2000,
         });
-        
+
         setTimeout(() => {
           window.location.href = data.checkoutUrl;
         }, 1000);
@@ -609,8 +608,8 @@ export function Billing() {
         toast.success(data.message || 'Plan changed successfully!', {
           duration: 3000,
         });
-        
-      // Refresh subscription data
+
+        // Refresh subscription data
         refetchSubscription();
         setIsUpgrading(false);
       }
@@ -672,7 +671,13 @@ export function Billing() {
 
   const handleCreditPurchase = async (packageId: string) => {
     if (!isAuthenticated) {
-      login();
+      // Use custom auth with Google connection ID if configured
+      const googleConnectionId = import.meta.env.VITE_KINDE_GOOGLE_CONNECTION_ID;
+      if (googleConnectionId) {
+        login({ connectionId: googleConnectionId });
+      } else {
+        login();
+      }
       return;
     }
 
@@ -716,7 +721,13 @@ export function Billing() {
 
   const handlePlanPurchase = async (planId: string) => {
     if (!isAuthenticated) {
-      login();
+      // Use custom auth with Google connection ID if configured
+      const googleConnectionId = import.meta.env.VITE_KINDE_GOOGLE_CONNECTION_ID;
+      if (googleConnectionId) {
+        login({ connectionId: googleConnectionId });
+      } else {
+        login();
+      }
       return;
     }
 
@@ -907,7 +918,7 @@ export function Billing() {
     try {
       setAuthTestResult('Testing...');
       console.log('🧪 === COMPREHENSIVE AUTH TEST ===');
-      
+
       // Step 1: Check Kinde auth state
       console.log('🔍 Step 1: Kinde Auth State');
       console.log('  isAuthenticated:', isAuthenticated);
@@ -937,13 +948,13 @@ export function Billing() {
       console.log('🔍 Step 3: Testing Debug Auth Endpoint');
       const response = await subscriptionAPI.debugAuth();
       console.log('✅ Debug auth test successful:', response.data);
-      
+
       // Check if user needs onboarding
       if (response.data.user && !response.data.tenantId) {
         setNeedsOnboarding(true);
         console.log('⚠️ User needs onboarding - no tenantId found');
       }
-      
+
       setAuthTestResult('✅ Success');
       toast.success('Authentication is working!');
     } catch (error: any) {
@@ -972,7 +983,7 @@ export function Billing() {
 
     try {
       console.log('🧪 Testing with manual token:', manualToken.substring(0, 20) + '...');
-      
+
       // Create a custom axios instance with manual token for testing
       const testApi = api.create({
         baseURL: import.meta.env.VITE_API_URL || '/api',
@@ -1018,7 +1029,7 @@ export function Billing() {
     setIsCleaningUp(true)
     try {
       console.log('🧹 Starting manual cleanup...')
-      
+
       // 1. Clean up duplicate payments
       try {
         const cleanupResponse = await subscriptionAPI.cleanupDuplicatePayments()
@@ -1029,7 +1040,7 @@ export function Billing() {
       } catch (error) {
         console.warn('⚠️ Payment cleanup failed:', error)
       }
-      
+
       // 2. Toggle off trial restrictions
       try {
         const toggleResponse = await subscriptionAPI.toggleTrialRestrictions(true)
@@ -1040,26 +1051,26 @@ export function Billing() {
       } catch (error) {
         console.warn('⚠️ Trial toggle failed:', error)
       }
-      
+
       // 3. Clear trial expiry data
       localStorage.removeItem('trialExpired')
-      
+
       // 4. Dispatch cleanup events
       window.dispatchEvent(new CustomEvent('paymentSuccess'))
       window.dispatchEvent(new CustomEvent('subscriptionUpgraded'))
-      
+
       // 5. Refresh all data
       queryClient.invalidateQueries()
-      
+
       toast.success('✅ Manual cleanup completed! Please refresh the page.', {
         duration: 5000
       })
-      
+
       // Refresh page after a delay
       setTimeout(() => {
         window.location.reload()
       }, 2000)
-      
+
     } catch (error) {
       console.error('❌ Manual cleanup failed:', error)
       toast.error('Manual cleanup failed. Please contact support.', {
@@ -1088,11 +1099,11 @@ export function Billing() {
   return (
     <div className="space-y-6">
       {/* Professional Header */}
-    
+
 
 
       <div className="flex items-center justify-end gap-2 mb-6">
-       
+
         {upgradeMode && (
           <Badge className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800">
             <Zap className="h-3 w-3 mr-1" />
@@ -1188,56 +1199,123 @@ export function Billing() {
         </TabsList>
 
         <TabsContent value="subscription" className="space-y-8">
-          {/* Current Subscription Plan Card */}
-          {displaySubscription.plan !== 'free' && (
-            <Card className="border-0 shadow-xl bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20">
-              <CardHeader className="pb-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="p-3 bg-green-500 rounded-xl text-white">
-                      <Crown className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-lg dark:text-white">Current Plan</CardTitle>
-                      <CardDescription className="dark:text-gray-300">
-                        {applicationPlans.find(p => p.id === displaySubscription.plan)?.name || displaySubscription.plan} Plan
-                      </CardDescription>
-                    </div>
+          {/* Current Subscription Plan Card - Enhanced */}
+          <Card className="border border-gray-100 shadow-lg bg-white dark:bg-gray-800 hover:shadow-xl transition-all duration-300 relative overflow-hidden group">
+            <div className={`absolute top-0 left-0 w-1 h-full ${displaySubscription.plan === 'free' ? 'bg-gray-400' : 'bg-green-500'
+              }`} />
+            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-gray-50 to-transparent dark:from-gray-700/20 rounded-bl-full -mr-8 -mt-8 pointer-events-none opacity-50" />
+
+            <CardHeader className="pb-6 relative">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`p-3 rounded-xl text-white ${displaySubscription.plan === 'free'
+                    ? 'bg-gray-500'
+                    : 'bg-green-500'
+                    }`}>
+                    <Crown className="w-6 h-6" />
                   </div>
-                  <div className="text-right">
-                    <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                      ${displaySubscription.yearlyPrice || displaySubscription.monthlyPrice || '0.00'}
-                    </div>
-                    <div className="text-sm text-gray-600 dark:text-gray-400 capitalize">
-                      per {displaySubscription.billingCycle || 'year'}
-                    </div>
+                  <div>
+                    <CardTitle className="text-lg dark:text-white">Current Plan</CardTitle>
+                    <CardDescription className="dark:text-gray-300">
+                      {(() => {
+                        const planId = displaySubscription.plan || 'free';
+                        const planNameMap: Record<string, string> = {
+                          'free': 'Free',
+                          'starter': 'Starter',
+                          'professional': 'Professional',
+                          'premium': 'Premium',
+                          'enterprise': 'Enterprise',
+                          'standard': 'Standard',
+                          'credit_based': 'Free'
+                        };
+                        return planNameMap[planId] ||
+                          (planId === 'credit_based' ? 'Free' : planId.charAt(0).toUpperCase() + planId.slice(1)) ||
+                          'Free';
+                      })()} Plan
+                    </CardDescription>
                   </div>
                 </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-green-500" />
-                    <span className="text-gray-700 dark:text-gray-300 capitalize">
-                      Status: {displaySubscription.status}
-                    </span>
-                  </div>
-                  {displaySubscription.currentPeriodEnd && (
-                    <div className="flex items-center gap-2">
-                      <Calendar className="w-4 h-4 text-gray-500" />
-                      <span className="text-gray-700 dark:text-gray-300">
-                        Renews: {formatDate(displaySubscription.currentPeriodEnd)}
-                      </span>
-                    </div>
+                <div className="text-right">
+                  {displaySubscription.plan !== 'free' ? (
+                    <>
+                      <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                        ${displaySubscription.yearlyPrice || displaySubscription.monthlyPrice || '0.00'}
+                      </div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400 capitalize">
+                        per {displaySubscription.billingCycle || 'year'}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-2xl font-bold text-gray-600 dark:text-gray-400">
+                        Free
+                      </div>
+                      <div className="text-sm text-gray-500 dark:text-gray-500">
+                        Upgrade to unlock more
+                      </div>
+                    </>
                   )}
                 </div>
-              </CardContent>
-            </Card>
-          )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between text-sm mb-4">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className={`w-4 h-4 ${displaySubscription.plan === 'free' ? 'text-gray-500' : 'text-green-500'
+                    }`} />
+                  <span className="text-gray-700 dark:text-gray-300 capitalize">
+                    Status: {displaySubscription.status || 'active'}
+                  </span>
+                </div>
+                {displaySubscription.currentPeriodEnd && (
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-gray-500" />
+                    <span className="text-gray-700 dark:text-gray-300">
+                      {displaySubscription.plan === 'free' ? 'Expires' : 'Renews'}: {formatDate(displaySubscription.currentPeriodEnd)}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Plan Features Preview */}
+              <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white">Plan Features</h4>
+                  {displaySubscription.plan === 'free' && (
+                    <Button
+                      onClick={() => setActiveTab('plans')}
+                      size="sm"
+                      className="bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 text-white"
+                    >
+                      <Sparkles className="w-3 h-3 mr-1" />
+                      Upgrade Plan
+                    </Button>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {(() => {
+                    const currentPlan = applicationPlans.find(p => p.id === displaySubscription.plan);
+                    const features = currentPlan?.features || ['Basic CRM tools', 'Limited support'];
+                    return features.slice(0, 4).map((feature, idx) => (
+                      <div key={idx} className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                        <CheckCircle className="w-3 h-3 text-green-500 flex-shrink-0" />
+                        <span className="truncate">{feature}</span>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+
 
           {/* Modern Credit Balance Card */}
-          <Card className="border-0 shadow-xl bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-900">
-            <CardHeader className="pb-6">
+          <Card className="border border-gray-100 shadow-lg bg-white dark:bg-gray-800 hover:shadow-xl transition-all duration-300 relative overflow-hidden group">
+            <div className="absolute top-0 left-0 w-1 h-full bg-blue-500" />
+            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-blue-50 to-transparent dark:from-blue-900/10 rounded-bl-full -mr-8 -mt-8 pointer-events-none opacity-50" />
+
+            <CardHeader className="pb-6 relative">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="p-3 bg-blue-500 rounded-xl text-white">
@@ -1253,7 +1331,7 @@ export function Billing() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {/* Left Column - Stats */}
                 <div className="space-y-6">
-                  <div className="bg-white/60 backdrop-blur-sm rounded-xl p-6 border border-white/20 dark:bg-gray-700/60 dark:border-gray-600">
+                  <div className="bg-gray-50 rounded-xl p-6 border border-gray-100 dark:bg-gray-700/60 dark:border-gray-600">
                     <div className="flex items-center gap-3 mb-3">
                       <div className="p-2 bg-amber-100 rounded-lg dark:bg-amber-900/30">
                         <Coins className="h-5 w-5 text-amber-600 dark:text-amber-400" />
@@ -1275,15 +1353,15 @@ export function Billing() {
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-white/60 backdrop-blur-sm rounded-xl p-4 border border-white/20 dark:bg-gray-700/60 dark:border-gray-600">
+                    <div className="bg-gradient-to-br from-sky-50 to-sky-100 rounded-xl p-4 border border-sky-200/60 shadow-sm transition-all duration-300">
                       <div className="flex items-center gap-2 mb-2">
-                        <WalletIcon className="h-4 w-4 text-blue-500 dark:text-blue-400" />
-                        <p className="text-xs font-medium text-gray-600 dark:text-gray-400">Total Credits</p>
+                        <CreditBalanceIcon className="h-4 w-4 text-sky-600 dark:text-sky-400" />
+                        <p className="text-xs font-semibold text-sky-800 dark:text-sky-300">Total Credits</p>
                       </div>
-                      <p className="text-lg font-bold text-gray-900 dark:text-white">{displaySubscription.totalCredits || 0}</p>
+                      <p className="text-xl font-black text-sky-900 dark:text-sky-100">{displaySubscription.totalCredits || 0}</p>
                     </div>
 
-                    <div className="bg-white/60 backdrop-blur-sm rounded-xl p-4 border border-white/20 dark:bg-gray-700/60 dark:border-gray-600">
+                    <div className="bg-gray-50 rounded-xl p-4 border border-gray-100 dark:bg-gray-700/60 dark:border-gray-600">
                       <div className="flex items-center gap-2 mb-2">
                         <Calendar className="h-4 w-4 text-purple-500 dark:text-purple-400" />
                         <p className="text-xs font-medium text-gray-600 dark:text-gray-400">Usage This Period</p>
@@ -1292,26 +1370,15 @@ export function Billing() {
                     </div>
                   </div>
 
-                  <div className="bg-white/60 backdrop-blur-sm rounded-xl p-4 border border-white/20 dark:bg-gray-700/60 dark:border-gray-600">
+                  <div className="bg-gray-50 rounded-xl p-4 border border-gray-100 dark:bg-gray-700/60 dark:border-gray-600">
                     <div className="flex items-center gap-2 mb-2">
                       <Clock className="h-4 w-4 text-orange-500 dark:text-orange-400" />
                       <p className="text-xs font-medium text-gray-600 dark:text-gray-400">Credit Expiry</p>
                     </div>
-                    {creditBalance?.creditExpiry ? (
-                      <div>
-                        <p className="text-sm font-medium text-gray-900 dark:text-white">
-                          {(() => {
-                            const expiryDate = new Date(creditBalance.creditExpiry);
-                            return expiryDate.toLocaleDateString();
-                          })()}
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                          {(() => {
-                            const expiryDate = new Date(creditBalance.creditExpiry);
-                            return expiryDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                          })()}
-                        </p>
-                      </div>
+                    {creditBalance?.creditExpiry || creditBalance?.freeCreditsExpiry || displaySubscription.currentPeriodEnd ? (
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">
+                        {formatDate(creditBalance?.creditExpiry || creditBalance?.freeCreditsExpiry || displaySubscription.currentPeriodEnd)}
+                      </p>
                     ) : (
                       <p className="text-sm font-medium text-gray-900 dark:text-white">No expiry</p>
                     )}
@@ -1320,39 +1387,46 @@ export function Billing() {
 
                 {/* Right Column - Status & Actions */}
                 <div className="space-y-6">
-                  <div className="bg-white/60 backdrop-blur-sm rounded-xl p-6 border border-white/20 dark:bg-gray-700/60 dark:border-gray-600">
-                    <div className="flex items-center gap-2 mb-4">
-                      <StatsIcon className="h-5 w-5 text-green-500 dark:text-green-400" />
-                      <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Credit Status</p>
+                  <div className="bg-gradient-to-br from-sky-50 to-sky-100 rounded-xl p-6 border border-sky-200/60 shadow-md transition-all duration-300 relative overflow-hidden">
+                    {/* Add a subtle decorative element to maintain the premium feel */}
+                    <div className="absolute top-0 right-0 -translate-y-1/2 translate-x-1/2 w-24 h-24 bg-sky-200/30 rounded-full blur-2xl pointer-events-none" />
+
+                    <div className="flex items-center gap-2 mb-4 relative z-10">
+                      <StatsIcon className="h-5 w-5 text-sky-600 dark:text-sky-400" />
+                      <p className="text-sm font-bold text-sky-900 dark:text-sky-100">Credit Status</p>
                     </div>
                     <div className="space-y-3">
                       {/* Free Credits */}
-                      <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-100 dark:bg-emerald-900/20 dark:border-emerald-800">
-                        <div className="flex items-center justify-between mb-1">
+                      <div className="p-4 bg-white/60 backdrop-blur-sm rounded-xl border border-sky-200/50 shadow-sm transition-all hover:bg-white/80">
+                        <div className="flex items-center justify-between mb-1.5">
                           <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
-                            <span className="text-sm font-medium text-emerald-800 dark:text-emerald-300">Free Credits</span>
+                            <div className="w-2 h-2 bg-sky-500 rounded-full shadow-[0_0_8px_rgba(14,165,233,0.5)]"></div>
+                            <span className="text-sm font-bold text-sky-900 dark:text-sky-200">Free Credits</span>
                           </div>
-                          <span className="font-semibold text-emerald-800 dark:text-emerald-300">{creditBalance?.freeCredits || 0}</span>
+                          <span className="text-lg font-black text-sky-700 dark:text-sky-300">{creditBalance?.freeCredits || 0}</span>
                         </div>
-                        <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                        <p className="text-[10px] text-sky-600/80 dark:text-sky-400/80 font-medium">
                           <Clock className="w-3 h-3 inline mr-1" />
-                          Expires with subscription plan
+                          {creditBalance?.freeCreditsExpiry || displaySubscription.currentPeriodEnd ? (
+                            `Expires: ${formatDate(creditBalance?.freeCreditsExpiry || displaySubscription.currentPeriodEnd)}`
+                          ) : (
+                            'Expires with plan'
+                          )}
                         </p>
                       </div>
 
                       {/* Paid Credits */}
-                      <div className="p-3 bg-gradient-to-r from-amber-50 to-orange-50 rounded-lg border-2 border-amber-200 dark:from-amber-900/20 dark:to-orange-900/20 dark:border-amber-800">
-                        <div className="flex items-center justify-between mb-1">
+                      <div className="p-4 bg-white border-2 border-sky-400/40 rounded-xl shadow-[0_8px_20px_-10px_rgba(14,165,233,0.2)] transition-all hover:border-sky-400 hover:shadow-[0_12px_25px_-10px_rgba(14,165,233,0.3)]">
+                        <div className="flex items-center justify-between mb-1.5">
                           <div className="flex items-center gap-2">
-                            <Crown className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                            <span className="text-sm font-semibold text-amber-800 dark:text-amber-300">Paid Credits</span>
+                            <Crown className="w-4 h-4 text-sky-600 dark:text-sky-400 animate-pulse" />
+                            <span className="text-sm font-black text-sky-900 dark:text-sky-100 tracking-tight">Paid Credits</span>
                           </div>
-                          <span className="font-bold text-amber-800 dark:text-amber-300">{creditBalance?.paidCredits || 0}</span>
+                          <span className="text-lg font-black text-sky-600 dark:text-sky-300">{creditBalance?.paidCredits || 0}</span>
                         </div>
-                        <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">
+                        <p className="text-[10px] text-sky-600 dark:text-sky-400 font-bold tracking-wide uppercase">
                           <Shield className="w-3 h-3 inline mr-1" />
-                          Never expires • Permanent access
+                          Lifetime Access
                         </p>
                       </div>
                       {(displaySubscription.alerts || []).length > 0 && (
@@ -1414,6 +1488,7 @@ export function Billing() {
                       currency={topup.currency}
                       features={topup.features}
                       recommended={topup.recommended}
+                      isPremium={topup.recommended}
                       type="topup"
                       onPurchase={() => handleCreditPurchase(topup.id)}
                       isLoading={isUpgrading && selectedPlan === topup.id}
@@ -1442,6 +1517,10 @@ export function Billing() {
               <p className="text-lg text-gray-600 dark:text-gray-400 leading-relaxed">
                 Choose a plan that fits your business needs with included free credits and access to premium features.
               </p>
+              <div className="mt-6 flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                <Calendar className="w-4 h-4" />
+                <span>All plans include annual free credits that renew with your subscription</span>
+              </div>
             </div>
 
             {/* Professional grid layout for application plans */}
@@ -1464,6 +1543,7 @@ export function Billing() {
                       features={plan.features}
                       freeCredits={plan.freeCredits}
                       recommended={plan.popular}
+                      isPremium={plan.popular}
                       type="application"
                       onPurchase={() => handlePlanPurchase(plan.id)}
                       isLoading={isUpgrading && selectedPlan === plan.id}
@@ -1477,7 +1557,8 @@ export function Billing() {
 
         <TabsContent value="history" className="space-y-6">
           {/* Modern Payment History Header */}
-          <div className="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-gray-800 dark:to-gray-900 rounded-xl p-6 border border-emerald-100 dark:border-gray-700">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-100 shadow-sm relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-1 h-full bg-emerald-500" />
             <div className="flex items-center gap-3">
               <div className="p-3 bg-emerald-500 rounded-xl text-white">
                 <PaymentHistoryIcon className="w-6 h-6" />
@@ -1504,46 +1585,44 @@ export function Billing() {
               <p className="text-gray-600 dark:text-gray-400">Your completed transactions will appear here</p>
             </div>
           ) : (
-              <div className="space-y-4">
-                {displayBillingHistory.map((payment: any) => (
-                  <Card key={payment.id} className="hover:shadow-lg transition-all duration-200 border-0 shadow-md bg-gradient-to-r from-white to-gray-50 dark:from-gray-800 dark:to-gray-900">
-                    <CardContent className="p-6">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-start gap-4">
-                          <div className={`rounded-xl p-3 ${
-                            payment.status === 'succeeded' || payment.status === 'completed' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' :
-                            payment.status === 'failed' ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' : 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400'
+            <div className="space-y-4">
+              {displayBillingHistory.map((payment: any) => (
+                <Card key={payment.id} className="hover:shadow-lg transition-all duration-200 border-0 shadow-md bg-gradient-to-r from-white to-gray-50 dark:from-gray-800 dark:to-gray-900">
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-start gap-4">
+                        <div className={`rounded-xl p-3 ${payment.status === 'succeeded' || payment.status === 'completed' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                          payment.status === 'failed' ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' : 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400'
                           }`}>
-                            {payment.status === 'succeeded' || payment.status === 'completed' ? (
-                              <CheckCircle className="h-5 w-5" />
-                            ) : payment.status === 'failed' ? (
-                              <X className="h-5 w-5" />
-                            ) : (
-                              <Clock className="h-5 w-5" />
-                            )}
-                          </div>
+                          {payment.status === 'succeeded' || payment.status === 'completed' ? (
+                            <CheckCircle className="h-5 w-5" />
+                          ) : payment.status === 'failed' ? (
+                            <X className="h-5 w-5" />
+                          ) : (
+                            <Clock className="h-5 w-5" />
+                          )}
+                        </div>
 
-                          <div className="flex-1">
-                            <div className="flex items-center gap-3 mb-2">
-                              <h4 className="font-semibold text-gray-900 dark:text-white text-lg">
-                                {payment.description || `${
-                                  payment.type === 'subscription' ? 'Subscription' :
-                                  payment.type === 'credit_purchase' ? 'Credit Purchase' :
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <h4 className="font-semibold text-gray-900 dark:text-white text-lg">
+                              {payment.description || `${payment.type === 'subscription' ? 'Subscription' :
+                                payment.type === 'credit_purchase' ? 'Credit Purchase' :
                                   payment.type === 'credit_usage' ? 'Credit Usage' : 'Payment'
                                 }`}
-                              </h4>
-                              <Badge className={
-                                payment.status === 'succeeded' || payment.status === 'completed' ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800' :
+                            </h4>
+                            <Badge className={
+                              payment.status === 'succeeded' || payment.status === 'completed' ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800' :
                                 payment.status === 'failed' ? 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800' : 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800'
-                              }>
-                                {(payment.status === 'succeeded' || payment.status === 'completed') ? (
-                                  <>
-                                    <CheckCircle className="w-3 h-3 mr-1" />
-                                    {payment.type === 'credit_purchase' ? 'Purchased' :
-                                     payment.type === 'credit_usage' ? 'Used' : 'Paid'}
-                                  </>
-                                ) :
-                                 payment.status === 'failed' ? (
+                            }>
+                              {(payment.status === 'succeeded' || payment.status === 'completed') ? (
+                                <>
+                                  <CheckCircle className="w-3 h-3 mr-1" />
+                                  {payment.type === 'credit_purchase' ? 'Purchased' :
+                                    payment.type === 'credit_usage' ? 'Used' : 'Paid'}
+                                </>
+                              ) :
+                                payment.status === 'failed' ? (
                                   <>
                                     <X className="w-3 h-3 mr-1" />
                                     Failed
@@ -1554,138 +1633,138 @@ export function Billing() {
                                     Pending
                                   </>
                                 )}
+                            </Badge>
+                            {payment.type && (
+                              <Badge variant="outline" className="text-xs">
+                                {payment.type === 'subscription' ? 'Subscription' :
+                                  payment.type === 'credit_purchase' ? 'Credit Purchase' :
+                                    payment.type === 'credit_usage' ? 'Credit Usage' : payment.type}
                               </Badge>
-                              {payment.type && (
-                                <Badge variant="outline" className="text-xs">
-                                  {payment.type === 'subscription' ? 'Subscription' :
-                                   payment.type === 'credit_purchase' ? 'Credit Purchase' :
-                                   payment.type === 'credit_usage' ? 'Credit Usage' : payment.type}
-                                </Badge>
-                              )}
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                            <div className="flex items-center gap-2">
+                              <Calendar className="h-4 w-4 text-gray-400" />
+                              <span className="text-sm text-gray-600 dark:text-gray-400">
+                                {formatDate(payment.paidAt || payment.createdAt)}
+                                {payment.billingReason && ` • ${payment.billingReason.replace(/_/g, ' ')}`}
+                              </span>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                            {payment.paymentMethodDetails?.card && (
                               <div className="flex items-center gap-2">
-                                <Calendar className="h-4 w-4 text-gray-400" />
+                                <CreditCardLucide className="h-4 w-4 text-gray-400" />
                                 <span className="text-sm text-gray-600 dark:text-gray-400">
-                                  {formatDate(payment.paidAt || payment.createdAt)}
-                                  {payment.billingReason && ` • ${payment.billingReason.replace(/_/g, ' ')}`}
-                                </span>
-                              </div>
-
-                              {payment.paymentMethodDetails?.card && (
-                                <div className="flex items-center gap-2">
-                                  <CreditCardLucide className="h-4 w-4 text-gray-400" />
-                                  <span className="text-sm text-gray-600 dark:text-gray-400">
-                                    **** **** **** {payment.paymentMethodDetails.card.last4} • {payment.paymentMethodDetails.card.brand?.toUpperCase()}
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-
-                            {payment.invoiceNumber && (
-                              <div className="flex items-center gap-2 mb-3">
-                                <ReceiptIcon className="h-4 w-4 text-gray-400" />
-                                <span className="text-sm text-gray-600 dark:text-gray-400">
-                                  Invoice #{payment.invoiceNumber}
+                                  **** **** **** {payment.paymentMethodDetails.card.last4} • {payment.paymentMethodDetails.card.brand?.toUpperCase()}
                                 </span>
                               </div>
                             )}
+                          </div>
 
-                            {/* Stripe Payment Details */}
-                            {payment.stripePaymentIntentId && (
-                              <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3 text-xs text-gray-500 dark:text-gray-400">
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                          {payment.invoiceNumber && (
+                            <div className="flex items-center gap-2 mb-3">
+                              <ReceiptIcon className="h-4 w-4 text-gray-400" />
+                              <span className="text-sm text-gray-600 dark:text-gray-400">
+                                Invoice #{payment.invoiceNumber}
+                              </span>
+                            </div>
+                          )}
+
+                          {/* Stripe Payment Details */}
+                          {payment.stripePaymentIntentId && (
+                            <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3 text-xs text-gray-500 dark:text-gray-400">
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                                <div>
+                                  <span className="font-medium">Payment ID:</span>
+                                  <div className="font-mono">{payment.stripePaymentIntentId}</div>
+                                </div>
+                                {payment.stripeChargeId && payment.stripeChargeId !== payment.stripePaymentIntentId && (
                                   <div>
-                                    <span className="font-medium">Payment ID:</span>
-                                    <div className="font-mono">{payment.stripePaymentIntentId}</div>
+                                    <span className="font-medium">Charge ID:</span>
+                                    <div className="font-mono">{payment.stripeChargeId}</div>
                                   </div>
-                                  {payment.stripeChargeId && payment.stripeChargeId !== payment.stripePaymentIntentId && (
-                                    <div>
-                                      <span className="font-medium">Charge ID:</span>
-                                      <div className="font-mono">{payment.stripeChargeId}</div>
-                                    </div>
-                                  )}
-                                  {payment.stripeInvoiceId && (
-                                    <div>
-                                      <span className="font-medium">Invoice ID:</span>
-                                      <div className="font-mono">{payment.stripeInvoiceId}</div>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="text-right flex flex-col items-end gap-3">
-                          <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-lg px-4 py-3 border border-emerald-200 dark:border-emerald-800">
-                            <div className="text-lg font-bold text-emerald-700 dark:text-emerald-400">
-                              {formatCurrency(payment.amount)}
-                            </div>
-                            <div className="text-xs text-emerald-600 dark:text-emerald-500 mt-1">
-                              {payment.type === 'credit_purchase' ? 'Purchase Amount' : 'Total Amount'}
-                            </div>
-                          </div>
-
-                          {payment.creditsPurchased && (
-                            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg px-4 py-2 border border-blue-200 dark:border-blue-800">
-                              <div className="text-sm font-semibold text-blue-700 dark:text-blue-400">
-                                +{payment.creditsPurchased.toLocaleString()} credits
-                              </div>
-                              <div className="text-xs text-blue-600 dark:text-blue-500">
-                                Credits Added
+                                )}
+                                {payment.stripeInvoiceId && (
+                                  <div>
+                                    <span className="font-medium">Invoice ID:</span>
+                                    <div className="font-mono">{payment.stripeInvoiceId}</div>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           )}
-
-                          {(payment.taxAmount > 0 || payment.processingFees > 0) && (
-                            <div className="text-xs text-gray-500 space-y-1">
-                              {payment.taxAmount > 0 && (
-                                <div className="flex items-center gap-1">
-                                  <span>Tax:</span>
-                                  <span className="font-medium">{formatCurrency(payment.taxAmount)}</span>
-                                </div>
-                              )}
-                              {payment.processingFees > 0 && (
-                                <div className="flex items-center gap-1">
-                                  <span>Fees:</span>
-                                  <span className="font-medium">{formatCurrency(payment.processingFees)}</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          <div className="flex items-center gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setSelectedPaymentForDetails(payment)}
-                              className="border-gray-300 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
-                            >
-                              <ExternalLink className="h-3 w-3 mr-1" />
-                              Details
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => window.open(`data:text/plain;charset=utf-8,${encodeURIComponent(JSON.stringify(payment, null, 2))}`, '_blank')}
-                              className="border-gray-300 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
-                            >
-                              <Download className="h-3 w-3 mr-1" />
-                              Receipt
-                            </Button>
-                          </div>
                         </div>
                       </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
 
-            {/* Modern Plan Management */}
-            {displaySubscription.plan !== 'free' && (
+                      <div className="text-right flex flex-col items-end gap-3">
+                        <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-lg px-4 py-3 border border-emerald-200 dark:border-emerald-800">
+                          <div className="text-lg font-bold text-emerald-700 dark:text-emerald-400">
+                            {formatCurrency(payment.amount)}
+                          </div>
+                          <div className="text-xs text-emerald-600 dark:text-emerald-500 mt-1">
+                            {payment.type === 'credit_purchase' ? 'Purchase Amount' : 'Total Amount'}
+                          </div>
+                        </div>
+
+                        {payment.creditsPurchased && (
+                          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg px-4 py-2 border border-blue-200 dark:border-blue-800">
+                            <div className="text-sm font-semibold text-blue-700 dark:text-blue-400">
+                              +{payment.creditsPurchased.toLocaleString()} credits
+                            </div>
+                            <div className="text-xs text-blue-600 dark:text-blue-500">
+                              Credits Added
+                            </div>
+                          </div>
+                        )}
+
+                        {(payment.taxAmount > 0 || payment.processingFees > 0) && (
+                          <div className="text-xs text-gray-500 space-y-1">
+                            {payment.taxAmount > 0 && (
+                              <div className="flex items-center gap-1">
+                                <span>Tax:</span>
+                                <span className="font-medium">{formatCurrency(payment.taxAmount)}</span>
+                              </div>
+                            )}
+                            {payment.processingFees > 0 && (
+                              <div className="flex items-center gap-1">
+                                <span>Fees:</span>
+                                <span className="font-medium">{formatCurrency(payment.processingFees)}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setSelectedPaymentForDetails(payment)}
+                            className="border-gray-300 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
+                          >
+                            <ExternalLink className="h-3 w-3 mr-1" />
+                            Details
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => window.open(`data:text/plain;charset=utf-8,${encodeURIComponent(JSON.stringify(payment, null, 2))}`, '_blank')}
+                            className="border-gray-300 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
+                          >
+                            <Download className="h-3 w-3 mr-1" />
+                            Receipt
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {/* Modern Plan Management */}
+          {displaySubscription.plan !== 'free' && (
             <Card className="border-0 shadow-xl bg-gradient-to-r from-slate-50 to-gray-50 dark:from-gray-800 dark:to-gray-900">
               <CardHeader className="pb-6">
                 <div className="flex items-center gap-3">
@@ -1698,9 +1777,9 @@ export function Billing() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-               
 
-                <div className="bg-white/60 backdrop-blur-sm rounded-xl p-6 border border-red-200 hover:shadow-md transition-all dark:bg-gray-700/60 dark:border-red-800">
+
+                <div className="bg-gray-50 rounded-xl p-6 border border-red-200 hover:shadow-md transition-all dark:bg-gray-700/60 dark:border-red-800">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
                       <div className="p-3 bg-red-100 rounded-lg dark:bg-red-900/30">
@@ -1725,7 +1804,7 @@ export function Billing() {
                 </div>
               </CardContent>
             </Card>
-            )}
+          )}
         </TabsContent>
       </Tabs>
 
@@ -1737,19 +1816,19 @@ export function Billing() {
           <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
             <h3 className="text-lg font-semibold mb-4">Cancel Subscription</h3>
             <p className="text-gray-600 mb-4">
-              Your subscription will be canceled at the end of your current billing period ({formatDate(displaySubscription.currentPeriodEnd)}). 
+              Your subscription will be canceled at the end of your current billing period ({formatDate(displaySubscription.currentPeriodEnd)}).
               You'll retain access to all features until then.
             </p>
-            
+
             <div className="flex gap-3">
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 onClick={() => setShowCancelDialog(false)}
                 className="flex-1"
               >
                 Keep Subscription
               </Button>
-              <Button 
+              <Button
                 onClick={() => {
                   // Handle regular cancellation here
                   toast.success('Cancellation feature coming soon!');
@@ -1772,10 +1851,10 @@ export function Billing() {
             <p className="text-gray-600 mb-4">
               Request a refund for this payment. Refunds are typically processed within 5-10 business days.
             </p>
-            
+
             <div className="mb-4">
               <label className="block text-sm font-medium mb-2">Reason (optional)</label>
-              <textarea 
+              <textarea
                 className="w-full p-2 border rounded-md"
                 rows={3}
                 placeholder="Please let us know why you're requesting a refund..."
@@ -1784,14 +1863,14 @@ export function Billing() {
             </div>
 
             <div className="flex gap-3">
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 onClick={() => setSelectedPaymentForRefund(null)}
                 className="flex-1"
               >
                 Cancel
               </Button>
-              <Button 
+              <Button
                 onClick={() => {
                   refundMutation.mutate({
                     paymentId: selectedPaymentForRefund,

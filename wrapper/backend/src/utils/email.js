@@ -87,328 +87,304 @@ class EmailService {
     const subject = `Welcome to ${companyName} - Your Zopkit Account is Ready!`;
     
     const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Welcome to Zopkit</title>
-        <style>
-          * { margin: 0; padding: 0; box-sizing: border-box; }
-          body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Helvetica Neue', Arial, sans-serif;
-            line-height: 1.6; 
-            color: #1a1a1a;
-            background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
-            padding: 40px 20px;
-            min-height: 100vh;
-          }
-          .email-wrapper { 
-            max-width: 650px; 
-            margin: 0 auto; 
-            background: #ffffff;
-            border-radius: 16px;
-            overflow: hidden;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.05);
-          }
-          .header { 
-            background: linear-gradient(135deg, #ffffff 0%, #f8f9fb 100%);
-            padding: 50px 40px 40px;
-            text-align: center;
-            position: relative;
-            border-bottom: 1px solid #e5e7eb;
-          }
-          .header::after {
-            content: '';
-            position: absolute;
-            bottom: -1px;
-            left: 0;
-            right: 0;
-            height: 30px;
-            background: #ffffff;
-            border-radius: 30px 30px 0 0;
-          }
-          .logo-container {
-            margin-bottom: 32px;
-            background: rgba(0, 0, 0, 0.02);
-            backdrop-filter: blur(10px);
-            padding: 20px 30px;
-            border-radius: 12px;
-            display: inline-block;
-            border: 1px solid rgba(0, 0, 0, 0.05);
-          }
-          .logo {
-            max-width: 200px;
-            height: auto;
-            display: block;
-          }
-          .header h1 {
-            font-size: 32px;
-            font-weight: 700;
-            color: #0f172a;
-            margin-bottom: 10px;
-            letter-spacing: -0.5px;
-          }
-          .header p {
-            font-size: 17px;
-            color: #64748b;
-            font-weight: 400;
-          }
-          .content { 
-            padding: 50px 45px;
-            background: #ffffff;
-          }
-          .greeting {
-            font-size: 22px;
-            font-weight: 600;
-            color: #0f172a;
-            margin-bottom: 20px;
-          }
-          .content p {
-            color: #475569;
-            font-size: 16px;
-            margin-bottom: 24px;
-            line-height: 1.8;
-          }
-          .details-card {
-            background: linear-gradient(135deg, #fafbfc 0%, #f4f6f8 100%);
-            border: 2px solid #e5e7eb;
-            border-radius: 12px;
-            padding: 28px;
-            margin: 32px 0;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-          }
-          .details-card h3 {
-            font-size: 18px;
-            font-weight: 700;
-            color: #0f172a;
-            margin-bottom: 20px;
-            letter-spacing: -0.3px;
-          }
-          .details-card ul {
-            list-style: none;
-            padding: 0;
-          }
-          .details-card li {
-            padding: 14px 0;
-            border-bottom: 1px solid #e5e7eb;
-            font-size: 15px;
-            color: #334155;
-          }
-          .details-card li:last-child {
-            border-bottom: none;
-            padding-bottom: 0;
-          }
-          .details-card strong {
-            color: #0f172a;
-            font-weight: 700;
-            display: inline-block;
-            min-width: 150px;
-          }
-          .section-title {
-            font-size: 20px;
-            font-weight: 700;
-            color: #0f172a;
-            margin: 40px 0 20px;
-            letter-spacing: -0.3px;
-            padding-bottom: 12px;
-            border-bottom: 3px solid #1a1a1a;
-            display: inline-block;
-          }
-          .sso-box {
-            background: linear-gradient(135deg, #fafbfc 0%, #f1f3f5 100%);
-            border: 2px solid #d1d5db;
-            border-radius: 12px;
-            padding: 24px;
-            margin: 24px 0 32px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-          }
-          .sso-box p {
-            margin: 0 0 14px;
-            font-size: 15px;
-            color: #374151;
-            font-weight: 600;
-          }
-          .sso-box p:last-child {
-            margin: 0;
-          }
-          .login-link {
-            display: block;
-            color: #1a1a1a;
-            text-decoration: none;
-            font-weight: 600;
-            word-break: break-all;
-            font-size: 14px;
-            background: #ffffff;
-            padding: 12px 16px;
-            border-radius: 8px;
-            border: 1px solid #d1d5db;
-            transition: all 0.3s ease;
-          }
-          .login-link:hover {
-            background: #f9fafb;
-            border-color: #9ca3af;
-            transform: translateY(-1px);
-          }
-          .cta-container {
-            text-align: center;
-            margin: 40px 0;
-          }
-          .button { 
-            display: inline-block; 
-            padding: 16px 40px;
-            background: linear-gradient(135deg, #1a1a1a 0%, #2d3748 100%);
-            color: #ffffff !important;
-            text-decoration: none;
-            border-radius: 10px;
-            font-weight: 700;
-            font-size: 16px;
-            letter-spacing: 0.3px;
-            transition: all 0.3s ease;
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
-          }
-          .button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2);
-            background: linear-gradient(135deg, #2d3748 0%, #1a1a1a 100%);
-          }
-          .steps-list {
-            counter-reset: step-counter;
-            list-style: none;
-            padding-left: 0;
-            margin-top: 24px;
-          }
-          .steps-list li {
-            counter-increment: step-counter;
-            position: relative;
-            padding-left: 50px;
-            margin-bottom: 20px;
-            color: #334155;
-            font-size: 16px;
-            line-height: 1.7;
-          }
-          .steps-list li:before {
-            content: counter(step-counter);
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 34px;
-            height: 34px;
-            background: linear-gradient(135deg, #1a1a1a 0%, #374151 100%);
-            color: white;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 700;
-            font-size: 14px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-          }
-          .help-box {
-            background: linear-gradient(135deg, #fef3c7 0%, #fef9c3 100%);
-            border: 2px solid #fde047;
-            border-left: 5px solid #eab308;
-            border-radius: 12px;
-            padding: 24px;
-            margin: 32px 0;
-            box-shadow: 0 2px 8px rgba(234, 179, 8, 0.08);
-          }
-          .help-box h4 {
-            font-size: 17px;
-            font-weight: 700;
-            color: #92400e;
-            margin-bottom: 10px;
-          }
-          .help-box p {
-            color: #78350f;
-            font-size: 15px;
-            margin: 0;
-            line-height: 1.7;
-          }
-          .footer {
-            background: linear-gradient(135deg, #fafbfc 0%, #f4f6f8 100%);
-            padding: 40px 45px;
-            border-top: 3px solid #1a1a1a;
-          }
-          .footer p {
-            color: #64748b;
-            font-size: 15px;
-            margin: 6px 0;
-            line-height: 1.6;
-          }
-          .signature {
-            font-weight: 700;
-            color: #0f172a;
-            margin-top: 24px;
-            font-size: 16px;
-          }
-          @media only screen and (max-width: 600px) {
-            body { padding: 20px 10px; }
-            .content, .header, .footer { padding: 30px 24px; }
-            .header h1 { font-size: 26px; }
-            .details-card { padding: 20px; }
-            .button { padding: 14px 32px; font-size: 15px; }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="email-wrapper">
-          <div class="header">
-            <div class="logo-container">
-              <img src="https://res.cloudinary.com/dr9vzaa7u/image/upload/v1765126845/Zopkit_Full_Logo_kezq1b.jpg" alt="Zopkit Logo" class="logo">
-            </div>
-            <h1>Welcome to Zopkit</h1>
-            <p>Your AI-first business operating system is ready</p>
-          </div>
-          
-          <div class="content">
-            <p class="greeting">Hi ${name},</p>
-            
-            <p>We're excited to have you on board! Your organization <strong>${companyName}</strong> has been successfully provisioned on the Zopkit platform.</p>
-            
-            <div class="details-card">
-              <h3>Organization Details</h3>
-              <ul>
-                <li><strong>Organization:</strong> ${companyName}</li>
-                <li><strong>Workspace URL:</strong> ${subdomain}.zopkit.com</li>
-                <li><strong>Admin Email:</strong> ${email}</li>
-              </ul>
-            </div>
-            
-            <h3 class="section-title">Secure Access via SSO</h3>
-            <p>We've enabled Single Sign-On (SSO) for your organization. Access your workspace securely using your email address—no password required.</p>
-            
-            <div class="sso-box">
-              <p><strong>Your SSO Login URL:</strong></p>
-              <a href="${loginUrl}" class="login-link">${loginUrl}</a>
-            </div>
-            
-            <div class="cta-container">
-              <a href="${loginUrl}" class="button">Access Workspace</a>
-            </div>
-            
-            <h3 class="section-title">Getting Started</h3>
-            <ol class="steps-list">
-              <li>Click the button above to access your workspace</li>
-              <li>Complete your organization profile</li>
-              <li>Invite team members to collaborate</li>
-              <li>Begin leveraging your business tools</li>
-            </ol>
-            
-            <div class="help-box">
-              <h4>Need Assistance?</h4>
-              <p>Our support team is available to help you get started. Reply to this email or visit our help center for documentation and resources.</p>
-            </div>
-          </div>
-          
-          <div class="footer">
-            <p>We're here to support your success.</p>
-            <p class="signature">The Zopkit Team</p>
-            <p style="margin-top: 24px; font-size: 13px; color: #9ca3af;">This email was sent to ${email}. If you have any questions, please contact our support team.</p>
-          </div>
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Zopkit Invitation</title>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, Arial, sans-serif;
+      background: radial-gradient(circle at top, #1e293b 0%, #0b1220 45%);
+      padding: 48px 16px;
+      color: #0f172a;
+    }
+
+    .email-shell {
+      max-width: 720px;
+      margin: 0 auto;
+      background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow:
+        0 40px 120px rgba(15, 23, 42, 0.45),
+        0 10px 40px rgba(15, 23, 42, 0.25);
+    }
+
+    /* ---------- HEADER ---------- */
+    .header {
+      padding: 56px 56px 48px;
+      text-align: center;
+      background:
+        radial-gradient(circle at top, #eef2ff 0%, #ffffff 60%);
+    }
+
+    .logo {
+      max-width: 190px;
+      margin-bottom: 32px;
+    }
+
+    .header h1 {
+      font-size: 34px;
+      font-weight: 700;
+      letter-spacing: -0.6px;
+      margin-bottom: 12px;
+    }
+
+    .header p {
+      font-size: 17px;
+      color: #475569;
+      max-width: 520px;
+      margin: 0 auto;
+    }
+
+    /* ---------- CONTENT ---------- */
+    .content {
+      padding: 56px;
+    }
+
+    .greeting {
+      font-size: 21px;
+      font-weight: 600;
+      margin-bottom: 22px;
+    }
+
+    .content p {
+      font-size: 16.5px;
+      line-height: 1.75;
+      color: #334155;
+      margin-bottom: 22px;
+    }
+
+    /* ---------- INFO CARD ---------- */
+    .card {
+      background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+      border-radius: 16px;
+      padding: 28px 30px;
+      margin: 32px 0;
+      box-shadow:
+        0 10px 30px rgba(15, 23, 42, 0.08),
+        inset 0 0 0 1px #e5e7eb;
+    }
+
+    .card h3 {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 18px;
+    }
+
+    .card ul {
+      list-style: none;
+    }
+
+    .card li {
+      padding: 12px 0;
+      border-bottom: 1px dashed #e5e7eb;
+      font-size: 15.5px;
+      color: #334155;
+    }
+
+    .card li:last-child {
+      border-bottom: none;
+    }
+
+    .card strong {
+      color: #0f172a;
+      min-width: 160px;
+      display: inline-block;
+    }
+
+    /* ---------- SECTION TITLE ---------- */
+    .section {
+      margin-top: 48px;
+    }
+
+    .section-title {
+      font-size: 19px;
+      font-weight: 700;
+      margin-bottom: 14px;
+      position: relative;
+      padding-left: 14px;
+    }
+
+    .section-title::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 4px;
+      height: 70%;
+      width: 4px;
+      border-radius: 2px;
+      background: linear-gradient(180deg, #4f46e5, #38bdf8);
+    }
+
+    /* ---------- SSO BOX ---------- */
+    .sso-box {
+      background: linear-gradient(180deg, #eef2ff 0%, #f8fafc 100%);
+      border-radius: 14px;
+      padding: 24px;
+      margin-top: 22px;
+      box-shadow: inset 0 0 0 1px #c7d2fe;
+    }
+
+    .sso-box p {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      color: #1e293b;
+    }
+
+    .login-link {
+      display: block;
+      padding: 14px 16px;
+      background: #ffffff;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #4f46e5;
+      text-decoration: none;
+      word-break: break-all;
+      box-shadow: 0 4px 14px rgba(79, 70, 229, 0.15);
+    }
+
+    /* ---------- CTA ---------- */
+    .cta {
+      text-align: center;
+      margin: 44px 0;
+    }
+
+    .cta a {
+      display: inline-block;
+      padding: 18px 48px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #4f46e5, #4338ca);
+      color: #ffffff;
+      font-size: 17px;
+      font-weight: 700;
+      text-decoration: none;
+      letter-spacing: 0.2px;
+      box-shadow:
+        0 18px 40px rgba(79, 70, 229, 0.45);
+    }
+
+    /* ---------- STEPS ---------- */
+    .steps {
+      margin-top: 24px;
+      list-style: none;
+    }
+
+    .steps li {
+      margin-bottom: 18px;
+      padding-left: 36px;
+      position: relative;
+      font-size: 15.5px;
+      color: #334155;
+    }
+
+    .steps li::before {
+      content: "→";
+      position: absolute;
+      left: 0;
+      top: 0;
+      color: #4f46e5;
+      font-weight: 700;
+    }
+
+    /* ---------- FOOTER ---------- */
+    .footer {
+      padding: 40px 56px;
+      background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+      border-top: 1px solid #e5e7eb;
+    }
+
+    .footer p {
+      font-size: 14px;
+      color: #64748b;
+      line-height: 1.6;
+    }
+
+    .signature {
+      margin-top: 18px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    @media (max-width: 600px) {
+      .header, .content, .footer {
+        padding: 32px;
+      }
+      .header h1 {
+        font-size: 26px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="email-shell">
+    <div class="header">
+      <img src="https://res.cloudinary.com/dr9vzaa7u/image/upload/v1765126845/Zopkit_Full_Logo_kezq1b.jpg" class="logo" alt="Zopkit"/>
+      <h1>You’ve been invited to Zopkit</h1>
+      <p>Secure access to your organization’s AI-powered workspace</p>
+    </div>
+
+    <div class="content">
+      <p class="greeting">Hello ${name},</p>
+
+      <p>
+        You’ve been invited to join <strong>${companyName}</strong> on <strong>Zopkit</strong> —
+        a unified platform designed to streamline business operations, workflows,
+        and internal collaboration.
+      </p>
+
+      <div class="card">
+        <h3>Organization Details</h3>
+        <ul>
+          <li><strong>Organization</strong> ${companyName}</li>
+          <li><strong>Workspace</strong> ${subdomain}.zopkit.com</li>
+          <li><strong>Invited Email</strong> ${email}</li>
+        </ul>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Secure Access (SSO Enabled)</div>
+        <p>
+          Zopkit uses password-less Single Sign-On.
+          Sign in securely using your email address.
+        </p>
+
+        <div class="sso-box">
+          <p>Your login link</p>
+          <a href="${loginUrl}" class="login-link">${loginUrl}</a>
         </div>
-      </body>
-      </html>
+      </div>
+
+      <div class="cta">
+        <a href="${loginUrl}">Accept Invitation</a>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Next Steps</div>
+        <ul class="steps">
+          <li>Sign in and confirm your account</li>
+          <li>Review your role and permissions</li>
+          <li>Explore your organization workspace</li>
+          <li>Start collaborating with your team</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>If you did not expect this invitation, you may safely ignore this email.</p>
+      <p class="signature">— The Zopkit Team</p>
+    </div>
+  </div>
+</body>
+</html>
     `;
 
     return await this.sendEmail({
@@ -419,7 +395,7 @@ class EmailService {
   }
 
   // Send user invitation email
-  async sendUserInvitation({ email, tenantName, roleName, invitationToken, invitedByName, message, invitedDate, expiryDate, organizations, locations }) {
+  async sendUserInvitation({ email, tenantName, roleName, invitationToken, invitedByName, message, invitedDate, expiryDate, organizations, locations, primaryOrganizationName }) {
     const subject = `You're invited to join ${tenantName} on Zopkit`;
 
     // Handle both token-based and direct URL invitations
@@ -758,7 +734,7 @@ class EmailService {
               <div class="details-grid">
                 <div class="detail-item">
                   <div class="detail-label">Organization</div>
-                  <div class="detail-value">${tenantName}</div>
+                  <div class="detail-value">${primaryOrganizationName || (organizations && organizations.length > 0 ? organizations[0] : tenantName)}</div>
                 </div>
                 <div class="detail-item">
                   <div class="detail-label">Your Role</div>

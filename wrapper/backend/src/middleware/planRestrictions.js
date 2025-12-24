@@ -51,30 +51,30 @@ export const checkApplicationAccess = (requiredApplication) => {
   return async (req, res, next) => {
     try {
       const tenantId = req.user?.tenantId;
-      
+
       if (!tenantId) {
-        return res.status(401).json({ 
-          success: false, 
-          error: 'Authentication required' 
+        return res.status(401).json({
+          success: false,
+          error: 'Authentication required'
         });
       }
 
       // Get current subscription
       const subscription = await SubscriptionService.getCurrentSubscription(tenantId);
-      
+
       if (!subscription) {
-        return res.status(403).json({ 
-          success: false, 
-          error: 'No active subscription found' 
+        return res.status(403).json({
+          success: false,
+          error: 'No active subscription found'
         });
       }
 
       // Check if application is allowed for current plan
       const planAccess = PLAN_APPLICATION_ACCESS[subscription.plan] || { applications: [] };
-      
+
       if (!planAccess.applications.includes(requiredApplication)) {
-        return res.status(403).json({ 
-          success: false, 
+        return res.status(403).json({
+          success: false,
           error: `Access to ${requiredApplication.toUpperCase()} application requires ${getMinimumPlanForApplication(requiredApplication)} plan or higher`,
           currentPlan: subscription.plan,
           requiredApplication,
@@ -87,9 +87,9 @@ export const checkApplicationAccess = (requiredApplication) => {
       next();
     } catch (error) {
       console.error('Application access check error:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Failed to verify application access' 
+      res.status(500).json({
+        success: false,
+        error: 'Failed to verify application access'
       });
     }
   };
@@ -100,30 +100,30 @@ export const checkModuleAccess = (requiredApplication, requiredModule) => {
   return async (req, res, next) => {
     try {
       const tenantId = req.user?.tenantId;
-      
+
       if (!tenantId) {
-        return res.status(401).json({ 
-          success: false, 
-          error: 'Authentication required' 
+        return res.status(401).json({
+          success: false,
+          error: 'Authentication required'
         });
       }
 
       // Get current subscription
       const subscription = await SubscriptionService.getCurrentSubscription(tenantId);
-      
+
       if (!subscription) {
-        return res.status(403).json({ 
-          success: false, 
-          error: 'No active subscription found' 
+        return res.status(403).json({
+          success: false,
+          error: 'No active subscription found'
         });
       }
 
       const planAccess = PLAN_APPLICATION_ACCESS[subscription.plan] || { applications: [], modules: {} };
-      
+
       // First check if application is allowed
       if (!planAccess.applications.includes(requiredApplication)) {
-        return res.status(403).json({ 
-          success: false, 
+        return res.status(403).json({
+          success: false,
           error: `Access to ${requiredApplication.toUpperCase()} application requires upgrade`,
           currentPlan: subscription.plan,
           requiredApplication,
@@ -133,11 +133,11 @@ export const checkModuleAccess = (requiredApplication, requiredModule) => {
 
       // Then check if specific module is allowed within the application
       const allowedModules = planAccess.modules[requiredApplication] || [];
-      
+
       // Check for wildcard access (enterprise plan)
       if (allowedModules !== '*' && !allowedModules.includes(requiredModule)) {
-        return res.status(403).json({ 
-          success: false, 
+        return res.status(403).json({
+          success: false,
           error: `Access to ${requiredModule} module in ${requiredApplication.toUpperCase()} requires ${getMinimumPlanForModule(requiredApplication, requiredModule)} plan or higher`,
           currentPlan: subscription.plan,
           requiredApplication,
@@ -151,9 +151,9 @@ export const checkModuleAccess = (requiredApplication, requiredModule) => {
       next();
     } catch (error) {
       console.error('Module access check error:', error);
-      res.status(500).json({ 
-        success: false, 
-        error: 'Failed to verify module access' 
+      res.status(500).json({
+        success: false,
+        error: 'Failed to verify module access'
       });
     }
   };
@@ -163,31 +163,30 @@ export const checkModuleAccess = (requiredApplication, requiredModule) => {
 export const checkUserLimit = async (request, reply) => {
   try {
     const tenantId = request.userContext?.tenantId;
-    
+
     if (!tenantId) {
-      return reply.code(401).send({ 
-        success: false, 
-        error: 'Authentication required' 
+      return reply.code(401).send({
+        success: false,
+        error: 'Authentication required'
       });
     }
 
     // Get current subscription
     const subscription = await SubscriptionService.getCurrentSubscription(tenantId);
-    
+
     if (!subscription) {
-      return reply.code(403).send({ 
-        success: false, 
-        error: 'No active subscription found' 
+      return reply.code(403).send({
+        success: false,
+        error: 'No active subscription found'
       });
     }
 
     const planLimits = PLAN_LIMITS[subscription.plan];
-    
+
     if (!planLimits) {
-      return reply.code(403).send({ 
-        success: false, 
-        error: 'Invalid subscription plan' 
-      });
+      console.warn(`⚠️ Unknown subscription plan: ${subscription.plan}, allowing request with unlimited access`);
+      request.subscription = subscription;
+      return;
     }
 
     // Check if plan has unlimited users
@@ -203,8 +202,8 @@ export const checkUserLimit = async (request, reply) => {
       .where(eq(tenantUsers.tenantId, tenantId));
 
     if (userCount.count >= planLimits.users) {
-      return reply.code(403).send({ 
-        success: false, 
+      return reply.code(403).send({
+        success: false,
         error: `Your ${subscription.plan} plan allows maximum ${planLimits.users} users. Current: ${userCount.count}`,
         currentPlan: subscription.plan,
         currentUsers: userCount.count,
@@ -216,9 +215,9 @@ export const checkUserLimit = async (request, reply) => {
     request.subscription = subscription;
   } catch (error) {
     console.error('User limit check error:', error);
-    return reply.code(500).send({ 
-      success: false, 
-      error: 'Failed to verify user limits' 
+    return reply.code(500).send({
+      success: false,
+      error: 'Failed to verify user limits'
     });
   }
 };
@@ -227,31 +226,30 @@ export const checkUserLimit = async (request, reply) => {
 export const checkRoleLimit = async (request, reply) => {
   try {
     const tenantId = request.userContext?.tenantId;
-    
+
     if (!tenantId) {
-      return reply.code(401).send({ 
-        success: false, 
-        error: 'Authentication required' 
+      return reply.code(401).send({
+        success: false,
+        error: 'Authentication required'
       });
     }
 
     // Get current subscription
     const subscription = await SubscriptionService.getCurrentSubscription(tenantId);
-    
+
     if (!subscription) {
-      return reply.code(403).send({ 
-        success: false, 
-        error: 'No active subscription found' 
+      return reply.code(403).send({
+        success: false,
+        error: 'No active subscription found'
       });
     }
 
     const planLimits = PLAN_LIMITS[subscription.plan];
-    
+
     if (!planLimits) {
-      return reply.code(403).send({ 
-        success: false, 
-        error: 'Invalid subscription plan' 
-      });
+      console.warn(`⚠️ Unknown subscription plan: ${subscription.plan}, allowing request with unlimited access`);
+      request.subscription = subscription;
+      return;
     }
 
     // Check if plan has unlimited roles
@@ -271,8 +269,8 @@ export const checkRoleLimit = async (request, reply) => {
     const allowedCustomRoles = Math.max(0, planLimits.roles - 1);
 
     if (customRolesCount >= allowedCustomRoles) {
-      return reply.code(403).send({ 
-        success: false, 
+      return reply.code(403).send({
+        success: false,
         error: `Your ${subscription.plan} plan allows maximum ${planLimits.roles} roles (including admin). Current custom roles: ${customRolesCount}`,
         currentPlan: subscription.plan,
         currentRoles: roleCount.count,
@@ -284,9 +282,9 @@ export const checkRoleLimit = async (request, reply) => {
     request.subscription = subscription;
   } catch (error) {
     console.error('Role limit check error:', error);
-    return reply.code(500).send({ 
-      success: false, 
-      error: 'Failed to verify role limits' 
+    return reply.code(500).send({
+      success: false,
+      error: 'Failed to verify role limits'
     });
   }
 };
@@ -316,20 +314,20 @@ function getMinimumPlanForModule(application, module) {
 export const getPlanLimits = async (req, res) => {
   try {
     const tenantId = req.user?.tenantId;
-    
+
     if (!tenantId) {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Authentication required' 
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required'
       });
     }
 
     const subscription = await SubscriptionService.getCurrentSubscription(tenantId);
-    
+
     if (!subscription) {
-      return res.status(403).json({ 
-        success: false, 
-        error: 'No active subscription found' 
+      return res.status(403).json({
+        success: false,
+        error: 'No active subscription found'
       });
     }
 
@@ -368,9 +366,9 @@ export const getPlanLimits = async (req, res) => {
     });
   } catch (error) {
     console.error('Error getting plan limits:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Failed to get plan limits' 
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get plan limits'
     });
   }
 };

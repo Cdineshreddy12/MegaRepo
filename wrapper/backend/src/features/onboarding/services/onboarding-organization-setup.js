@@ -75,19 +75,25 @@ class OnboardingOrganizationSetupService {
     }
   }
 
-  // Configure applications for new organization based on credit package
-  async configureApplicationsForNewOrganization(tenantId, creditPackage) {
+  // Configure applications for new organization based on credit package with modules from permission matrix
+  async configureApplicationsForNewOrganization(tenantId, creditPackage, organizationId = null) {
     try {
-      console.log('⚙️ Configuring applications for new organization:', { tenantId, creditPackage });
+      console.log('⚙️ Configuring applications for new organization:', { tenantId, creditPackage, organizationId });
 
-      // Map plan names to app codes (free plan gets all core apps)
-      const applicationsByPackage = {
-        free: ['crm', 'hr', 'affiliateConnect'], // Free plan gets all core apps
-        basic: ['crm'],
-        standard: ['crm', 'hr'],
-        premium: ['crm', 'hr', 'affiliateConnect'],
-        enterprise: ['crm', 'hr', 'affiliateConnect', 'accounting', 'inventory']
-      };
+      // Import permission matrix to get plan-based modules
+      const { PLAN_ACCESS_MATRIX } = await import('../../../data/permission-matrix.js');
+      const planAccess = PLAN_ACCESS_MATRIX[creditPackage];
+      
+      if (!planAccess) {
+        throw new Error(`Plan ${creditPackage} not found in PLAN_ACCESS_MATRIX`);
+      }
+
+      // Get applications and modules from permission matrix
+      const appCodes = planAccess.applications || [];
+      const modulesByApp = planAccess.modules || {};
+      
+      console.log(`📋 Assigning applications for ${creditPackage} plan:`, appCodes);
+      console.log(`📋 Modules per application:`, modulesByApp);
 
       // Normalize app codes to match database (case-insensitive matching)
       const normalizeAppCode = (code) => {
@@ -97,9 +103,6 @@ class OnboardingOrganizationSetupService {
         };
         return codeMap[code.toLowerCase()] || code;
       };
-
-      const appCodes = applicationsByPackage[creditPackage] || ['crm'];
-      console.log(`📋 Assigning applications for ${creditPackage} plan:`, appCodes);
 
       // Get application IDs from app codes
       const appRecords = await systemDbConnection
@@ -112,21 +115,44 @@ class OnboardingOrganizationSetupService {
         appCodeToIdMap[app.appCode] = app.appId;
       });
 
-      // Insert organization applications
+      // Calculate expiry date (1 year from now for free plan, or based on plan)
+      const expiryDate = new Date();
+      const expiryMonths = creditPackage === 'free' ? 12 : (creditPackage === 'enterprise' ? 24 : 12);
+      expiryDate.setMonth(expiryDate.getMonth() + expiryMonths);
+
+      // Insert organization applications with enabled modules from permission matrix
       const applicationsToInsert = [];
       for (const appCode of appCodes) {
         const normalizedCode = normalizeAppCode(appCode);
         const appId = appCodeToIdMap[normalizedCode];
         if (appId) {
+          // Get enabled modules for this application from permission matrix
+          const enabledModules = modulesByApp[appCode] || [];
+          
+          // If modules is '*', get all modules for this app (for enterprise plan)
+          let finalEnabledModules = enabledModules;
+          if (enabledModules === '*') {
+            // Get all modules for this application from application_modules table
+            const { applicationModules } = await import('../../../db/schema/suite-schema.js');
+            const allModules = await systemDbConnection
+              .select({ moduleCode: applicationModules.moduleCode })
+              .from(applicationModules)
+              .where(eq(applicationModules.appId, appId));
+            finalEnabledModules = allModules.map(m => m.moduleCode);
+          }
+          
           applicationsToInsert.push({
             id: uuidv4(),
             tenantId,
             appId,
             subscriptionTier: creditPackage,
             isEnabled: true,
-            enabledModules: [],
-            customPermissions: {}
+            enabledModules: finalEnabledModules, // CRITICAL FIX: Populate from permission matrix
+            customPermissions: {},
+            expiresAt: expiryDate
           });
+          
+          console.log(`✅ Application ${appCode} configured with modules:`, finalEnabledModules);
         } else {
           console.warn(`⚠️ Application with code ${normalizedCode} (original: ${appCode}) not found in database. Available apps:`, Object.keys(appCodeToIdMap));
         }
@@ -137,7 +163,7 @@ class OnboardingOrganizationSetupService {
           .insert(organizationApplications)
           .values(applicationsToInsert);
         
-        console.log(`✅ Successfully assigned ${applicationsToInsert.length} applications to tenant ${tenantId}`);
+        console.log(`✅ Successfully assigned ${applicationsToInsert.length} applications with modules to tenant ${tenantId}`);
       } else {
         console.warn(`⚠️ No applications were assigned to tenant ${tenantId}`);
       }
@@ -147,7 +173,11 @@ class OnboardingOrganizationSetupService {
         tenantId,
         creditPackage,
         applicationsConfigured: appCodes,
-        applicationsAssigned: applicationsToInsert.length
+        applicationsAssigned: applicationsToInsert.length,
+        modulesConfigured: applicationsToInsert.reduce((acc, app) => {
+          acc[app.appId] = app.enabledModules;
+          return acc;
+        }, {})
       };
 
     } catch (error) {

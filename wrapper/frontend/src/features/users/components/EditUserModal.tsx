@@ -1,5 +1,5 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+import { PearlButton } from '@/components/ui/pearl-button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { User } from '@/types/user-management';
@@ -39,7 +39,7 @@ export function EditUserModal({
             Edit user details for {user?.name || user?.email}
           </DialogDescription>
         </DialogHeader>
-        
+
         <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="name">Name *</Label>
@@ -84,12 +84,12 @@ export function EditUserModal({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <PearlButton variant="outline" onClick={onClose}>
             Cancel
-          </Button>
-          <Button onClick={onSave}>
+          </PearlButton>
+          <PearlButton onClick={onSave}>
             Save Changes
-          </Button>
+          </PearlButton>
         </DialogFooter>
       </DialogContent>
     </Dialog>

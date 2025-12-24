@@ -875,6 +875,15 @@ export const onboardingAPI = {
   // Reset onboarding status (for testing/admin purposes)
   reset: (targetUserId?: string) => 
     api.post('/onboarding/reset', targetUserId ? { targetUserId } : {}),
+
+  // Verification APIs
+  verifyPAN: async (pan: string, name?: string) => {
+    return await api.post('/onboarding/verify-pan', { pan, name })
+  },
+
+  verifyGSTIN: async (gstin: string, businessName?: string) => {
+    return await api.post('/onboarding/verify-gstin', { gstin, businessName })
+  },
 }
 
 // User Sync and Classification API

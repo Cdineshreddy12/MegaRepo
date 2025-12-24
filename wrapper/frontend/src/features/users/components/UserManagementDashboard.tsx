@@ -1,10 +1,10 @@
-import { UserManagementProvider } from './context/UserManagementContext';
+import { UserManagementProvider, useUserManagement } from './context/UserManagementContext';
 import { UserManagementContent } from './components/UserManagementContent';
 import { UserManagementModals } from './components/UserManagementModals';
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
-import { Section } from '@/components/common/Page/Section';
-import { UserPlus } from 'lucide-react';
-import { useUserManagement } from './context/UserManagementContext';
+import { UserPlus, AlertCircle, RefreshCcw } from 'lucide-react';
+import { PearlButton } from '@/components/ui/pearl-button';
+import { motion } from 'framer-motion';
 
 /**
  * Main User Management Dashboard Component
@@ -28,68 +28,73 @@ export function UserManagementDashboard() {
   );
 }
 
+import { Container } from '@/components/common/Page/Container';
+
 /**
  * Internal component that uses the UserManagement context
  */
 function UserManagementDashboardContent() {
   const { actions } = useUserManagement();
-  
-  const handleInviteUser = () => {
-    actions.openModal('invite');
-  };
-  
-  return (
-      <Section
-        title="User Management"
-        description="Manage team members, roles, and permissions"
-        headerActions={[
-          {
-            label: "Invite User",
-            onClick: handleInviteUser,
-            icon: UserPlus,
-            variant: "default"
-          }
-        ]}
-        variant="default"
-        size="md"
-        spacing="md"
-        showDivider={true}
-        
 
-      >
-        <UserManagementContent />
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: "easeOut" }}
+      className="h-full"
+    >
+      <Container className="h-full">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="space-y-1">
+            <h1 className="text-3xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-sky-400">
+              User Management
+            </h1>
+            <p className="text-muted-foreground text-sm max-w-2xl">
+              Manage team members, roles, and permissions across your organization.
+            </p>
+          </div>
+          <PearlButton
+            onClick={() => actions.openModal('invite')}
+            className="gap-2"
+          >
+            <UserPlus className="h-4 w-4" />
+            Invite User
+          </PearlButton>
+        </div>
+
+        <div className="flex-1 w-full min-w-0">
+          <UserManagementContent />
+        </div>
         <UserManagementModals />
-      </Section>
+      </Container>
+    </motion.div>
   );
 }
+
 
 /**
  * Error fallback component for user management
  */
 function UserManagementErrorFallback() {
   return (
-    <div className="p-6">
-      <Section 
-        title="User Management Error"
-        description="Something went wrong while loading the user management dashboard."
-        variant="filled"
-        size="md"
-        spacing="md"
-        showDivider={true}
-        headerActions={[
-          {
-            label: "Reload Page",
-            onClick: () => window.location.reload(),
-            variant: "destructive"
-          }
-        ]}
+    <div className="flex flex-col items-center justify-center p-12 w-full h-[60vh] space-y-6 text-center">
+      <div className="p-4 rounded-full bg-destructive/10 text-destructive">
+        <AlertCircle className="h-10 w-10" />
+      </div>
+      <div className="space-y-2 max-w-md">
+        <h2 className="text-2xl font-bold tracking-tight">User Management Error</h2>
+        <p className="text-muted-foreground">
+          Something went wrong while loading the user management dashboard.
+        </p>
+      </div>
+      <PearlButton
+        variant="outline"
+        onClick={() => window.location.reload()}
+        className="gap-2"
       >
-        <div className="text-center py-8">
-          <p className="text-muted-foreground">
-            Please try reloading the page or contact support if the issue persists.
-          </p>
-        </div>
-      </Section>
+        <RefreshCcw className="h-4 w-4" />
+        Reload Page
+      </PearlButton>
     </div>
   );
 }

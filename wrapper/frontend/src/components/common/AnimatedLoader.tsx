@@ -41,22 +41,22 @@ const AnimatedLoader: React.FC<AnimatedLoaderProps> = ({
             transform: rotate(90deg);
             box-shadow:
               0 10px 20px 0 #fff inset,
-              0 20px 30px 0 #ad5fff inset,
-              0 60px 60px 0 #471eec inset;
+              0 20px 30px 0 #60a5fa inset,
+              0 60px 60px 0 #2563eb inset;
           }
           50% {
             transform: rotate(270deg);
             box-shadow:
               0 10px 20px 0 #fff inset,
-              0 20px 10px 0 #d60a47 inset,
-              0 40px 60px 0 #311e80 inset;
+              0 20px 10px 0 #3b82f6 inset,
+              0 40px 60px 0 #1d4ed8 inset;
           }
           100% {
             transform: rotate(450deg);
             box-shadow:
               0 10px 20px 0 #fff inset,
-              0 20px 30px 0 #ad5fff inset,
-              0 60px 60px 0 #471eec inset;
+              0 20px 30px 0 #60a5fa inset,
+              0 60px 60px 0 #2563eb inset;
           }
         }
 

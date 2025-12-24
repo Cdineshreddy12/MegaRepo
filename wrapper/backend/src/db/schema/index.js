@@ -7,19 +7,20 @@ export * from './usage.js';
 export * from './suite-schema.js';
 export * from './webhook-logs.js';
 export * from './event-tracking.js';
+export * from './onboarding-form-data.js';
 
 // Export unified entities schema (replaces organizations.js and locations.js)
 export * from './unified-entities.js';
 export * from './organization_memberships.js';
 export * from './credits.js';
-export * from './credit_allocations.js';
 export * from './credit_purchases.js';
 export * from './credit_usage.js';
 export * from './credit_configurations.js';
-export * from './credit_allocations.js';
+// REMOVED: credit_allocations.js - Application-specific allocations removed (applications manage their own credits)
 export * from './responsible_persons.js';
 export * from './event-tracking.js';
 export * from './notifications.js';
+export * from './seasonal-credits.js';
 
 // Define relationships
 import { relations } from 'drizzle-orm';

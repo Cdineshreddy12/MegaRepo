@@ -1,28 +1,31 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import {
   Building,
   Package,
   Shield,
-  Save,
-  X,
-  ChevronDown,
-  ChevronRight,
   Check,
   AlertCircle,
   Users,
   Settings,
   Eye,
   Edit,
-  Trash2,
-  Plus,
-  Layers,
-  Coins
+  Search,
+  Activity,
+  Database,
+  Grid,
+  Lock,
+  Coins,
+  Filter,
+  Info,
+  Hash
 } from 'lucide-react';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Badge } from '@/components/ui/badge';
 import api from '@/lib/api';
 import { useTheme } from '@/components/theme/ThemeProvider';
-import Pattern from '@/components/ui/pattern-background';
 import { PearlButton } from '@/components/ui/pearl-button';
+import { cn } from '@/lib/utils';
 
 interface Application {
   appId: string;
@@ -47,6 +50,14 @@ interface Permission {
   name: string;
   description?: string;
   fullCode?: string;
+  creditCost?: {
+    cost: number;
+    unit: string;
+    isGlobal: boolean;
+  };
+  cost?: number;
+  unitMultiplier?: number;
+  unit?: string;
 }
 
 interface RoleBuilderData {
@@ -69,17 +80,17 @@ interface ApplicationModuleRoleBuilderProps {
   initialRole?: any;
 }
 
-export function ApplicationModuleRoleBuilder({ 
-  onSave, 
-  onCancel, 
-  initialRole 
+export function ApplicationModuleRoleBuilder({
+  onSave,
+  onCancel,
+  initialRole
 }: ApplicationModuleRoleBuilderProps) {
   const { actualTheme, glassmorphismEnabled } = useTheme();
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [expandedApps, setExpandedApps] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
+  const [builderSearchQuery, setBuilderSearchQuery] = useState('');
 
   // Role builder state
   const [roleData, setRoleData] = useState<RoleBuilderData>(() => {
@@ -98,7 +109,7 @@ export function ApplicationModuleRoleBuilder({
         }
       };
     }
-    
+
     return {
       roleName: '',
       description: '',
@@ -120,37 +131,29 @@ export function ApplicationModuleRoleBuilder({
       try {
         setLoading(true);
         setError(null);
-        
+
         console.log('🔍 Loading role builder options from applications/modules tables...');
-        
-        // Call the backend API that uses applications and modules tables
+
         const response = await api.get('/api/custom-roles/builder-options');
-        
+
         if (response.data.success) {
           const { applications: apps, totalApps, totalModules, totalPermissions } = response.data.data;
-          
           console.log(`✅ Loaded ${totalApps} applications, ${totalModules} modules, ${totalPermissions} permissions`);
-          
           setApplications(apps);
-          
-          // Expand all apps by default for better UX
-          setExpandedApps(new Set(apps.map((app: Application) => app.appCode)));
-          
-          // If editing an existing role, populate the selections
+
           if (initialRole) {
-            // Parse existing role permissions to rebuild selections
             const permissions = initialRole.permissions || [];
-            const parsedSelections = parseExistingPermissions(permissions, apps);
+            const parsedSelections = parseExistingPermissions(permissions);
             setRoleData(prev => ({
               ...prev,
               ...parsedSelections
             }));
           }
-          
+
         } else {
           setError('Failed to load applications and modules');
         }
-        
+
       } catch (err) {
         console.error('❌ Error loading role builder options:', err);
         setError('Failed to connect to server');
@@ -160,101 +163,141 @@ export function ApplicationModuleRoleBuilder({
     };
 
     loadRoleBuilderOptions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialRole]);
 
   // Parse existing role permissions into selection format
-  const parseExistingPermissions = (permissions: string[] | Record<string, any>, apps: Application[]) => {
+  const parseExistingPermissions = (permissions: string[] | Record<string, any>) => {
     const selectedApps: string[] = [];
     const selectedModules: Record<string, string[]> = {};
     const selectedPermissions: Record<string, string[]> = {};
 
     console.log('🔍 Parsing existing permissions:', permissions);
 
-    // Handle flat array format (e.g., ["crm.contacts.read", "crm.contacts.create"])
     if (Array.isArray(permissions)) {
       permissions.forEach(permission => {
         const parts = permission.split('.');
         if (parts.length >= 3) {
           const [appCode, moduleCode, permCode] = parts;
-          
-          // Add app if not already selected
-          if (!selectedApps.includes(appCode)) {
-            selectedApps.push(appCode);
-          }
-          
-          // Add module
-          if (!selectedModules[appCode]) {
-            selectedModules[appCode] = [];
-          }
-          if (!selectedModules[appCode].includes(moduleCode)) {
-            selectedModules[appCode].push(moduleCode);
-          }
-          
-          // Add permission
+          if (!selectedApps.includes(appCode)) selectedApps.push(appCode);
+          if (!selectedModules[appCode]) selectedModules[appCode] = [];
+          if (!selectedModules[appCode].includes(moduleCode)) selectedModules[appCode].push(moduleCode);
           const moduleKey = `${appCode}.${moduleCode}`;
-          if (!selectedPermissions[moduleKey]) {
-            selectedPermissions[moduleKey] = [];
-          }
+          if (!selectedPermissions[moduleKey]) selectedPermissions[moduleKey] = [];
           selectedPermissions[moduleKey].push(permCode);
         }
       });
-    } 
-    // Handle hierarchical object format (e.g., { crm: { contacts: ["read", "create"] } })
-    else if (typeof permissions === 'object' && permissions !== null) {
+    } else if (typeof permissions === 'object' && permissions !== null) {
       Object.entries(permissions).forEach(([appCode, appPermissions]) => {
         if (typeof appPermissions === 'object' && appPermissions !== null) {
-          // Add app
-          if (!selectedApps.includes(appCode)) {
-            selectedApps.push(appCode);
-          }
-          
+          if (!selectedApps.includes(appCode)) selectedApps.push(appCode);
           Object.entries(appPermissions).forEach(([moduleCode, modulePerms]) => {
             if (Array.isArray(modulePerms)) {
-              // Add module
-              if (!selectedModules[appCode]) {
-                selectedModules[appCode] = [];
-              }
-              if (!selectedModules[appCode].includes(moduleCode)) {
-                selectedModules[appCode].push(moduleCode);
-              }
-              
-              // Add permissions
+              if (!selectedModules[appCode]) selectedModules[appCode] = [];
+              if (!selectedModules[appCode].includes(moduleCode)) selectedModules[appCode].push(moduleCode);
               const moduleKey = `${appCode}.${moduleCode}`;
-              if (!selectedPermissions[moduleKey]) {
-                selectedPermissions[moduleKey] = [];
-              }
+              if (!selectedPermissions[moduleKey]) selectedPermissions[moduleKey] = [];
               selectedPermissions[moduleKey] = [...modulePerms];
             }
           });
         }
       });
     }
-
-    console.log('✅ Parsed permissions result:', { selectedApps, selectedModules, selectedPermissions });
     return { selectedApps, selectedModules, selectedPermissions };
   };
 
-  // Toggle application selection
-  const toggleAppSelection = (appCode: string) => {
+  // Toggle permission selection
+  const togglePermissionSelection = (appCode: string, moduleCode: string, permissionCode: string) => {
+    const moduleKey = `${appCode}.${moduleCode}`;
+
     setRoleData(prev => {
-      const newSelectedApps = prev.selectedApps.includes(appCode)
-        ? prev.selectedApps.filter(code => code !== appCode)
-        : [...prev.selectedApps, appCode];
-      
-      // If deselecting app, remove all its modules and permissions
+      const modulePermissions = prev.selectedPermissions[moduleKey] || [];
+      const isSelecting = !modulePermissions.includes(permissionCode);
+
+      let newSelectedApps = [...prev.selectedApps];
+      const newSelectedModules = { ...prev.selectedModules };
+
+      if (isSelecting) {
+        if (!newSelectedApps.includes(appCode)) newSelectedApps.push(appCode);
+        if (!newSelectedModules[appCode]) newSelectedModules[appCode] = [];
+        if (!newSelectedModules[appCode].includes(moduleCode)) newSelectedModules[appCode].push(moduleCode);
+      }
+
+      const newModulePermissions = isSelecting
+        ? [...modulePermissions, permissionCode]
+        : modulePermissions.filter(code => code !== permissionCode);
+
+      return {
+        ...prev,
+        selectedApps: newSelectedApps,
+        selectedModules: newSelectedModules,
+        selectedPermissions: {
+          ...prev.selectedPermissions,
+          [moduleKey]: newModulePermissions
+        }
+      };
+    });
+  };
+
+  // Select all permissions for a module
+  const selectAllModulePermissions = (appCode: string, moduleCode: string, shouldSelect: boolean = true) => {
+    const app = applications.find(a => a.appCode === appCode);
+    const module = app?.modules.find(m => m.moduleCode === moduleCode);
+
+    if (module) {
+      setRoleData(prev => {
+        const newSelectedPermissions = { ...prev.selectedPermissions };
+        const moduleKey = `${appCode}.${moduleCode}`;
+        let newSelectedApps = [...prev.selectedApps];
+        let newSelectedModules = { ...prev.selectedModules };
+
+        if (shouldSelect) {
+          newSelectedPermissions[moduleKey] = module.permissions.map(p => p.code);
+          if (!newSelectedApps.includes(appCode)) newSelectedApps.push(appCode);
+          if (!newSelectedModules[appCode]) newSelectedModules[appCode] = [];
+          if (!newSelectedModules[appCode].includes(moduleCode)) newSelectedModules[appCode].push(moduleCode);
+        } else {
+          delete newSelectedPermissions[moduleKey];
+          if (newSelectedModules[appCode]) {
+            newSelectedModules[appCode] = newSelectedModules[appCode].filter(m => m !== moduleCode);
+          }
+        }
+
+        return {
+          ...prev,
+          selectedApps: newSelectedApps,
+          selectedModules: newSelectedModules,
+          selectedPermissions: newSelectedPermissions
+        };
+      });
+    }
+  };
+
+  // Select all modules and permissions for an app
+  const selectAllAppPermissions = (appCode: string, shouldSelect: boolean = true) => {
+    const app = applications.find(a => a.appCode === appCode);
+    if (!app) return;
+
+    setRoleData(prev => {
+      let newSelectedApps = shouldSelect
+        ? (prev.selectedApps.includes(appCode) ? prev.selectedApps : [...prev.selectedApps, appCode])
+        : prev.selectedApps.filter(code => code !== appCode);
+
       const newSelectedModules = { ...prev.selectedModules };
       const newSelectedPermissions = { ...prev.selectedPermissions };
-      
-      if (!newSelectedApps.includes(appCode)) {
+
+      if (shouldSelect) {
+        newSelectedModules[appCode] = app.modules.map(m => m.moduleCode);
+        app.modules.forEach(m => {
+          newSelectedPermissions[`${appCode}.${m.moduleCode}`] = m.permissions.map(p => p.code);
+        });
+      } else {
         delete newSelectedModules[appCode];
-        // Remove all permissions for this app's modules
         Object.keys(newSelectedPermissions).forEach(key => {
-          if (key.startsWith(`${appCode}.`)) {
-            delete newSelectedPermissions[key];
-          }
+          if (key.startsWith(`${appCode}.`)) delete newSelectedPermissions[key];
         });
       }
-      
+
       return {
         ...prev,
         selectedApps: newSelectedApps,
@@ -264,81 +307,12 @@ export function ApplicationModuleRoleBuilder({
     });
   };
 
-  // Toggle module selection
-  const toggleModuleSelection = (appCode: string, moduleCode: string) => {
-    setRoleData(prev => {
-      const appModules = prev.selectedModules[appCode] || [];
-      const newAppModules = appModules.includes(moduleCode)
-        ? appModules.filter(code => code !== moduleCode)
-        : [...appModules, moduleCode];
-      
-      const newSelectedModules = {
-        ...prev.selectedModules,
-        [appCode]: newAppModules
-      };
-      
-      // If deselecting module, remove all its permissions
-      const newSelectedPermissions = { ...prev.selectedPermissions };
-      const moduleKey = `${appCode}.${moduleCode}`;
-      
-      if (!newAppModules.includes(moduleCode)) {
-        delete newSelectedPermissions[moduleKey];
-      }
-      
-      return {
-        ...prev,
-        selectedModules: newSelectedModules,
-        selectedPermissions: newSelectedPermissions
-      };
-    });
-  };
-
-  // Toggle permission selection
-  const togglePermissionSelection = (appCode: string, moduleCode: string, permissionCode: string) => {
-    const moduleKey = `${appCode}.${moduleCode}`;
-    
-    setRoleData(prev => {
-      const modulePermissions = prev.selectedPermissions[moduleKey] || [];
-      const newModulePermissions = modulePermissions.includes(permissionCode)
-        ? modulePermissions.filter(code => code !== permissionCode)
-        : [...modulePermissions, permissionCode];
-      
-      return {
-        ...prev,
-        selectedPermissions: {
-          ...prev.selectedPermissions,
-          [moduleKey]: newModulePermissions
-        }
-      };
-    });
-  };
-
-  // Quick select all permissions for a module
-  const selectAllModulePermissions = (appCode: string, moduleCode: string) => {
-    const app = applications.find(a => a.appCode === appCode);
-    const module = app?.modules.find(m => m.moduleCode === moduleCode);
-    
-    if (module) {
-      const moduleKey = `${appCode}.${moduleCode}`;
-      const allPermissions = module.permissions.map(p => p.code);
-      
-      setRoleData(prev => ({
-        ...prev,
-        selectedPermissions: {
-          ...prev.selectedPermissions,
-          [moduleKey]: allPermissions
-        }
-      }));
-    }
-  };
-
   // Calculate summary statistics
   const summary = useMemo(() => {
     const totalApps = roleData.selectedApps.length;
     const totalModules = Object.values(roleData.selectedModules).reduce((sum, modules) => sum + modules.length, 0);
     const totalPermissions = Object.values(roleData.selectedPermissions).reduce((sum, perms) => sum + perms.length, 0);
 
-    // Calculate estimated credit cost for selected permissions
     let estimatedCredits = 0;
     const selectedPermDetails: Array<{ code: string; cost: number; unit: string; isGlobal: boolean }> = [];
 
@@ -352,7 +326,6 @@ export function ApplicationModuleRoleBuilder({
             const selectedPerms = roleData.selectedPermissions[`${appCode}.${moduleCode}`] || [];
             selectedPerms.forEach(permCode => {
               const permission = module.permissions.find(p => p.code === permCode);
-              // NOTE: Fix: creditCost does not exist on type 'Permission', so check for .cost, .unit, .unitMultiplier, .isGlobal directly on permission
               if (
                 typeof permission?.creditCost === 'object' &&
                 permission.creditCost !== null &&
@@ -378,7 +351,92 @@ export function ApplicationModuleRoleBuilder({
     return { totalApps, totalModules, totalPermissions, estimatedCredits, selectedPermDetails };
   }, [roleData, applications]);
 
-  // Save role using the backend API
+  // Helper function to analyze permission type/risk for styling
+  const analyzePermissionType = (permCode: string) => {
+    const code = permCode.toLowerCase();
+
+    // High Risk: Admin/Delete/Manage - Soft Red Gradients
+    if (code.includes('admin') || code.includes('manage') || code.includes('delete')) {
+      return {
+        risk: 'high',
+        // Unselected
+        color: 'border-rose-100 bg-white hover:bg-rose-50/50 hover:border-rose-200 text-rose-700/70 dark:bg-slate-900 dark:border-rose-900/30 dark:text-rose-400/70',
+        // Selected - Light Gradient
+        selectedColor: 'bg-gradient-to-br from-rose-50 via-rose-100 to-red-100 border-rose-200 text-rose-900 shadow-sm dark:from-rose-900/40 dark:to-rose-800/20 dark:border-rose-700 dark:text-rose-100',
+        icon: <Lock className="w-3.5 h-3.5" />
+      };
+    }
+
+    // Medium Risk: Write/Edit/Create - Soft Amber/Orange Gradients
+    if (code.includes('write') || code.includes('edit') || code.includes('create') || code.includes('update')) {
+      return {
+        risk: 'medium',
+        // Unselected
+        color: 'border-amber-100 bg-white hover:bg-amber-50/50 hover:border-amber-200 text-amber-700/70 dark:bg-slate-900 dark:border-amber-900/30 dark:text-amber-400/70',
+        // Selected - Light Gradient
+        selectedColor: 'bg-gradient-to-br from-amber-50 via-orange-100 to-amber-100 border-amber-200 text-amber-900 shadow-sm dark:from-amber-900/40 dark:to-amber-800/20 dark:border-amber-700 dark:text-amber-100',
+        icon: <Edit className="w-3.5 h-3.5" />
+      };
+    }
+
+    // Low Risk: Read/View - Soft Emerald/Blue Gradients
+    return {
+      risk: 'low',
+      // Unselected
+      color: 'border-slate-100 bg-white hover:bg-slate-50 hover:border-slate-200 text-slate-600 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400',
+      // Selected - Light Gradient
+      selectedColor: 'bg-gradient-to-br from-emerald-50 via-teal-50 to-emerald-100 border-emerald-200 text-emerald-900 shadow-sm dark:from-emerald-900/40 dark:to-emerald-800/20 dark:border-emerald-700 dark:text-emerald-100',
+      icon: <Eye className="w-3.5 h-3.5" />
+    };
+  };
+
+  const getAppIcon = (appKey: string) => {
+    const key = appKey.toLowerCase();
+    const props = { className: "w-5 h-5" };
+    if (key.includes('crm') || key.includes('sales')) return <Users {...props} className="w-5 h-5 text-blue-500" />;
+    if (key.includes('inventory') || key.includes('product')) return <Package {...props} className="w-5 h-5 text-indigo-500" />;
+    if (key.includes('admin') || key.includes('auth')) return <Shield {...props} className="w-5 h-5 text-rose-500" />;
+    if (key.includes('hr') || key.includes('people')) return <Building {...props} className="w-5 h-5 text-emerald-500" />;
+    if (key.includes('billing') || key.includes('finance') || key.includes('payments')) return <Coins {...props} className="w-5 h-5 text-amber-500" />;
+    if (key.includes('analytics') || key.includes('reporting')) return <Activity {...props} className="w-5 h-5 text-violet-500" />;
+    if (key.includes('database') || key.includes('storage')) return <Database {...props} className="w-5 h-5 text-sky-500" />;
+    if (key.includes('settings') || key.includes('config')) return <Settings {...props} className="w-5 h-5 text-slate-500" />;
+    return <Grid {...props} className="w-5 h-5 text-slate-400" />;
+  };
+
+  const filteredApps = useMemo(() => {
+    if (!builderSearchQuery.trim()) return applications;
+
+    const query = builderSearchQuery.toLowerCase();
+    return applications.map(app => {
+      const appMatches = app.appName.toLowerCase().includes(query) ||
+        app.appCode.toLowerCase().includes(query) ||
+        app.description.toLowerCase().includes(query);
+
+      const filteredModules = app.modules.map(module => {
+        const moduleMatches = module.moduleName.toLowerCase().includes(query) ||
+          module.moduleCode.toLowerCase().includes(query) ||
+          module.description.toLowerCase().includes(query);
+
+        const filteredPermissions = module.permissions.filter(perm =>
+          perm.name.toLowerCase().includes(query) ||
+          perm.code.toLowerCase().includes(query) ||
+          (perm.description?.toLowerCase().includes(query))
+        );
+
+        if (moduleMatches || filteredPermissions.length > 0) {
+          return { ...module, permissions: filteredPermissions.length > 0 ? module.permissions : module.permissions };
+        }
+        return null;
+      }).filter(Boolean) as Module[];
+
+      if (appMatches || filteredModules.length > 0) {
+        return { ...app, modules: filteredModules.length > 0 ? filteredModules : app.modules };
+      }
+      return null;
+    }).filter(Boolean) as Application[];
+  }, [applications, builderSearchQuery]);
+
   const handleSave = async () => {
     if (!roleData.roleName.trim()) {
       toast.error('Please enter a role name');
@@ -392,15 +450,9 @@ export function ApplicationModuleRoleBuilder({
 
     try {
       setSaving(true);
-      
-      // Check if we're editing an existing role or creating a new one
       const isEditing = initialRole?.roleId;
-      const roleName = roleData.roleName;
-      
+
       if (isEditing) {
-        console.log('🔄 Updating existing role:', initialRole.roleId, 'with name:', roleName);
-        
-        // For editing, use the builder-specific update endpoint
         const response = await api.put(`/custom-roles/update-from-builder/${initialRole.roleId}`, {
           roleName: roleData.roleName,
           description: roleData.description,
@@ -409,19 +461,15 @@ export function ApplicationModuleRoleBuilder({
           selectedPermissions: roleData.selectedPermissions,
           restrictions: roleData.restrictions
         });
-        
+
         if (response.data.success) {
-          console.log('✅ Role updated successfully:', response.data.data);
-          toast.success(`Role "${roleData.roleName}" updated successfully with ${summary.totalPermissions} permissions!`);
+          toast.success(`Role "${roleData.roleName}" updated successfully!`);
           onSave?.(response.data.data);
         } else {
           toast.error('Failed to update role: ' + response.data.error);
         }
-        
+
       } else {
-        console.log('➕ Creating new role from applications and modules...', roleData);
-        
-        // Call the backend API that creates roles from apps/modules
         const response = await api.post('/api/custom-roles/create-from-builder', {
           roleName: roleData.roleName,
           description: roleData.description,
@@ -430,30 +478,37 @@ export function ApplicationModuleRoleBuilder({
           selectedPermissions: roleData.selectedPermissions,
           restrictions: roleData.restrictions
         });
-        
+
         if (response.data.success) {
-          console.log('✅ Role created successfully:', response.data.data);
-          toast.success(`Role "${roleData.roleName}" created successfully with ${summary.totalPermissions} permissions!`);
+          toast.success(`Role "${roleData.roleName}" created successfully!`);
           onSave?.(response.data.data);
         } else {
           toast.error('Failed to create role: ' + response.data.error);
         }
       }
-      
+
     } catch (error) {
       console.error('❌ Error saving role:', error);
+      const isEditing = initialRole?.roleId;
       toast.error(isEditing ? 'Failed to update role' : 'Failed to create role');
     } finally {
       setSaving(false);
     }
   };
 
+  const isDark = actualTheme === 'dark';
+  const isMono = actualTheme === 'monochrome';
+  const glass = glassmorphismEnabled;
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading applications and modules...</p>
+      <div className="flex h-screen w-full items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <div className="flex flex-col items-center gap-4">
+          <div className="relative h-12 w-12">
+            <div className="absolute h-full w-full rounded-full border-4 border-slate-200 dark:border-slate-800 opacity-30"></div>
+            <div className="absolute h-full w-full rounded-full border-4 border-t-blue-600 animate-spin"></div>
+          </div>
+          <p className="text-sm font-medium text-slate-500 dark:text-slate-400 animate-pulse">Initializing Builder...</p>
         </div>
       </div>
     );
@@ -461,12 +516,15 @@ export function ApplicationModuleRoleBuilder({
 
   if (error) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="text-center">
-          <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-4" />
-          <p className="text-red-600 mb-4">{error}</p>
+      <div className="flex h-screen w-full items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <div className="max-w-md text-center p-8 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl">
+          <div className="mx-auto h-16 w-16 bg-red-50 dark:bg-red-900/20 rounded-full flex items-center justify-center mb-6">
+            <AlertCircle className="w-8 h-8 text-red-500" />
+          </div>
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">Connection Error</h3>
+          <p className="text-slate-500 dark:text-slate-400 mb-6">{error}</p>
           <PearlButton onClick={() => window.location.reload()}>
-            Retry
+            Retry Connection
           </PearlButton>
         </div>
       </div>
@@ -474,1043 +532,396 @@ export function ApplicationModuleRoleBuilder({
   }
 
   return (
-    <div className={`min-h-screen rounded-xl relative ${
-      actualTheme === 'dark'
-        ? 'bg-black text-white'
-        : actualTheme === 'monochrome'
-        ? 'bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-gray-100'
-        : 'bg-gray-50 text-gray-900'
-    }`}>
-      {/* Background */}
-      <div className={`absolute inset-0 ${glassmorphismEnabled ? 'bg-gradient-to-br from-violet-100/30 via-purple-100/15 to-indigo-100/10 dark:from-slate-950/40 dark:via-slate-900/25 dark:to-slate-950/40 backdrop-blur-3xl' : ''}`}></div>
+    <div className={cn(
+      "h-screen flex flex-col font-sans selection:bg-blue-500/30 overflow-hidden",
+      isDark ? 'bg-slate-950 text-white' : isMono ? 'bg-zinc-950 text-zinc-100' : 'bg-slate-50 text-slate-900'
+    )}>
+      <style>{`
+        .no-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+        .no-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+      `}</style>
 
-      {/* Purple gradient glassy effect */}
-      {glassmorphismEnabled && (
-        <div className="absolute inset-0 bg-gradient-to-br from-purple-200/12 via-violet-200/8 to-indigo-200/10 dark:from-purple-500/10 dark:via-violet-500/6 dark:to-indigo-500/8 backdrop-blur-3xl"></div>
-      )}
-
-      {/* Background Pattern */}
-      {(actualTheme === 'dark' || actualTheme === 'monochrome') && (
-        <div className="absolute inset-0 opacity-30">
-          <Pattern />
-        </div>
-      )}
-
-      {/* Floating decorative elements for glassy mode */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className={`absolute top-16 left-16 w-48 h-48 rounded-full blur-3xl animate-pulse ${glassmorphismEnabled ? 'bg-gradient-to-r from-purple-200/20 to-violet-200/20 dark:from-purple-400/12 dark:to-violet-400/12 backdrop-blur-3xl border border-purple-300/30 dark:border-purple-600/30' : 'hidden'}`}></div>
-        <div className={`absolute top-32 right-32 w-44 h-44 rounded-full blur-3xl animate-pulse ${glassmorphismEnabled ? 'bg-gradient-to-r from-violet-200/20 to-indigo-200/20 dark:from-violet-400/10 dark:to-indigo-400/10 backdrop-blur-3xl border border-violet-300/30 dark:border-violet-600/30' : 'hidden'}`} style={{animationDelay: '1.5s'}}></div>
-        <div className={`absolute bottom-48 left-20 w-36 h-36 rounded-full blur-3xl animate-pulse ${glassmorphismEnabled ? 'bg-gradient-to-r from-indigo-200/20 to-purple-200/20 dark:from-indigo-400/8 dark:to-purple-400/8 backdrop-blur-3xl border border-indigo-300/30 dark:border-indigo-600/30' : 'hidden'}`} style={{animationDelay: '3s'}}></div>
-        <div className={`absolute top-1/2 right-16 w-28 h-28 rounded-full blur-2xl animate-pulse ${glassmorphismEnabled ? 'bg-gradient-to-r from-pink-200/15 to-purple-200/15 dark:from-pink-400/6 dark:to-purple-400/6 backdrop-blur-3xl border border-pink-300/30 dark:border-pink-600/30' : 'hidden'}`} style={{animationDelay: '4.5s'}}></div>
-
-        {/* Purple gradient glassy floating elements */}
-        {glassmorphismEnabled && (
-          <>
-            <div className="absolute top-1/4 left-1/3 w-32 h-32 rounded-full blur-2xl animate-pulse bg-gradient-to-r from-purple-200/12 to-violet-200/8 dark:from-purple-400/6 dark:to-violet-400/4 backdrop-blur-3xl border border-purple-300/40 dark:border-purple-600/25" style={{animationDelay: '2s'}}></div>
-            <div className="absolute bottom-1/4 right-1/3 w-24 h-24 rounded-full blur-xl animate-pulse bg-gradient-to-r from-violet-200/10 to-indigo-200/6 dark:from-violet-400/5 dark:to-indigo-400/3 backdrop-blur-3xl border border-violet-300/35 dark:border-violet-600/20" style={{animationDelay: '5.5s'}}></div>
-            <div className="absolute top-3/4 left-1/2 w-20 h-20 rounded-full blur-lg animate-pulse bg-gradient-to-r from-indigo-200/8 to-purple-200/6 dark:from-indigo-400/4 dark:to-purple-400/3 backdrop-blur-3xl border border-indigo-300/30 dark:border-indigo-600/15" style={{animationDelay: '7s'}}></div>
-          </>
-        )}
-      </div>
-
-      {/* Content with enhanced glassmorphism card effect */}
-      <div className="relative z-10">
-        {/* Purple gradient glassy effect */}
-        {glassmorphismEnabled && (
-          <div className="absolute inset-0 backdrop-blur-3xl bg-gradient-to-br from-purple-200/8 via-violet-200/5 to-indigo-200/6 dark:from-purple-500/6 dark:via-violet-500/3 dark:to-indigo-500/4 rounded-3xl"></div>
-        )}
-        <div className={`${glassmorphismEnabled ? 'backdrop-blur-3xl bg-purple-100/4 dark:bg-purple-900/6 border border-purple-300/60 dark:border-purple-600/50 rounded-3xl shadow-2xl ring-1 ring-purple-300/35 dark:ring-purple-600/25' : ''}`}>
-    <div className="max-w-7xl mx-auto p-4 md:p-6 space-y-6">
-      {/* Header */}
-      <div className={`rounded-xl shadow-lg p-6 md:p-8 ${
-        actualTheme === 'dark'
-          ? glassmorphismEnabled
-            ? 'bg-gradient-to-r from-purple-900 to-slate-900 text-white border border-purple-500/30'
-            : 'bg-slate-900 text-white border border-slate-700'
-          : actualTheme === 'monochrome'
-          ? 'bg-gradient-to-r from-gray-900 to-gray-800 text-gray-100 border border-gray-500/30'
-          : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white'
-      }`}>
-        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
-          <div className="flex-1">
-            <h2 className="text-2xl md:text-3xl font-bold flex items-center gap-3 mb-3">
-              <Shield className={`w-7 h-7 md:w-8 md:h-8 ${
-                actualTheme === 'dark'
-                  ? glassmorphismEnabled
-                    ? 'text-purple-300'
-                    : 'text-slate-300'
-                  : actualTheme === 'monochrome'
-                  ? 'text-gray-300'
-                  : 'text-blue-100'
-              }`} />
-              {initialRole?.roleId ? 'Edit Custom Role' : 'Create Custom Role'}
-            </h2>
-            <p className={`text-base md:text-lg leading-relaxed ${
-              actualTheme === 'dark'
-                ? glassmorphismEnabled
-                  ? 'text-purple-200'
-                  : 'text-slate-200'
-                : actualTheme === 'monochrome'
-                ? 'text-gray-300'
-                : 'text-blue-100'
-            }`}>
-              {initialRole?.roleId ? 'Update role permissions by selecting applications, modules, and specific permissions' : 'Build custom roles by selecting applications, modules, and specific permissions'}
+      {/* Header Section - Fixed Height */}
+      <div className={cn(
+        "flex-none flex items-center justify-between px-6 py-4 border-b z-20 transition-all",
+        isDark ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"
+      )}>
+        <div className="flex items-center gap-4">
+          <div className={cn(
+            "p-2.5 rounded-xl shadow-sm border",
+            isDark ? "bg-slate-900 border-slate-700" : "bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-100"
+          )}>
+            <Shield className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold tracking-tight">
+              {initialRole?.roleId ? 'Edit Custom Role' : 'Role Builder'}
+            </h1>
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 hidden sm:block">
+              {initialRole?.roleId ? 'Modify role permissions' : 'Create new role scope'}
             </p>
           </div>
-          
-          <div className="flex-shrink-0">
-            <div className={`rounded-xl p-4 text-center min-w-[140px] ${
-              actualTheme === 'dark'
-                ? glassmorphismEnabled
-                  ? 'bg-purple-800/30 backdrop-blur-sm border border-purple-500/30'
-                  : 'bg-slate-800/50 backdrop-blur-sm border border-slate-600'
-                : actualTheme === 'monochrome'
-                ? 'bg-gray-800/30 backdrop-blur-sm border border-gray-500/30'
-                : 'bg-white/20 backdrop-blur-sm'
-            }`}>
-              <div className={`text-sm font-medium mb-1 ${
-                actualTheme === 'dark'
-                  ? glassmorphismEnabled
-                    ? 'text-purple-200'
-                    : 'text-slate-200'
-                  : actualTheme === 'monochrome'
-                  ? 'text-gray-200'
-                  : 'text-white/90'
-              }`}>Available Resources</div>
-              <div className={`text-3xl font-bold mb-1 ${
-                actualTheme === 'dark'
-                  ? 'text-white'
-                  : actualTheme === 'monochrome'
-                  ? 'text-gray-100'
-                  : 'text-white'
-              }`}>{applications.length}</div>
-              <div className={`text-sm ${
-                actualTheme === 'dark'
-                  ? glassmorphismEnabled
-                    ? 'text-purple-300'
-                    : 'text-slate-300'
-                  : actualTheme === 'monochrome'
-                  ? 'text-gray-300'
-                  : 'text-blue-100'
-              }`}>Applications</div>
+        </div>
+
+        <div className="flex items-center gap-6">
+          <div className="flex gap-4">
+            <div className="text-right hidden md:block">
+              <span className="block text-[10px] uppercase tracking-wider text-slate-500 font-bold">Total Apps</span>
+              <span className="block text-lg font-bold leading-none">{applications.length}</span>
+            </div>
+            <div className="w-px h-8 bg-slate-200 dark:bg-slate-800 hidden md:block"></div>
+            <div className="text-right hidden md:block">
+              <span className="block text-[10px] uppercase tracking-wider text-slate-500 font-bold">Est. Cost</span>
+              <span className="block text-lg font-bold text-blue-600 dark:text-blue-400 leading-none">{summary.estimatedCredits.toFixed(0)}</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Role Details Form */}
-      <div className={`rounded-xl shadow-sm border p-6 ${
-        actualTheme === 'dark'
-          ? glassmorphismEnabled
-            ? 'bg-slate-900/95 border-purple-500/30'
-            : 'bg-slate-900 border-slate-700'
-          : actualTheme === 'monochrome'
-          ? 'bg-gray-900/95 border-gray-500/30'
-          : 'bg-white border-gray-200'
-      }`}>
-        <h3 className={`text-xl font-semibold mb-6 flex items-center gap-2 ${
-          actualTheme === 'dark'
-            ? glassmorphismEnabled
-              ? 'text-white'
-              : 'text-slate-100'
-            : actualTheme === 'monochrome'
-            ? 'text-gray-100'
-            : 'text-gray-900'
-        }`}>
-          <Users className={`w-5 h-5 ${
-            actualTheme === 'dark'
-              ? glassmorphismEnabled
-                ? 'text-purple-400'
-                : 'text-slate-400'
-              : actualTheme === 'monochrome'
-              ? 'text-gray-400'
-              : 'text-blue-600'
-          }`} />
-          Role Information
-        </h3>
-        
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="space-y-2">
-            <label className={`block text-sm font-semibold ${
-              actualTheme === 'dark'
-                ? glassmorphismEnabled
-                  ? 'text-purple-200'
-                  : 'text-slate-200'
-                : actualTheme === 'monochrome'
-                ? 'text-gray-200'
-                : 'text-gray-700'
-            }`}>
-              Role Name *
-            </label>
-            <input
-              type="text"
-              value={roleData.roleName}
-              onChange={(e) => setRoleData(prev => ({ ...prev, roleName: e.target.value }))}
-              placeholder="e.g., Sales Manager, HR Specialist, Project Lead"
-              className={`w-full px-4 py-3 border rounded-lg focus:ring-2 text-base transition-colors ${
-                actualTheme === 'dark'
-                  ? glassmorphismEnabled
-                    ? 'bg-slate-800/50 border-purple-500/30 text-white placeholder-purple-300 focus:ring-purple-500 focus:border-purple-500'
-                    : 'bg-slate-800 border-slate-600 text-white placeholder-slate-400 focus:ring-slate-400 focus:border-slate-400'
-                  : actualTheme === 'monochrome'
-                  ? 'bg-gray-800/50 border-gray-500/30 text-gray-100 placeholder-gray-400 focus:ring-gray-400 focus:border-gray-400'
-                  : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
-              }`}
-            />
-          </div>
-          
-          <div className="space-y-2">
-            <label className={`block text-sm font-semibold ${
-              actualTheme === 'dark'
-                ? glassmorphismEnabled
-                  ? 'text-purple-200'
-                  : 'text-slate-200'
-                : actualTheme === 'monochrome'
-                ? 'text-gray-200'
-                : 'text-gray-700'
-            }`}>
-              Description
-            </label>
-            <input
-              type="text"
-              value={roleData.description}
-              onChange={(e) => setRoleData(prev => ({ ...prev, description: e.target.value }))}
-              placeholder="Brief description of this role's responsibilities"
-              className={`w-full px-4 py-3 border rounded-lg focus:ring-2 text-base transition-colors ${
-                actualTheme === 'dark'
-                  ? glassmorphismEnabled
-                    ? 'bg-slate-800/50 border-purple-500/30 text-white placeholder-purple-300 focus:ring-purple-500 focus:border-purple-500'
-                    : 'bg-slate-800 border-slate-600 text-white placeholder-slate-400 focus:ring-slate-400 focus:border-slate-400'
-                  : actualTheme === 'monochrome'
-                  ? 'bg-gray-800/50 border-gray-500/30 text-gray-100 placeholder-gray-400 focus:ring-gray-400 focus:border-gray-400'
-                  : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
-              }`}
-            />
-          </div>
-        </div>
-      </div>
+      {/* Main Content Area - Flex Split Layout */}
+      <div className="flex-1 flex overflow-hidden">
 
-      {/* Progress Summary */}
-      <div className={`rounded-xl shadow-sm border p-6 ${
-        actualTheme === 'dark'
-          ? glassmorphismEnabled
-            ? 'bg-slate-900/95 border-purple-500/30'
-            : 'bg-slate-900 border-slate-700'
-          : actualTheme === 'monochrome'
-          ? 'bg-gray-900/95 border-gray-500/30'
-          : 'bg-white border-gray-200'
-      }`}>
-        <h3 className={`text-lg font-semibold mb-6 ${
-          actualTheme === 'dark'
-            ? glassmorphismEnabled
-              ? 'text-white'
-              : 'text-slate-100'
-            : actualTheme === 'monochrome'
-            ? 'text-gray-100'
-            : 'text-gray-900'
-        }`}>Selection Progress</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className={`rounded-xl p-5 ${
-            actualTheme === 'dark'
-              ? glassmorphismEnabled
-                ? 'bg-gradient-to-br from-purple-900/50 to-purple-800/50 border border-purple-500/30'
-                : 'bg-slate-800/50 border border-slate-600'
-              : actualTheme === 'monochrome'
-              ? 'bg-gradient-to-br from-gray-900/50 to-gray-800/50 border border-gray-500/30'
-              : 'bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200'
-          }`}>
-            <div className="flex items-center gap-4 mb-3">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-sm ${
-                actualTheme === 'dark'
-                  ? glassmorphismEnabled
-                    ? 'bg-purple-600'
-                    : 'bg-slate-600'
-                  : actualTheme === 'monochrome'
-                  ? 'bg-gray-600'
-                  : 'bg-blue-600'
-              }`}>
-                <Building className="w-6 h-6 text-white" />
+        {/* Left Panel: Compact Configuration (High-Density Column) */}
+        <div className={cn(
+          "w-[220px] flex-none overflow-y-auto no-scrollbar border-r z-10 transition-all",
+          isDark ? "bg-slate-950 border-slate-800" : "bg-white border-slate-200"
+        )}>
+          <div className="p-4 space-y-6">
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-slate-900 dark:text-white pb-2 border-b border-slate-100 dark:border-slate-800/50">
+                <Settings className="w-3.5 h-3.5 opacity-70" />
+                <h3 className="font-black text-[10px] uppercase tracking-widest">Config</h3>
               </div>
-              <div>
-                <div className={`text-2xl font-bold ${
-                  actualTheme === 'dark'
-                    ? glassmorphismEnabled
-                      ? 'text-purple-200'
-                      : 'text-slate-200'
-                    : actualTheme === 'monochrome'
-                    ? 'text-gray-200'
-                    : 'text-blue-800'
-                }`}>{summary.totalApps}</div>
-                <div className={`text-sm font-semibold ${
-                  actualTheme === 'dark'
-                    ? glassmorphismEnabled
-                      ? 'text-purple-300'
-                      : 'text-slate-300'
-                    : actualTheme === 'monochrome'
-                    ? 'text-gray-300'
-                    : 'text-blue-600'
-                }`}>Applications Selected</div>
-              </div>
-            </div>
-            <div className={`text-xs font-medium ${
-              actualTheme === 'dark'
-                ? glassmorphismEnabled
-                  ? 'text-purple-300'
-                  : 'text-slate-300'
-                : actualTheme === 'monochrome'
-                ? 'text-gray-300'
-                : 'text-blue-700'
-            }`}>
-              {summary.totalApps > 0 ? `${summary.totalApps} of ${applications.length} apps chosen` : 'No applications selected yet'}
-            </div>
-          </div>
-          
-          <div className={`rounded-xl p-5 ${
-            actualTheme === 'dark'
-              ? glassmorphismEnabled
-                ? 'bg-gradient-to-br from-green-900/50 to-green-800/50 border border-green-500/30'
-                : 'bg-slate-800/50 border border-slate-600'
-              : actualTheme === 'monochrome'
-              ? 'bg-gradient-to-br from-gray-900/50 to-gray-800/50 border border-gray-500/30'
-              : 'bg-gradient-to-br from-green-50 to-green-100 border border-green-200'
-          }`}>
-            <div className="flex items-center gap-4 mb-3">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-sm ${
-                actualTheme === 'dark'
-                  ? glassmorphismEnabled
-                    ? 'bg-green-600'
-                    : 'bg-slate-600'
-                  : actualTheme === 'monochrome'
-                  ? 'bg-gray-600'
-                  : 'bg-green-600'
-              }`}>
-                <Package className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <div className={`text-2xl font-bold ${
-                  actualTheme === 'dark'
-                    ? glassmorphismEnabled
-                      ? 'text-green-200'
-                      : 'text-slate-200'
-                    : actualTheme === 'monochrome'
-                    ? 'text-gray-200'
-                    : 'text-green-800'
-                }`}>{summary.totalModules}</div>
-                <div className={`text-sm font-semibold ${
-                  actualTheme === 'dark'
-                    ? glassmorphismEnabled
-                      ? 'text-green-300'
-                      : 'text-slate-300'
-                    : actualTheme === 'monochrome'
-                    ? 'text-gray-300'
-                    : 'text-green-600'
-                }`}>Modules Selected</div>
-              </div>
-            </div>
-            <div className={`text-xs font-medium ${
-              actualTheme === 'dark'
-                ? glassmorphismEnabled
-                  ? 'text-green-300'
-                  : 'text-slate-300'
-                : actualTheme === 'monochrome'
-                ? 'text-gray-300'
-                : 'text-green-700'
-            }`}>
-              {summary.totalModules > 0 ? `${summary.totalModules} modules across selected apps` : 'No modules selected yet'}
-            </div>
-          </div>
-          
-          <div className={`rounded-xl p-5 ${
-            actualTheme === 'dark'
-              ? glassmorphismEnabled
-                ? 'bg-gradient-to-br from-indigo-900/50 to-indigo-800/50 border border-indigo-500/30'
-                : 'bg-slate-800/50 border border-slate-600'
-              : actualTheme === 'monochrome'
-              ? 'bg-gradient-to-br from-gray-900/50 to-gray-800/50 border border-gray-500/30'
-              : 'bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200'
-          }`}>
-            <div className="flex items-center gap-4 mb-3">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-sm ${
-                actualTheme === 'dark'
-                  ? glassmorphismEnabled
-                    ? 'bg-indigo-600'
-                    : 'bg-slate-600'
-                  : actualTheme === 'monochrome'
-                  ? 'bg-gray-600'
-                  : 'bg-purple-600'
-              }`}>
-                <Shield className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <div className={`text-2xl font-bold ${
-                  actualTheme === 'dark'
-                    ? glassmorphismEnabled
-                      ? 'text-indigo-200'
-                      : 'text-slate-200'
-                    : actualTheme === 'monochrome'
-                    ? 'text-gray-200'
-                    : 'text-purple-800'
-                }`}>{summary.totalPermissions}</div>
-                <div className={`text-sm font-semibold ${
-                  actualTheme === 'dark'
-                    ? glassmorphismEnabled
-                      ? 'text-indigo-300'
-                      : 'text-slate-300'
-                    : actualTheme === 'monochrome'
-                    ? 'text-gray-300'
-                    : 'text-purple-600'
-                }`}>Permissions Selected</div>
-              </div>
-            </div>
-            <div className={`text-xs font-medium ${
-              actualTheme === 'dark'
-                ? glassmorphismEnabled
-                  ? 'text-indigo-300'
-                  : 'text-slate-300'
-                : actualTheme === 'monochrome'
-                ? 'text-gray-300'
-                : 'text-purple-700'
-            }`}>
-              {summary.totalPermissions > 0 ? `${summary.totalPermissions} specific operations enabled` : 'No permissions selected yet'}
-            </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Applications & Modules Selection */}
-      <div className={`rounded-xl shadow-sm border p-6 ${
-        actualTheme === 'dark'
-          ? glassmorphismEnabled
-            ? 'bg-slate-900/95 border-purple-500/30'
-            : 'bg-slate-900 border-slate-700'
-          : actualTheme === 'monochrome'
-          ? 'bg-gray-900/95 border-gray-500/30'
-          : 'bg-white border-gray-200'
-      }`}>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
-          <h3 className={`text-xl font-semibold flex items-center gap-3 ${
-            actualTheme === 'dark'
-              ? glassmorphismEnabled
-                ? 'text-white'
-                : 'text-slate-100'
-              : actualTheme === 'monochrome'
-              ? 'text-gray-100'
-              : 'text-gray-900'
-          }`}>
-            <Layers className={`w-6 h-6 ${
-              actualTheme === 'dark'
-                ? glassmorphismEnabled
-                  ? 'text-purple-400'
-                  : 'text-slate-400'
-                : actualTheme === 'monochrome'
-                ? 'text-gray-400'
-                : 'text-blue-600'
-            }`} />
-            Select Applications & Configure Permissions
-          </h3>
-          <div className={`text-sm text-right ${
-            actualTheme === 'dark'
-              ? glassmorphismEnabled
-                ? 'text-purple-300'
-                : 'text-slate-300'
-              : actualTheme === 'monochrome'
-              ? 'text-gray-300'
-              : 'text-gray-500'
-          }`}>
-            Click applications to expand and select modules and permissions
-          </div>
-        </div>
-
-        <div className="space-y-8">
-          {applications.map((app) => {
-            const isAppSelected = roleData.selectedApps.includes(app.appCode);
-            const isExpanded = expandedApps.has(app.appCode);
-            const selectedModules = roleData.selectedModules[app.appCode] || [];
-            
-            return (
-              <div 
-                key={app.appCode} 
-                className={`border-2 rounded-xl transition-all duration-200 ${
-                  isAppSelected 
-                    ? actualTheme === 'dark'
-                      ? glassmorphismEnabled
-                        ? 'border-purple-500/50 bg-purple-900/20 shadow-lg'
-                        : 'border-slate-500/50 bg-slate-800/30 shadow-lg'
-                      : actualTheme === 'monochrome'
-                      ? 'border-gray-500/50 bg-gray-900/20 shadow-lg'
-                      : 'border-blue-300 bg-blue-50 shadow-lg'
-                    : actualTheme === 'dark'
-                      ? glassmorphismEnabled
-                        ? 'border-purple-500/30 bg-slate-800/50 hover:border-purple-400/50 hover:shadow-md'
-                        : 'border-slate-500/30 bg-slate-800/70 hover:border-slate-400/50 hover:shadow-md'
-                      : actualTheme === 'monochrome'
-                      ? 'border-gray-500/30 bg-gray-800/50 hover:border-gray-400/50 hover:shadow-md'
-                    : 'border-gray-200 bg-white hover:border-gray-300 hover:shadow-md'
-                }`}
-              >
-                {/* Application Header */}
-                <div className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-5">
-                      <button
-                        onClick={() => toggleAppSelection(app.appCode)}
-                        className={`w-10 h-10 rounded-xl border-2 flex items-center justify-center transition-all duration-200 ${
-                          isAppSelected 
-                            ? actualTheme === 'dark'
-                              ? glassmorphismEnabled
-                                ? 'bg-purple-600 border-purple-600 text-white shadow-lg'
-                                : 'bg-slate-600 border-slate-600 text-white shadow-lg'
-                              : actualTheme === 'monochrome'
-                              ? 'bg-gray-600 border-gray-600 text-white shadow-lg'
-                              : 'bg-blue-600 border-blue-600 text-white shadow-lg'
-                            : actualTheme === 'dark'
-                              ? glassmorphismEnabled
-                                ? 'border-purple-500/30 hover:border-purple-400 hover:bg-purple-900/30'
-                                : 'border-slate-500/30 hover:border-slate-400 hover:bg-slate-800/40'
-                              : actualTheme === 'monochrome'
-                              ? 'border-gray-500/30 hover:border-gray-400 hover:bg-gray-900/30'
-                            : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'
-                        }`}
-                      >
-                        {isAppSelected && <Check className="w-5 h-5" />}
-                      </button>
-                      
-                      <div className="flex-1">
-                        <h4 className={`text-xl font-bold flex items-center gap-3 mb-2 ${
-                          actualTheme === 'dark'
-                            ? glassmorphismEnabled
-                              ? 'text-white'
-                              : 'text-slate-100'
-                            : actualTheme === 'monochrome'
-                            ? 'text-gray-100'
-                            : 'text-gray-900'
-                        }`}>
-                          <Building className={`w-6 h-6 ${
-                            actualTheme === 'dark'
-                              ? glassmorphismEnabled
-                                ? 'text-purple-400'
-                                : 'text-slate-400'
-                              : actualTheme === 'monochrome'
-                              ? 'text-gray-400'
-                              : 'text-blue-600'
-                          }`} />
-                          {app.appName}
-                        </h4>
-                        <p className={`mb-3 ${
-                          actualTheme === 'dark'
-                            ? glassmorphismEnabled
-                              ? 'text-purple-200'
-                              : 'text-slate-200'
-                            : actualTheme === 'monochrome'
-                            ? 'text-gray-300'
-                            : 'text-gray-600'
-                        }`}>{app.description}</p>
-                        <div className="flex items-center gap-4">
-                          <span className={`text-sm px-3 py-1 rounded-full font-medium ${
-                            actualTheme === 'dark'
-                              ? glassmorphismEnabled
-                                ? 'bg-purple-900/50 text-purple-200'
-                                : 'bg-slate-700/50 text-slate-200'
-                              : actualTheme === 'monochrome'
-                              ? 'bg-gray-900/50 text-gray-200'
-                              : 'bg-gray-100 text-gray-700'
-                          }`}>
-                            {app.modules.length} modules available
-                          </span>
-                          <span className={`text-sm px-3 py-1 rounded-full font-medium ${
-                            actualTheme === 'dark'
-                              ? glassmorphismEnabled
-                                ? 'bg-purple-800/50 text-purple-200'
-                                : 'bg-slate-600/50 text-slate-200'
-                              : actualTheme === 'monochrome'
-                              ? 'bg-gray-800/50 text-gray-200'
-                              : 'bg-blue-100 text-blue-700'
-                          }`}>
-                            {app.subscriptionTier} tier
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-6">
-                      {isAppSelected && (
-                        <div className="text-right">
-                          <div className={`text-lg font-bold ${
-                            actualTheme === 'dark'
-                              ? glassmorphismEnabled
-                                ? 'text-purple-300'
-                                : 'text-slate-300'
-                              : actualTheme === 'monochrome'
-                              ? 'text-gray-300'
-                              : 'text-blue-600'
-                          }`}>
-                            {selectedModules.length}/{app.modules.length}
-                          </div>
-                          <div className={`text-sm font-medium ${
-                            actualTheme === 'dark'
-                              ? glassmorphismEnabled
-                                ? 'text-purple-400'
-                                : 'text-slate-400'
-                              : actualTheme === 'monochrome'
-                              ? 'text-gray-400'
-                              : 'text-blue-600'
-                          }`}>modules selected</div>
-                        </div>
-                      )}
-                      <button
-                        onClick={() => setExpandedApps(prev => {
-                          const newSet = new Set(prev);
-                          if (newSet.has(app.appCode)) {
-                            newSet.delete(app.appCode);
-                          } else {
-                            newSet.add(app.appCode);
-                          }
-                          return newSet;
-                        })}
-                        className={`p-3 rounded-xl transition-colors ${
-                          isExpanded
-                            ? actualTheme === 'dark'
-                              ? glassmorphismEnabled
-                                ? 'bg-purple-900/50 text-purple-200'
-                                : 'bg-slate-700/50 text-slate-200'
-                              : actualTheme === 'monochrome'
-                              ? 'bg-gray-900/50 text-gray-200'
-                              : 'bg-gray-100 text-gray-700'
-                            : actualTheme === 'dark'
-                              ? glassmorphismEnabled
-                                ? 'hover:bg-purple-900/30 text-purple-300'
-                                : 'hover:bg-slate-800/40 text-slate-300'
-                              : actualTheme === 'monochrome'
-                              ? 'hover:bg-gray-900/30 text-gray-300'
-                              : 'hover:bg-gray-100 text-gray-500'
-                        }`}
-                      >
-                        {isExpanded ? (
-                          <ChevronDown className="w-6 h-6" />
-                        ) : (
-                          <ChevronRight className="w-6 h-6" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 ml-0.5">
+                    Role Name
+                  </label>
+                  <input
+                    type="text"
+                    value={roleData.roleName}
+                    onChange={(e) => setRoleData(prev => ({ ...prev, roleName: e.target.value }))}
+                    placeholder="Role ID..."
+                    className={cn(
+                      "w-full px-3 py-2 rounded-lg text-[11px] font-black transition-all outline-none border focus:ring-1",
+                      isDark
+                        ? "bg-slate-900 border-slate-800 text-white placeholder-slate-600 focus:border-blue-500"
+                        : "bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400 focus:bg-white focus:border-blue-500"
+                    )}
+                  />
                 </div>
 
-                {/* Modules */}
-                {isExpanded && isAppSelected && (
-                  <div className={`border-t p-6 ${
-                    actualTheme === 'dark'
-                      ? glassmorphismEnabled
-                        ? 'border-purple-500/30 bg-slate-800/60'
-                        : 'border-slate-600 bg-slate-800/70'
-                      : actualTheme === 'monochrome'
-                      ? 'border-gray-500/30 bg-gray-800/60'
-                      : 'border-blue-200 bg-white/90'
-                  }`}>
-                    <div className="mb-6">
-                      <h5 className={`text-lg font-semibold mb-2 ${
-                        actualTheme === 'dark'
-                          ? glassmorphismEnabled
-                            ? 'text-purple-200'
-                            : 'text-slate-200'
-                          : actualTheme === 'monochrome'
-                          ? 'text-gray-200'
-                          : 'text-gray-800'
-                      }`}>Available Modules</h5>
-                      <p className={`text-sm ${
-                        actualTheme === 'dark'
-                          ? glassmorphismEnabled
-                            ? 'text-purple-300'
-                            : 'text-slate-300'
-                          : actualTheme === 'monochrome'
-                          ? 'text-gray-300'
-                          : 'text-gray-600'
-                      }`}>Select modules to enable specific functionality within {app.appName}</p>
+                <div className="space-y-1">
+                  <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 ml-0.5">
+                    Purpose
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={roleData.description}
+                    onChange={(e) => setRoleData(prev => ({ ...prev, description: e.target.value }))}
+                    placeholder="Short desc..."
+                    className={cn(
+                      "w-full px-3 py-2 rounded-lg text-[11px] font-medium transition-all outline-none border focus:ring-1 resize-none",
+                      isDark
+                        ? "bg-slate-900 border-slate-800 text-white placeholder-slate-600 focus:border-blue-500"
+                        : "bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400 focus:bg-white focus:border-blue-500"
+                    )}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-slate-900 dark:text-white pb-2 border-b border-slate-100 dark:border-slate-800/50">
+                <Activity className="w-3.5 h-3.5 opacity-70" />
+                <h3 className="font-black text-[10px] uppercase tracking-widest">Metrics</h3>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2">
+                {[
+                  { val: summary.totalModules, label: 'Modules', color: 'text-slate-500', icon: Package },
+                  { val: summary.totalPermissions, label: 'Claims', color: 'text-blue-500', icon: Shield }
+                ].map((stat, i) => (
+                  <div key={i} className={cn(
+                    "p-3 rounded-xl border flex items-center gap-3",
+                    isDark ? "bg-slate-900 border-slate-800" : "bg-slate-50 border-slate-200"
+                  )}>
+                    <div className="p-1.5 bg-white dark:bg-slate-800 rounded-lg shadow-sm">
+                      <stat.icon className={cn("w-3.5 h-3.5", stat.color)} />
                     </div>
-                    
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                      {app.modules.map((module) => {
-                        const isModuleSelected = selectedModules.includes(module.moduleCode);
-                        const moduleKey = `${app.appCode}.${module.moduleCode}`;
-                        const selectedPermissions = roleData.selectedPermissions[moduleKey] || [];
-                        
-                        return (
-                          <div 
-                            key={module.moduleCode}
-                            className={`border-2 rounded-xl transition-all duration-200 ${
-                              isModuleSelected 
-                                ? actualTheme === 'dark'
-                                  ? glassmorphismEnabled
-                                    ? 'border-green-500/50 bg-green-900/30 shadow-md'
-                                    : 'border-green-600/50 bg-green-900/40 shadow-md'
-                                  : actualTheme === 'monochrome'
-                                  ? 'border-green-500/50 bg-green-900/30 shadow-md'
-                                  : 'border-green-300 bg-green-50 shadow-md'
-                                : actualTheme === 'dark'
-                                  ? glassmorphismEnabled
-                                    ? 'border-purple-500/30 bg-slate-700/40 hover:border-green-400/50'
-                                    : 'border-slate-600 bg-slate-700/50 hover:border-green-500/50'
-                                  : actualTheme === 'monochrome'
-                                  ? 'border-gray-500/30 bg-gray-700/40 hover:border-green-400/50'
-                                : 'border-gray-200 bg-white hover:border-green-200'
-                            }`}
-                          >
-                            {/* Module Header */}
-                            <div className="p-5">
-                              <div className="flex items-center justify-between mb-4">
-                                <div className="flex items-center gap-4">
-                                  <button
-                                    onClick={() => toggleModuleSelection(app.appCode, module.moduleCode)}
-                                    className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-all ${
-                                      isModuleSelected 
-                                        ? actualTheme === 'dark'
-                                          ? glassmorphismEnabled
-                                        ? 'bg-green-600 border-green-600 text-white' 
-                                            : 'bg-green-700 border-green-700 text-white'
-                                          : actualTheme === 'monochrome'
-                                          ? 'bg-green-600 border-green-600 text-white'
-                                          : 'bg-green-600 border-green-600 text-white'
-                                        : actualTheme === 'dark'
-                                          ? glassmorphismEnabled
-                                            ? 'border-purple-500/30 hover:border-green-400 hover:bg-green-900/30'
-                                            : 'border-slate-500/30 hover:border-green-500 hover:bg-green-900/40'
-                                          : actualTheme === 'monochrome'
-                                          ? 'border-gray-500/30 hover:border-green-400 hover:bg-green-900/30'
-                                        : 'border-gray-300 hover:border-green-400 hover:bg-green-50'
-                                    }`}
-                                  >
-                                    {isModuleSelected && <Check className="w-4 h-4" />}
-                                  </button>
-                                  
-                                  <div className="flex-1">
-                                    <h6 className={`font-bold flex items-center gap-2 mb-1 ${
-                                      actualTheme === 'dark'
-                                        ? glassmorphismEnabled
-                                          ? 'text-green-200'
-                                          : 'text-slate-200'
-                                        : actualTheme === 'monochrome'
-                                        ? 'text-gray-200'
-                                        : 'text-gray-900'
-                                    }`}>
-                                      <Package className={`w-4 h-4 ${
-                                        actualTheme === 'dark'
-                                          ? glassmorphismEnabled
-                                            ? 'text-green-400'
-                                            : 'text-green-500'
-                                          : actualTheme === 'monochrome'
-                                          ? 'text-green-400'
-                                          : 'text-green-600'
-                                      }`} />
+                    <div>
+                      <div className="text-lg font-black leading-none">{stat.val}</div>
+                      <div className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-0.5">{stat.label}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Panel: Matrix (Scrollable Area) */}
+        <div className={cn(
+          "flex-1 flex flex-col min-w-0 bg-slate-50/50 dark:bg-slate-950",
+          glass ? "backdrop-blur-sm" : ""
+        )}>
+          {/* Matrix Toolbar */}
+          <div className={cn(
+            "flex-none p-4 border-b flex items-center justify-between gap-4 z-20",
+            isDark ? "bg-slate-950 border-slate-800" : "bg-white border-slate-200"
+          )}>
+            <div className="flex items-center gap-3">
+              <div className="bg-blue-600 text-white p-1.5 rounded-md shadow-sm shadow-blue-500/30">
+                <Grid className="w-4 h-4" />
+              </div>
+              <span className="font-semibold text-sm text-slate-900 dark:text-slate-100">Permission Matrix</span>
+            </div>
+
+            <div className="relative w-full max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Filter permissions..."
+                value={builderSearchQuery}
+                onChange={(e) => setBuilderSearchQuery(e.target.value)}
+                className={cn(
+                  "w-full pl-9 pr-4 py-2 rounded-lg text-sm outline-none border transition-all",
+                  isDark
+                    ? "bg-slate-900 border-slate-800 text-white placeholder-slate-600 focus:border-blue-500"
+                    : "bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                )}
+              />
+            </div>
+          </div>
+
+          {/* Main Matrix Flow */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+            {filteredApps.length > 0 ? (
+              <Accordion type="single" collapsible className="space-y-4">
+                {filteredApps.map((app) => {
+                  const isAppSelected = roleData.selectedApps.includes(app.appCode);
+                  const totalAppPerms = app.modules.reduce((sum, m) => sum + m.permissions.length, 0);
+                  const selectedAppPerms = app.modules.reduce((sum, m) => sum + (roleData.selectedPermissions[`${app.appCode}.${m.moduleCode}`]?.length || 0), 0);
+                  const isAllAppSelected = selectedAppPerms === totalAppPerms && totalAppPerms > 0;
+
+                  return (
+                    <AccordionItem
+                      key={app.appCode}
+                      value={app.appCode}
+                      className={cn(
+                        "border rounded-3xl overflow-hidden transition-all shadow-sm",
+                        isAppSelected
+                          ? "border-blue-200 bg-blue-50/10 dark:border-blue-900/30 dark:bg-blue-900/5"
+                          : "bg-white dark:bg-slate-900/30 border-slate-100 dark:border-slate-800"
+                      )}
+                    >
+                      <AccordionTrigger className="px-6 py-5 hover:no-underline hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all [&[data-state=open]]:bg-blue-600/5 group/trigger">
+                        <div className="flex items-center justify-between w-full pr-6 text-left" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center gap-5">
+                            <div className={cn(
+                              "w-12 h-12 rounded-2xl flex items-center justify-center transition-all border relative shadow-sm",
+                              isAppSelected ? "bg-blue-600 border-blue-500 text-white shadow-blue-500/20" : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400"
+                            )}>
+                              {getAppIcon(app.appCode)}
+                              {isAppSelected && <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-500 rounded-full animate-pulse border-2 border-white dark:border-slate-800" />}
+                            </div>
+                            <div>
+                              <div className="text-[14px] font-black text-slate-900 dark:text-white uppercase flex items-center gap-3 leading-none tracking-tight">
+                                {app.appName}
+                                <Badge variant="outline" className="text-[9px] h-4.5 px-2 font-black border-slate-200 dark:border-slate-700 uppercase tracking-widest">{app.appCode}</Badge>
+                              </div>
+                              <div className="flex items-center gap-3 mt-1.5 opacity-60">
+                                <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest">{app.modules.length} Modules</span>
+                                <div className="w-1 h-1 rounded-full bg-slate-300" />
+                                <span className="text-[10px] text-blue-600 dark:text-blue-400 font-black uppercase tracking-widest">{selectedAppPerms}/{totalAppPerms} ACQUISITIONS</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-6">
+                            <div className="flex flex-col items-end gap-1.5 pt-1">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); selectAllAppPermissions(app.appCode, !isAllAppSelected); }}
+                                className={cn(
+                                  "px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border",
+                                  isAllAppSelected
+                                    ? "bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-500/10"
+                                    : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 hover:border-blue-400 hover:text-blue-600"
+                                )}
+                              >
+                                {isAllAppSelected ? 'All Domains Active' : 'Sync Full Domain'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent className="p-0 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-950/20">
+                        <div className="divide-y divide-slate-100 dark:divide-slate-800/50">
+                          {app.modules.map((module) => {
+                            const moduleKey = `${app.appCode}.${module.moduleCode}`;
+                            const selectedPerms = roleData.selectedPermissions[moduleKey] || [];
+                            const isAllModuleSelected = selectedPerms.length === module.permissions.length && module.permissions.length > 0;
+                            const isModuleActive = selectedPerms.length > 0;
+
+                            return (
+                              <div key={module.moduleCode} className={cn(
+                                "p-6 grid grid-cols-12 gap-8 items-start transition-all",
+                                isModuleActive ? "bg-blue-50/20 dark:bg-blue-900/5" : "hover:bg-slate-50/50 dark:hover:bg-slate-800/30"
+                              )}>
+                                {/* Module Identity Column */}
+                                <div className="col-span-2 border-r border-slate-100 dark:border-slate-800 pr-6 space-y-4 pt-1">
+                                  <div>
+                                    <h4 className={cn(
+                                      "text-[12px] font-black uppercase tracking-tight leading-4 mb-1",
+                                      isModuleActive ? "text-blue-600 dark:text-blue-400" : "text-slate-900 dark:text-slate-200"
+                                    )}>
                                       {module.moduleName}
-                                      {module.isCore && (
-                                        <span className={`text-xs px-2 py-1 rounded-md font-medium ${
-                                          actualTheme === 'dark'
-                                            ? glassmorphismEnabled
-                                              ? 'bg-orange-900/50 text-orange-300'
-                                              : 'bg-orange-800/50 text-orange-200'
-                                            : actualTheme === 'monochrome'
-                                            ? 'bg-orange-900/50 text-orange-300'
-                                            : 'bg-orange-100 text-orange-700'
-                                        }`}>
-                                          CORE
-                                        </span>
+                                    </h4>
+                                    <div className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">{module.moduleCode}</div>
+                                  </div>
+
+                                  <div className="space-y-3 pt-3">
+                                    <button
+                                      onClick={() => selectAllModulePermissions(app.appCode, module.moduleCode, !isAllModuleSelected)}
+                                      className={cn(
+                                        "w-full py-1.5 px-3 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all border text-center",
+                                        isAllModuleSelected
+                                          ? "bg-blue-600 border-blue-500 text-white"
+                                          : isModuleActive
+                                            ? "bg-blue-50 border-blue-200 text-blue-600"
+                                            : "bg-slate-50 border-slate-200 text-slate-400 hover:bg-white"
                                       )}
-                                    </h6>
-                                    <p className={`text-sm ${
-                                      actualTheme === 'dark'
-                                        ? glassmorphismEnabled
-                                          ? 'text-green-300'
-                                          : 'text-slate-300'
-                                        : actualTheme === 'monochrome'
-                                        ? 'text-gray-300'
-                                        : 'text-gray-600'
-                                    }`}>{module.description}</p>
+                                    >
+                                      {isAllModuleSelected ? 'FULL SYNC' : isModuleActive ? 'PARTIAL' : 'NOT ACTIVE'}
+                                    </button>
+                                    <div className="flex justify-between items-center px-1.5 opacity-50">
+                                      <span className="text-[8px] font-black uppercase text-slate-400 tracking-tighter">Impact Score</span>
+                                      <span className="text-[9px] font-black text-slate-800 dark:text-slate-300 tracking-tighter">{(module.permissions.length * 0.5).toFixed(1)} CR/T</span>
+                                    </div>
                                   </div>
                                 </div>
-                                
-                                {isModuleSelected && (
-                                  <div className="text-right">
-                                    <div className={`text-base font-bold ${
-                                      actualTheme === 'dark'
-                                        ? glassmorphismEnabled
-                                          ? 'text-green-400'
-                                          : 'text-green-300'
-                                        : actualTheme === 'monochrome'
-                                        ? 'text-green-400'
-                                        : 'text-green-600'
-                                    }`}>
-                                      {selectedPermissions.length}/{module.permissions.length}
-                                    </div>
-                                    <div className={`text-xs font-medium ${
-                                      actualTheme === 'dark'
-                                        ? glassmorphismEnabled
-                                          ? 'text-green-500'
-                                          : 'text-green-400'
-                                        : actualTheme === 'monochrome'
-                                        ? 'text-green-500'
-                                        : 'text-green-600'
-                                    }`}>permissions</div>
-                                  </div>
-                                )}
-                              </div>
 
-                              {/* Permissions */}
-                              {isModuleSelected && (
-                                <div className={`mt-5 pt-5 border-t ${
-                                  actualTheme === 'dark'
-                                    ? glassmorphismEnabled
-                                      ? 'border-green-500/30'
-                                      : 'border-green-600/30'
-                                    : actualTheme === 'monochrome'
-                                    ? 'border-green-500/30'
-                                    : 'border-green-200'
-                                }`}>
-                                  <div className="flex items-center justify-between mb-4">
-                                    <h6 className={`text-sm font-semibold flex items-center gap-2 ${
-                                      actualTheme === 'dark'
-                                        ? glassmorphismEnabled
-                                          ? 'text-green-200'
-                                          : 'text-slate-200'
-                                        : actualTheme === 'monochrome'
-                                        ? 'text-gray-200'
-                                        : 'text-gray-700'
-                                    }`}>
-                                      <Shield className={`w-4 h-4 ${
-                                        actualTheme === 'dark'
-                                          ? glassmorphismEnabled
-                                            ? 'text-purple-400'
-                                            : 'text-purple-500'
-                                          : actualTheme === 'monochrome'
-                                          ? 'text-purple-400'
-                                          : 'text-purple-600'
-                                      }`} />
-                                      Permissions ({module.permissions.length} available)
-                                    </h6>
-                                    <PearlButton
-                                      onClick={() => selectAllModulePermissions(app.appCode, module.moduleCode)}
-                                      variant="outline"
-                                      size="sm"
-                                    >
-                                      Select All
-                                    </PearlButton>
-                                  </div>
-                                  
-                                  <div className="grid grid-cols-1 gap-3 max-h-60 overflow-y-auto">
-                                    {module.permissions.map((permission) => {
-                                      const isPermSelected = selectedPermissions.includes(permission.code);
+                                {/* Capability Matrix Grid (Fixed 6-Column) */}
+                                <div className="col-span-10">
+                                  <div className="grid grid-cols-6 gap-3">
+                                    {module.permissions.map((perm) => {
+                                      const isPermSelected = selectedPerms.includes(perm.code);
+                                      const { icon, risk } = analyzePermissionType(perm.code);
 
                                       return (
-                                        <label
-                                          key={permission.code}
-                                          className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all duration-150 ${
+                                        <button
+                                          key={perm.code}
+                                          onClick={() => togglePermissionSelection(app.appCode, module.moduleCode, perm.code)}
+                                          className={cn(
+                                            "group/chip relative flex flex-col gap-2 p-3 rounded-2xl border transition-all hover:shadow-xl text-left h-full select-none",
                                             isPermSelected
-                                              ? actualTheme === 'dark'
-                                                ? glassmorphismEnabled
-                                                  ? 'border-purple-500/50 bg-purple-900/30 shadow-sm'
-                                                  : 'border-purple-600/50 bg-purple-900/40 shadow-sm'
-                                                : actualTheme === 'monochrome'
-                                                ? 'border-purple-500/50 bg-purple-900/30 shadow-sm'
-                                                : 'border-purple-300 bg-purple-50 shadow-sm'
-                                              : actualTheme === 'dark'
-                                                ? glassmorphismEnabled
-                                                  ? 'border-purple-500/30 hover:border-purple-400/50 hover:bg-purple-900/20'
-                                                  : 'border-slate-600 hover:border-purple-500/50 hover:bg-purple-900/30'
-                                                : actualTheme === 'monochrome'
-                                                ? 'border-gray-500/30 hover:border-purple-400/50 hover:bg-purple-900/20'
-                                              : 'border-gray-200 hover:border-purple-200 hover:bg-purple-25'
-                                          }`}
+                                              ? risk === 'high' ? "bg-rose-50 border-rose-200 dark:bg-rose-900/20 dark:border-rose-800 shadow-rose-500/5 shadow-inner"
+                                                : risk === 'medium' ? "bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800 shadow-amber-500/5 shadow-inner"
+                                                  : "bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800 shadow-blue-500/5 shadow-inner"
+                                              : "bg-white dark:bg-slate-900/40 border-slate-100 dark:border-slate-800 hover:border-blue-200 dark:hover:border-blue-800/50 shadow-sm"
+                                          )}
+                                          title={perm.description}
                                         >
-                                          <input
-                                            type="checkbox"
-                                            checked={isPermSelected}
-                                            onChange={() => togglePermissionSelection(app.appCode, module.moduleCode, permission.code)}
-                                            className={`w-4 h-4 rounded focus:ring-2 ${
-                                              actualTheme === 'dark'
-                                                ? glassmorphismEnabled
-                                                  ? 'text-purple-600 border-purple-500/30 focus:ring-purple-500'
-                                                  : 'text-purple-500 border-slate-500 focus:ring-purple-400'
-                                                : actualTheme === 'monochrome'
-                                                ? 'text-purple-600 border-gray-500/30 focus:ring-purple-500'
-                                                : 'text-purple-600 border-gray-300 focus:ring-purple-500'
-                                            }`}
-                                          />
-                                          <div className="flex-1">
-                                            <div className="flex items-center justify-between">
-                                              <span className={`font-medium text-sm ${
-                                                isPermSelected
-                                                  ? actualTheme === 'dark'
-                                                    ? glassmorphismEnabled
-                                                      ? 'text-purple-200'
-                                                      : 'text-purple-100'
-                                                    : actualTheme === 'monochrome'
-                                                    ? 'text-purple-200'
-                                                    : 'text-purple-800'
-                                                  : actualTheme === 'dark'
-                                                    ? glassmorphismEnabled
-                                                      ? 'text-purple-300'
-                                                      : 'text-slate-300'
-                                                    : actualTheme === 'monochrome'
-                                                    ? 'text-gray-300'
-                                                    : 'text-gray-700'
-                                              }`}>
-                                                {permission.name}
-                                              </span>
-                                              {permission.creditCost && (
-                                                <div className="flex items-center gap-2">
-                                                  <Coins className={`w-3 h-3 ${
-                                                    actualTheme === 'dark'
-                                                      ? 'text-yellow-400'
-                                                      : actualTheme === 'monochrome'
-                                                      ? 'text-yellow-400'
-                                                      : 'text-yellow-500'
-                                                  }`} />
-                                                  <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                                                    permission.creditCost.isGlobal
-                                                      ? actualTheme === 'dark'
-                                                        ? glassmorphismEnabled
-                                                          ? 'bg-blue-900/50 text-blue-300'
-                                                          : 'bg-blue-800/50 text-blue-200'
-                                                        : actualTheme === 'monochrome'
-                                                        ? 'bg-blue-900/50 text-blue-300'
-                                                        : 'bg-blue-100 text-blue-700'
-                                                      : actualTheme === 'dark'
-                                                        ? glassmorphismEnabled
-                                                          ? 'bg-green-900/50 text-green-300'
-                                                          : 'bg-green-800/50 text-green-200'
-                                                        : actualTheme === 'monochrome'
-                                                        ? 'bg-green-900/50 text-green-300'
-                                                      : 'bg-green-100 text-green-700'
-                                                  }`}>
-                                                    {permission.creditCost.cost} credits
-                                                  </span>
-                                                  <span className={`text-xs ${
-                                                    actualTheme === 'dark'
-                                                      ? glassmorphismEnabled
-                                                        ? 'text-purple-400'
-                                                        : 'text-slate-400'
-                                                      : actualTheme === 'monochrome'
-                                                      ? 'text-gray-400'
-                                                      : 'text-gray-400'
-                                                  }`}>
-                                                    per {permission.creditCost.unit}
-                                                  </span>
-                                                </div>
-                                              )}
-                                              {!permission.creditCost && (
-                                                <span className={`text-xs italic ${
-                                                  actualTheme === 'dark'
-                                                    ? glassmorphismEnabled
-                                                      ? 'text-purple-400'
-                                                      : 'text-slate-400'
-                                                    : actualTheme === 'monochrome'
-                                                    ? 'text-gray-400'
-                                                    : 'text-gray-400'
-                                                }`}>No credit cost configured</span>
-                                              )}
+                                          <div className="flex items-start justify-between">
+                                            <div className={cn(
+                                              "p-1 rounded-lg",
+                                              isPermSelected ? "bg-white/50 dark:bg-slate-950/50" : "opacity-40"
+                                            )}>
+                                              {icon}
                                             </div>
-                                            {permission.description && (
-                                              <p className={`text-xs mt-1 ${
-                                                isPermSelected
-                                                  ? actualTheme === 'dark'
-                                                    ? glassmorphismEnabled
-                                                      ? 'text-purple-400'
-                                                      : 'text-purple-300'
-                                                    : actualTheme === 'monochrome'
-                                                    ? 'text-purple-400'
-                                                    : 'text-purple-600'
-                                                  : actualTheme === 'dark'
-                                                    ? glassmorphismEnabled
-                                                      ? 'text-purple-500'
-                                                      : 'text-slate-400'
-                                                    : actualTheme === 'monochrome'
-                                                    ? 'text-gray-400'
-                                                    : 'text-gray-500'
-                                              }`}>
-                                                {permission.description}
-                                              </p>
-                                            )}
+                                            <Badge variant="outline" className={cn(
+                                              "text-[7px] h-3.5 px-1 font-black leading-none uppercase border-none",
+                                              isPermSelected ? "text-blue-600" : "text-slate-300"
+                                            )}>
+                                              {isPermSelected ? 'ACTIVE' : 'READY'}
+                                            </Badge>
                                           </div>
-                                        </label>
+
+                                          <div className="flex-1 min-w-0">
+                                            <div className={cn(
+                                              "text-[10px] font-black uppercase leading-tight truncate tracking-tight mb-0.5",
+                                              isPermSelected ? "text-slate-900 dark:text-white" : "text-slate-500"
+                                            )}>
+                                              {perm.name}
+                                            </div>
+                                            <div className="text-[8px] font-bold text-slate-400 flex items-center gap-1 uppercase tracking-tighter">
+                                              <Hash className="w-2 h-2" /> {perm.code}
+                                            </div>
+                                          </div>
+
+                                          {isPermSelected && (
+                                            <div className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                                          )}
+                                        </button>
                                       );
                                     })}
                                   </div>
                                 </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Action Buttons */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="text-sm space-y-2">
-            {summary.totalPermissions > 0 ? (
-              <div className="space-y-2">
-                <span className="text-green-600 font-medium flex items-center gap-2">
-                  <Check className="w-4 h-4" />
-                  Ready to {initialRole?.roleId ? 'update' : 'create'} role with {summary.totalPermissions} permissions
-                </span>
-                {summary.estimatedCredits > 0 && (
-                  <div className="flex items-center gap-2 text-blue-600">
-                    <span className="font-medium">Estimated cost:</span>
-                    <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs font-semibold">
-                      {summary.estimatedCredits.toFixed(2)} credits per operation
-                    </span>
-                    <span className="text-xs text-blue-500">
-                      ({summary.selectedPermDetails.length} operations configured)
-                    </span>
-                  </div>
-                )}
-              </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  );
+                })}
+              </Accordion>
             ) : (
-              <span className="text-amber-600 font-medium flex items-center gap-2">
-                <AlertCircle className="w-4 h-4" />
-                Please select at least one permission to continue
-              </span>
+              <div className="h-full flex flex-col items-center justify-center p-12 text-center opacity-60">
+                <Filter className="w-16 h-16 text-slate-200 dark:text-slate-800 mb-6" />
+                <h4 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-widest">No Architecture Detected</h4>
+                <p className="text-sm font-bold text-slate-400 uppercase mt-2 tracking-widest opacity-60">Synchronize search query to re-initialize matrix</p>
+              </div>
             )}
           </div>
-          
-          <div className="flex gap-4 w-full sm:w-auto">
-            <PearlButton
-              onClick={onCancel}
-              variant="secondary"
-              className="flex-1 sm:flex-none"
-            >
-              Cancel
-            </PearlButton>
-            <PearlButton
-              onClick={handleSave}
-              disabled={saving || !roleData.roleName.trim() || summary.totalPermissions === 0}
-              className="flex-1 sm:flex-none"
-            >
-              {saving ? (
-                <>
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                  <span className="hidden sm:inline">{initialRole?.roleId ? 'Updating Role...' : 'Creating Role...'}</span>
-                </>
-              ) : (
-                <>
-                  <Save className="w-5 h-5" />
-                  <span className="hidden sm:inline">
-                    {initialRole?.roleId ? `Update Role (${summary.totalPermissions} permissions${summary.estimatedCredits > 0 ? ` - ${summary.estimatedCredits.toFixed(1)} credits/op` : ''})` : `Create Role (${summary.totalPermissions} permissions${summary.estimatedCredits > 0 ? ` - ${summary.estimatedCredits.toFixed(1)} credits/op` : ''})`}
-                  </span>
-                  <span className="sm:hidden">
-                    {initialRole?.roleId ? 'Update' : 'Create'}
-                  </span>
-                </>
+
+          {/* Footer Action Bar - Fixed at bottom of matrix */}
+          <div className={cn(
+            "flex-none p-4 border-t z-20 flex items-center justify-between gap-4",
+            isDark ? "bg-slate-950 border-slate-800" : "bg-white border-slate-200"
+          )}>
+            <div className="flex items-center gap-4 text-sm">
+              <div className={cn(
+                "flex items-center gap-2 px-3 py-1.5 rounded-full border transition-colors",
+                summary.totalPermissions > 0
+                  ? "bg-emerald-50 border-emerald-100 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-800 dark:text-emerald-400"
+                  : "bg-slate-50 border-slate-200 text-slate-500 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400"
+              )}>
+                {summary.totalPermissions > 0 ? <Check className="w-3.5 h-3.5" /> : <Info className="w-3.5 h-3.5" />}
+                <span className="font-semibold text-xs uppercase tracking-wide">
+                  {summary.totalPermissions > 0 ? 'Ready to Save' : 'Selection Incomplete'}
+                </span>
+              </div>
+              {summary.totalPermissions > 0 && (
+                <span className="text-slate-500 hidden sm:inline">
+                  <strong className="text-slate-900 dark:text-white">{summary.totalPermissions}</strong> permissions selected
+                </span>
               )}
-            </PearlButton>
-          </div>
-        </div>
-          </div>
+            </div>
+
+            <div className="flex gap-3">
+              <PearlButton
+                variant="outline"
+                onClick={onCancel}
+                className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+              >
+                Cancel
+              </PearlButton>
+              <PearlButton
+                variant="primary"
+                onClick={handleSave}
+                disabled={saving || !roleData.roleName.trim() || summary.totalPermissions === 0}
+                className="min-w-[140px] shadow-lg shadow-blue-500/20"
+              >
+                {saving ? 'Processing...' : (initialRole?.roleId ? 'Update Role' : 'Create Role')}
+              </PearlButton>
+            </div>
           </div>
         </div>
       </div>

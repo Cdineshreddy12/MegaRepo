@@ -378,13 +378,13 @@ export function ReusableTable<T = any>({
       {/* Table */}
       <div className="overflow-x-auto">
         <table className="w-full">
-          <thead className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+          <thead className="bg-gradient-to-r from-sky-50 to-blue-50 border-b border-sky-100">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
                   <th
                     key={header.id}
-                    className="p-4 text-left font-medium text-gray-700 dark:text-white"
+                    className="p-4 text-left font-black text-sky-900 uppercase tracking-wider text-[10px]"
                     style={{ width: header.getSize() }}
                   >
                     {header.isPlaceholder ? null : (
@@ -393,12 +393,12 @@ export function ReusableTable<T = any>({
                         onClick={header.column.getToggleSortingHandler()}
                       >
                         {flexRender(header.column.columnDef.header, header.getContext())}
-                       
+
                       </div>
                     )}
-                </th>
-              ))}
-            </tr>
+                  </th>
+                ))}
+              </tr>
             ))}
           </thead>
           <tbody>

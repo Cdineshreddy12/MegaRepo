@@ -9,7 +9,7 @@ import {
   tenantUsers,
   credits,
   creditPurchases,
-  creditAllocations,
+  // REMOVED: creditAllocations - Application-specific allocations removed
   creditTransactions
 } from '../../../db/schema/index.js';
 import { webhookLogs } from '../../../db/schema/webhook-logs.js';
@@ -80,78 +80,83 @@ export class SubscriptionService {
   // Get current subscription (now returns credit-based information)
   static async getCurrentSubscription(tenantId) {
     try {
-      // First try to get credit balance from credits table
-      const creditBalance = await CreditService.getCurrentBalance(tenantId);
-
-      // Also check creditAllocations table to aggregate available credits
-      let totalAvailableFromAllocations = 0;
-      let totalAllocatedFromAllocations = 0;
-      let totalUsedFromAllocations = 0;
-
+      // FIRST: Check for actual subscription record in database
+      let actualSubscription = null;
       try {
-        const allocations = await db
-          .select({
-            availableCredits: sql`COALESCE(SUM(${creditAllocations.availableCredits}::numeric), 0)`,
-            allocatedCredits: sql`COALESCE(SUM(${creditAllocations.allocatedCredits}::numeric), 0)`,
-            usedCredits: sql`COALESCE(SUM(${creditAllocations.usedCredits}::numeric), 0)`
-          })
-          .from(creditAllocations)
+        const [subscriptionRecord] = await db
+          .select()
+          .from(subscriptions)
           .where(and(
-            eq(creditAllocations.tenantId, tenantId),
-            eq(creditAllocations.isActive, true)
-          ));
+            eq(subscriptions.tenantId, tenantId),
+            eq(subscriptions.status, 'active')
+          ))
+          .orderBy(desc(subscriptions.createdAt))
+          .limit(1);
 
-        if (allocations && allocations.length > 0) {
-          totalAvailableFromAllocations = parseFloat(allocations[0].availableCredits || '0');
-          totalAllocatedFromAllocations = parseFloat(allocations[0].allocatedCredits || '0');
-          totalUsedFromAllocations = parseFloat(allocations[0].usedCredits || '0');
+        if (subscriptionRecord) {
+          actualSubscription = subscriptionRecord;
+          console.log('✅ Found active subscription:', {
+            plan: subscriptionRecord.plan,
+            currentPeriodEnd: subscriptionRecord.currentPeriodEnd,
+            status: subscriptionRecord.status
+          });
         }
-      } catch (allocationError) {
-        console.warn('Error fetching credit allocations:', allocationError.message);
+      } catch (subError) {
+        console.warn('⚠️ Error checking subscription table:', subError.message);
       }
 
-      // Use the higher value between credits table and creditAllocations table
-      const finalAvailableCredits = Math.max(
-        creditBalance?.availableCredits || 0,
-        totalAvailableFromAllocations
-      );
-      const finalTotalCredits = Math.max(
-        creditBalance?.totalCredits || totalAllocatedFromAllocations,
-        totalAllocatedFromAllocations
-      );
+      // Get credit balance from credits table
+      const creditBalance = await CreditService.getCurrentBalance(tenantId);
+
+      // Use credit balance directly from credits table
+      const finalAvailableCredits = creditBalance?.availableCredits || 0;
+      const finalTotalCredits = creditBalance?.totalCredits || 0;
 
       // Determine status based on available credits
       const hasCredits = finalAvailableCredits > 0;
       const status = hasCredits ? 'active' : 'insufficient_credits';
 
-      // Return credit information in subscription format for backward compatibility
+      // Use actual subscription plan if available, otherwise default to 'free'
+      const plan = actualSubscription?.plan || 'free';
+      
+      // Use actual subscription expiry if available, otherwise use credit expiry or subscription expiry from credit balance
+      const currentPeriodEnd = actualSubscription?.currentPeriodEnd || 
+                               creditBalance?.subscriptionExpiry || 
+                               creditBalance?.freeCreditsExpiry ||
+                               null;
+
+      // Return subscription information with actual plan name
       return {
-        id: `credit_${tenantId}`,
+        id: actualSubscription?.subscriptionId || `credit_${tenantId}`,
         tenantId,
-        plan: 'credit_based',
-        status,
-        isTrialUser: false,
-        subscribedTools: ['crm', 'hr', 'analytics'], // Default tools
-        usageLimits: {
-          users: 100, // Default limits
+        plan: plan, // Use actual plan from subscription table or 'free'
+        status: actualSubscription?.status || status,
+        isTrialUser: actualSubscription?.isTrialUser || false,
+        subscribedTools: actualSubscription?.subscribedTools || ['crm', 'hr', 'analytics'],
+        usageLimits: actualSubscription?.usageLimits || {
+          users: 100,
           apiCalls: 100000,
           storage: 100000000000 // 100GB
         },
-        monthlyPrice: 0, // Credits are prepaid
-        yearlyPrice: 0,
-        billingCycle: 'prepaid',
-        trialStart: null,
-        trialEnd: null,
-        currentPeriodStart: new Date(),
-        currentPeriodEnd: null,
-        stripeSubscriptionId: null,
-        stripeCustomerId: null,
-        hasEverUpgraded: true,
-        trialToggledOff: true,
+        monthlyPrice: actualSubscription?.monthlyPrice || 0,
+        yearlyPrice: actualSubscription?.yearlyPrice || 0,
+        billingCycle: actualSubscription?.billingCycle || 'monthly',
+        trialStart: actualSubscription?.trialStart || null,
+        trialEnd: actualSubscription?.trialEnd || null,
+        currentPeriodStart: actualSubscription?.currentPeriodStart || new Date(),
+        currentPeriodEnd: currentPeriodEnd, // Use consistent expiry date
+        stripeSubscriptionId: actualSubscription?.stripeSubscriptionId || null,
+        stripeCustomerId: actualSubscription?.stripeCustomerId || null,
+        hasEverUpgraded: actualSubscription?.hasEverUpgraded || false,
+        trialToggledOff: actualSubscription?.trialToggledOff || true,
         availableCredits: finalAvailableCredits,
         totalCredits: finalTotalCredits,
         reservedCredits: creditBalance?.reservedCredits || 0,
         creditExpiry: creditBalance?.creditExpiry || null,
+        freeCreditsExpiry: creditBalance?.freeCreditsExpiry || currentPeriodEnd,
+        paidCreditsExpiry: creditBalance?.paidCreditsExpiry || null,
+        seasonalCreditsExpiry: creditBalance?.seasonalCreditsExpiry || null,
+        subscriptionExpiry: currentPeriodEnd, // Ensure consistency
         alerts: hasCredits ? (creditBalance?.alerts || []) : [{
           id: 'no_credit_record',
           type: 'no_credit_record',
@@ -162,8 +167,8 @@ export class SubscriptionService {
           currentValue: 0,
           actionRequired: 'initialize_credits'
         }],
-        createdAt: new Date(),
-        updatedAt: new Date()
+        createdAt: actualSubscription?.createdAt || new Date(),
+        updatedAt: actualSubscription?.updatedAt || new Date()
       };
     } catch (error) {
       console.error('Error getting current subscription:', error);
@@ -177,10 +182,26 @@ export class SubscriptionService {
           .orderBy(desc(subscriptions.createdAt))
           .limit(1);
 
-        return subscription || null;
+        if (subscription) {
+          return subscription;
+        }
+
+        // Final fallback: return free plan
+        return {
+          plan: 'free',
+          status: 'active',
+          currentPeriodEnd: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+          tenantId
+        };
       } catch (fallbackError) {
         console.error('Error fetching fallback subscription:', fallbackError);
-        return null;
+        // Return free plan as final fallback
+        return {
+          plan: 'free',
+          status: 'active',
+          currentPeriodEnd: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+          tenantId
+        };
       }
     }
   }
@@ -338,123 +359,97 @@ export class SubscriptionService {
       throw error;
     }
   }
-  // Get available credit packages (replaces plans)
+  // Get available plans (annual billing only)
   static async getAvailablePlans() {
     return [
       {
-        id: 'basic',
-        name: 'Basic',
+        id: 'starter',
+        name: 'Starter',
         description: 'Essential tools for small teams',
-        pricePerCredit: 0.10, // $0.10 per credit
-        minCredits: 100,
-        maxCredits: 5000,
+        price: 20, // Annual price in USD
+        credits: 60000, // 60,000 credits annually (5,000/month)
         features: [
           'CRM tools',
           'User Management',
           'Basic permissions',
-          'Email support'
+          'Email support',
+          '5GB storage',
+          '1,000 API calls/month'
+        ],
+        limits: {
+          users: 5,
+          roles: 3,
+          storage: 5000000000, // 5GB
+          apiCallsPerMonth: 1000
+        },
+        applications: ['crm'],
+        modules: {
+          crm: ['leads', 'contacts', 'accounts', 'opportunities', 'tickets', 'communications', 'dashboard', 'users']
+        },
+        allowDowngrade: false
+      },
+      {
+        id: 'professional',
+        name: 'Professional',
+        description: 'Comprehensive tools for growing businesses',
+        price: 49, // Annual price in USD
+        credits: 300000, // 300,000 credits annually (25,000/month)
+        features: [
+          'All Starter features',
+          'CRM & HR tools',
+          'Advanced permissions',
+          'Priority support',
+          '50GB storage',
+          '10,000 API calls/month',
+          'Affiliate management',
+          'Custom integrations'
         ],
         limits: {
           users: 25,
           roles: 10,
-          apiCallsPerCredit: 10,
-          storagePerCredit: 1000000, // 1MB per credit
-          projectsPerCredit: 20
-        },
-        applications: ['crm'],
-        modules: {
-          crm: ['leads', 'contacts', 'accounts', 'opportunities', 'quotations', 'tickets', 'communications', 'dashboard', 'users'],
-          hr: ['employees', 'payroll', 'leave', 'documents']
-        },
-        allowDowngrade: true
-      },
-      {
-        id: 'standard',
-        name: 'Standard',
-        description: 'Comprehensive tools for growing businesses',
-        pricePerCredit: 0.15, // $0.15 per credit
-        minCredits: 500,
-        maxCredits: 10000,
-        features: [
-          'CRM & HR tools',
-          'User Management',
-          'Advanced permissions',
-          'Priority support'
-        ],
-        limits: {
-          users: 50,
-          roles: 15,
-          apiCallsPerCredit: 15,
-          storagePerCredit: 2000000, // 2MB per credit
-          projectsPerCredit: 15
+          storage: 50000000000, // 50GB
+          apiCallsPerMonth: 10000
         },
         applications: ['crm', 'hr'],
         modules: {
-          crm: ['leads', 'contacts', 'accounts', 'opportunities', 'quotations', 'tickets', 'communications', 'dashboard', 'users'],
+          crm: ['leads', 'contacts', 'accounts', 'opportunities', 'quotations', 'tickets', 'communications', 'invoices', 'dashboard', 'users', 'roles'],
           hr: ['employees', 'payroll', 'leave', 'documents']
         },
         popular: true,
-        allowDowngrade: true
-      },
-      {
-        id: 'premium',
-        name: 'Premium',
-        description: 'Advanced features for established businesses',
-        pricePerCredit: 0.20, // $0.20 per credit
-        minCredits: 1000,
-        maxCredits: 25000,
-        features: [
-          'All tools included',
-          'Advanced CRM & HR',
-          'Affiliate management',
-          'Custom integrations',
-          'Premium support'
-        ],
-        limits: {
-          users: 100,
-          roles: 20,
-          apiCallsPerCredit: 20,
-          storagePerCredit: 3000000, // 3MB per credit
-          projectsPerCredit: 10
-        },
-        applications: ['crm', 'hr', 'affiliate'],
-        modules: {
-          crm: ['leads', 'contacts', 'accounts', 'opportunities', 'quotations', 'tickets', 'communications', 'invoices', 'dashboard', 'users', 'roles', 'bulk_operations'],
-          hr: ['employees', 'payroll', 'leave', 'documents', 'performance', 'recruitment'],
-          affiliate: ['partners', 'commissions']
-        },
-        allowDowngrade: true
+        allowDowngrade: false
       },
       {
         id: 'enterprise',
         name: 'Enterprise',
         description: 'Complete solution with all features',
-        pricePerCredit: 0.25, // $0.25 per credit
-        minCredits: 5000,
-        maxCredits: 50000,
+        price: 99, // Annual price in USD
+        credits: 1200000, // 1,200,000 credits annually (100,000/month)
         features: [
-          'All applications',
-          'Unlimited usage within credits',
+          'All Professional features',
+          'Unlimited users',
+          'Unlimited storage',
+          '100,000 API calls/month',
           'White-label options',
           'Dedicated support',
-          'Custom development'
+          'Custom development',
+          'Advanced analytics',
+          'All integrations'
         ],
         limits: {
-          users: 500,
-          roles: 50,
-          apiCallsPerCredit: 25,
-          storagePerCredit: 5000000, // 5MB per credit
-          projectsPerCredit: 5
+          users: -1, // Unlimited
+          roles: -1, // Unlimited
+          storage: -1, // Unlimited
+          apiCallsPerMonth: 100000
         },
         applications: ['crm', 'hr', 'affiliate', 'accounting', 'inventory'],
         modules: {
           crm: '*', // All CRM modules
           hr: '*',  // All HR modules  
           affiliate: '*', // All affiliate modules
-          accounting: '*', // All accounting modules (when built)
-          inventory: '*'  // All inventory modules (when built)
+          accounting: '*', // All accounting modules
+          inventory: '*'  // All inventory modules
         },
-        allowDowngrade: true
+        allowDowngrade: false
       }
     ];
   }
@@ -804,10 +799,9 @@ export class SubscriptionService {
       // Check if this is a downgrade and enforce billing cycle restrictions
       const planHierarchy = {
         'free': 0,
-        'trial': 1,
-        'starter': 2,
-        'professional': 3,
-        'enterprise': 4
+        'starter': 1,
+        'professional': 2,
+        'enterprise': 3
       };
 
       const currentLevel = planHierarchy[currentPlan?.id] || 0;
@@ -983,10 +977,9 @@ export class SubscriptionService {
     // Can always upgrade to higher plans
     const planHierarchy = {
       'free': 0,
-      'trial': 1,
-      'starter': 2,
-      'professional': 3,
-      'enterprise': 4
+      'starter': 1,
+      'professional': 2,
+      'enterprise': 3
     };
 
     const currentLevel = planHierarchy[currentPlan.id] || 0;
@@ -2780,7 +2773,7 @@ export class SubscriptionService {
   // Calculate feature loss impact
   static calculateFeatureLoss(fromPlan, toPlan) {
     const planFeatures = {
-      trial: ['crm'],
+      free: ['crm'],
       starter: ['crm', 'hr'],
       professional: ['crm', 'hr', 'affiliate', 'accounting'],
       enterprise: ['crm', 'hr', 'affiliate', 'accounting', 'inventory']
@@ -2795,7 +2788,7 @@ export class SubscriptionService {
   // Calculate data retention impact
   static calculateDataRetention(fromPlan, toPlan) {
     const retentionPolicies = {
-      trial: { months: 1, features: ['basic_data'] },
+      free: { months: 3, features: ['basic_data'] },
       starter: { months: 12, features: ['basic_data', 'reports'] },
       professional: { months: 24, features: ['basic_data', 'reports', 'analytics'] },
       enterprise: { months: 60, features: ['basic_data', 'reports', 'analytics', 'backups'] }
@@ -2811,7 +2804,7 @@ export class SubscriptionService {
   // Calculate user limits impact
   static calculateUserLimits(fromPlan, toPlan) {
     const userLimits = {
-      trial: 2,
+      free: 1,
       starter: 10,
       professional: 50,
       enterprise: -1 // unlimited

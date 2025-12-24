@@ -1,10 +1,19 @@
 import { db } from '../../../db/index.js';
 import { eq, and, sql, gte, desc, sum, inArray, lt } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
-import { CreditAllocationService } from './credit-allocation-service.js';
-import { creditAllocations, creditAllocationTransactions } from '../../../db/schema/index.js';
+// REMOVED: CreditAllocationService - Application-specific allocations removed
+// REMOVED: creditAllocations, creditAllocationTransactions - Tables removed
 
-class SeasonalCreditService extends CreditAllocationService {
+/**
+ * ⚠️ DEPRECATED: SeasonalCreditService
+ * 
+ * This service was built on top of the credit allocation system which has been removed.
+ * Applications now manage their own credit consumption.
+ * 
+ * This service needs to be refactored to use CreditService instead.
+ * For now, methods will throw errors indicating they need refactoring.
+ */
+class SeasonalCreditService {
 
   // Seasonal credit types with their default configurations
   static SEASONAL_CREDIT_TYPES = {
@@ -119,7 +128,13 @@ class SeasonalCreditService extends CreditAllocationService {
       };
 
       // Determine target applications
-      const applications = targetApplications || this.constructor.SUPPORTED_APPLICATIONS;
+      // REMOVED: SUPPORTED_APPLICATIONS from CreditAllocationService
+      // Applications should be specified explicitly now
+      const applications = targetApplications || [];
+      
+      if (applications.length === 0) {
+        throw new Error('targetApplications must be provided. Applications now manage their own credits.');
+      }
 
       // Calculate credits per application (distribute evenly)
       const creditsPerApp = creditAmount / applications.length;
@@ -129,24 +144,22 @@ class SeasonalCreditService extends CreditAllocationService {
       // Allocate to each target application
       for (const app of applications) {
         try {
-          const allocation = await this.allocateCreditsToApplication({
-            tenantId,
-            sourceEntityId,
-            targetApplication: app,
-            creditAmount: creditsPerApp,
-            allocationPurpose: campaignName ? `${creditConfig.name}: ${campaignName}` : creditConfig.name,
-            expiresAt: finalExpiresAt,
-            allocatedBy,
-            allocationType: 'campaign',
-            creditType: creditType,
-            additionalData: campaignId ? {
-              campaignId,
-              campaignName,
-              creditMetadata: fullMetadata,
-              expiryRule: creditConfig.expiryRule,
-              expiryWarningDays: creditConfig.warningDays
-            } : undefined
-          });
+          // REMOVED: allocateCreditsToApplication - Use CreditService instead
+          // TODO: Refactor to use CreditService.addCreditsToEntity()
+          throw new Error('allocateCreditsToApplication method removed. Use CreditService.addCreditsToEntity() instead.');
+          
+          // Example refactored code:
+          // const { CreditService } = await import('./credit-service.js');
+          // await CreditService.addCreditsToEntity({
+          //   tenantId,
+          //   entityType: 'organization',
+          //   entityId: sourceEntityId,
+          //   creditAmount: creditsPerApp,
+          //   source: 'seasonal_campaign',
+          //   sourceId: campaignId,
+          //   description: campaignName ? `${creditConfig.name}: ${campaignName}` : creditConfig.name,
+          //   initiatedBy: allocatedBy
+          // });
 
           allocations.push(allocation);
         } catch (appError) {
@@ -181,23 +194,9 @@ class SeasonalCreditService extends CreditAllocationService {
 
     } catch (error) {
       console.error('Error allocating seasonal credits:', error);
-      // Fallback to regular credit allocation service
-      console.log('🔄 Falling back to regular credit allocation');
-      const { CreditAllocationService } = await import('./credit-allocation-service.js');
-      const creditAllocationService = new CreditAllocationService();
-
-      const fallbackExpiresAt = expiresAt || new Date(Date.now() + (30 * 24 * 60 * 60 * 1000)); // 30 days fallback
-
-      return await creditAllocationService.allocateOperationalCredits({
-        tenantId,
-        sourceEntityId,
-        creditAmount,
-        creditType: 'free', // Fallback to free credits
-        allocationType: 'subscription',
-        planId: 'fallback',
-        expiresAt: fallbackExpiresAt,
-        allocatedBy
-      });
+      // REMOVED: Fallback to CreditAllocationService
+      // Use CreditService instead
+      throw new Error(`Seasonal credit allocation failed: ${error.message}. This service needs refactoring to use CreditService.`);
     }
   }
 
@@ -207,128 +206,18 @@ class SeasonalCreditService extends CreditAllocationService {
    * @param {string} campaignId - Optional campaign filter
    */
   async getSeasonalCreditSummary(tenantId, campaignId = null) {
-    try {
-      let query = db
-        .select({
-          creditType: creditAllocations.creditType,
-          campaignId: creditAllocations.campaignId,
-          campaignName: creditAllocations.campaignName,
-          targetApplication: creditAllocations.targetApplication,
-          totalAllocated: sum(creditAllocations.allocatedCredits),
-          totalUsed: sum(creditAllocations.usedCredits),
-          totalAvailable: sum(creditAllocations.availableCredits),
-          earliestExpiry: sql`MIN(${creditAllocations.expiresAt})`,
-          latestExpiry: sql`MAX(${creditAllocations.expiresAt})`,
-          allocationCount: sql`COUNT(*)`
-        })
-        .from(creditAllocations)
-        .where(and(
-          eq(creditAllocations.tenantId, tenantId),
-          eq(creditAllocations.isActive, true),
-          inArray(creditAllocations.creditType, Object.keys(this.constructor.SEASONAL_CREDIT_TYPES))
-        ))
-        .groupBy(
-          creditAllocations.creditType,
-          creditAllocations.campaignId,
-          creditAllocations.campaignName,
-          creditAllocations.targetApplication
-        );
-
-      if (campaignId) {
-        query = query.where(eq(creditAllocations.campaignId, campaignId));
-      }
-
-      const summary = await query;
-
-      return summary;
-    } catch (error) {
-      console.error('Error getting seasonal credit summary:', error);
-      throw error;
-    }
+    // REMOVED: creditAllocations table queries
+    // TODO: Refactor to use credit_transactions table with metadata filtering
+    throw new Error('getSeasonalCreditSummary method needs refactoring. creditAllocations table has been removed.');
   }
 
   /**
    * Process seasonal credit expiries with enhanced logic
    */
   async processSeasonalCreditExpiries() {
-    try {
-      console.log('🎄 Processing seasonal credit expiries...');
-
-      const now = new Date();
-
-      // Find expired seasonal credits
-      const expiredSeasonalCredits = await db
-        .select()
-        .from(creditAllocations)
-        .where(and(
-          inArray(creditAllocations.creditType, Object.keys(this.constructor.SEASONAL_CREDIT_TYPES)),
-          eq(creditAllocations.isActive, true),
-          sql`${creditAllocations.expiresAt} <= ${now}`
-        ));
-
-      console.log(`📅 Found ${expiredSeasonalCredits.length} expired seasonal credit allocations`);
-
-      // Group by campaign for reporting
-      const expiredByCampaign = {};
-      const expiredByType = {};
-
-      // Expire each allocation
-      for (const allocation of expiredSeasonalCredits) {
-        try {
-          console.log(`⏰ Expiring ${allocation.creditType} credits allocation ${allocation.allocationId} (${allocation.allocatedCredits} credits)`);
-
-          // Track for reporting
-          const campaignKey = allocation.campaignId || 'uncategorized';
-          expiredByCampaign[campaignKey] = (expiredByCampaign[campaignKey] || 0) + parseFloat(allocation.allocatedCredits);
-          expiredByType[allocation.creditType] = (expiredByType[allocation.creditType] || 0) + parseFloat(allocation.allocatedCredits);
-
-          // Mark allocation as inactive
-          await db
-            .update(creditAllocations)
-            .set({
-              isActive: false,
-              lastUpdatedAt: new Date()
-            })
-            .where(eq(creditAllocations.allocationId, allocation.allocationId));
-
-          // Record expiry transaction
-          await db.insert(creditAllocationTransactions).values({
-            allocationId: allocation.allocationId,
-            tenantId: allocation.tenantId,
-            transactionType: 'expiry',
-            amount: parseFloat(allocation.usedCredits),
-            previousAllocated: parseFloat(allocation.allocatedCredits),
-            newAllocated: 0,
-            previousUsed: parseFloat(allocation.usedCredits),
-            newUsed: parseFloat(allocation.usedCredits),
-            description: `Seasonal credits expired: ${allocation.allocationPurpose} (${allocation.campaignName || 'No campaign'})`,
-            createdAt: new Date()
-          });
-
-          console.log(`✅ Expired ${allocation.creditType} credits allocation ${allocation.allocationId}`);
-        } catch (allocationError) {
-          console.error(`❌ Failed to expire seasonal allocation ${allocation.allocationId}:`, allocationError.message);
-        }
-      }
-
-      // Log summary
-      console.log('📊 Seasonal credit expiry summary:');
-      Object.entries(expiredByType).forEach(([type, amount]) => {
-        console.log(`  - ${type}: ${amount} credits expired`);
-      });
-
-      console.log('✅ Seasonal credit expiry processing completed');
-
-      return {
-        totalExpired: expiredSeasonalCredits.length,
-        expiredByType,
-        expiredByCampaign
-      };
-
-    } catch (error) {
-      console.error('Error processing seasonal credit expiries:', error);
-      throw error;
-    }
+    // REMOVED: creditAllocations table queries
+    // TODO: Refactor to use credit_transactions table with expiry metadata
+    throw new Error('processSeasonalCreditExpiries method needs refactoring. creditAllocations table has been removed.');
   }
 
   /**
@@ -337,37 +226,9 @@ class SeasonalCreditService extends CreditAllocationService {
    * @param {number} daysAhead - Days to look ahead (default: 7)
    */
   async getExpiringSeasonalCredits(tenantId, daysAhead = 7) {
-    try {
-      const now = new Date();
-      const futureDate = new Date(now.getTime() + (daysAhead * 24 * 60 * 60 * 1000));
-
-      const expiringCredits = await db
-        .select({
-          allocationId: creditAllocations.allocationId,
-          creditType: creditAllocations.creditType,
-          campaignId: creditAllocations.campaignId,
-          campaignName: creditAllocations.campaignName,
-          targetApplication: creditAllocations.targetApplication,
-          availableCredits: creditAllocations.availableCredits,
-          expiresAt: creditAllocations.expiresAt,
-          expiryWarningDays: creditAllocations.expiryWarningDays,
-          daysUntilExpiry: sql`EXTRACT(EPOCH FROM (${creditAllocations.expiresAt} - ${now})) / 86400`
-        })
-        .from(creditAllocations)
-        .where(and(
-          eq(creditAllocations.tenantId, tenantId),
-          eq(creditAllocations.isActive, true),
-          inArray(creditAllocations.creditType, Object.keys(this.constructor.SEASONAL_CREDIT_TYPES)),
-          gte(creditAllocations.expiresAt, now),
-          lt(creditAllocations.expiresAt, futureDate)
-        ))
-        .orderBy(creditAllocations.expiresAt);
-
-      return expiringCredits;
-    } catch (error) {
-      console.error('Error getting expiring seasonal credits:', error);
-      throw error;
-    }
+    // REMOVED: creditAllocations table queries
+    // TODO: Refactor to use credit_transactions table with expiry metadata
+    throw new Error('getExpiringSeasonalCredits method needs refactoring. creditAllocations table has been removed.');
   }
 
   /**
@@ -377,35 +238,9 @@ class SeasonalCreditService extends CreditAllocationService {
    * @param {number} additionalDays - Days to add to expiry
    */
   async extendSeasonalCreditExpiry(campaignId, tenantId = null, additionalDays = 30) {
-    try {
-      console.log(`🔄 Extending expiry for campaign ${campaignId} by ${additionalDays} days`);
-
-      const extensionDate = new Date(Date.now() + (additionalDays * 24 * 60 * 60 * 1000));
-
-      let query = db
-        .update(creditAllocations)
-        .set({
-          expiresAt: extensionDate,
-          lastUpdatedAt: new Date()
-        })
-        .where(and(
-          eq(creditAllocations.campaignId, campaignId),
-          eq(creditAllocations.isActive, true),
-          inArray(creditAllocations.creditType, Object.keys(this.constructor.SEASONAL_CREDIT_TYPES))
-        ));
-
-      if (tenantId) {
-        query = query.where(eq(creditAllocations.tenantId, tenantId));
-      }
-
-      const result = await query;
-
-      console.log(`✅ Extended expiry for ${result.rowCount} seasonal credit allocations`);
-      return result;
-    } catch (error) {
-      console.error('Error extending seasonal credit expiry:', error);
-      throw error;
-    }
+    // REMOVED: creditAllocations table queries
+    // TODO: Refactor to use credit_transactions table with expiry metadata
+    throw new Error('extendSeasonalCreditExpiry method needs refactoring. creditAllocations table has been removed.');
   }
 
   /**
@@ -413,37 +248,9 @@ class SeasonalCreditService extends CreditAllocationService {
    * @param {string} tenantId - Tenant ID
    */
   async getActiveSeasonalCampaigns(tenantId) {
-    try {
-      const campaigns = await db
-        .select({
-          campaignId: creditAllocations.campaignId,
-          campaignName: creditAllocations.campaignName,
-          creditType: creditAllocations.creditType,
-          totalCredits: sum(creditAllocations.allocatedCredits),
-          usedCredits: sum(creditAllocations.usedCredits),
-          availableCredits: sum(creditAllocations.availableCredits),
-          expiresAt: sql`MIN(${creditAllocations.expiresAt})`,
-          applications: sql`ARRAY_AGG(DISTINCT ${creditAllocations.targetApplication})`
-        })
-        .from(creditAllocations)
-        .where(and(
-          eq(creditAllocations.tenantId, tenantId),
-          eq(creditAllocations.isActive, true),
-          inArray(creditAllocations.creditType, Object.keys(this.constructor.SEASONAL_CREDIT_TYPES)),
-          sql`${creditAllocations.campaignId} IS NOT NULL`
-        ))
-        .groupBy(
-          creditAllocations.campaignId,
-          creditAllocations.campaignName,
-          creditAllocations.creditType
-        )
-        .orderBy(desc(sql`MIN(${creditAllocations.expiresAt})`));
-
-      return campaigns;
-    } catch (error) {
-      console.error('Error getting active seasonal campaigns:', error);
-      throw error;
-    }
+    // REMOVED: creditAllocations table queries
+    // TODO: Refactor to use credit_transactions table with campaign metadata
+    throw new Error('getActiveSeasonalCampaigns method needs refactoring. creditAllocations table has been removed.');
   }
 }
 

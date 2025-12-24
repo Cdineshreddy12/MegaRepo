@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence, useSpring, useTransform } from 'framer-motion';
-import { Coins, RefreshCw, AlertCircle, Info, TrendingDown } from 'lucide-react';
+import { Coins, RefreshCw, AlertCircle, Info, TrendingDown, Calendar } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useOrgStore } from '@/store/org-store';
 import { api } from '@/services/api';
@@ -22,6 +22,7 @@ interface CreditBalance {
   usedCredits: number;
   availableCredits: number;
   lastUpdated: string;
+  creditExpiry?: string;
 }
 
 // Map operation codes to user-friendly labels
@@ -376,6 +377,18 @@ export function CreditBalance({ compact = false }: { compact?: boolean }) {
                      <span className="font-semibold">-{recentDeductionFromHook.creditsDeducted} credits</span>
                      {' '}deducted for {getOperationLabel(recentDeductionFromHook.operationCode)}
                    </span>
+                </div>
+              )}
+
+              {creditData?.creditExpiry && (
+                <div className="flex items-center gap-2 pt-2 text-xs border-t border-border/50 mt-2">
+                  <Calendar className="w-3 h-3 text-muted-foreground" />
+                  <div className="flex flex-col">
+                    <span className="text-muted-foreground">Credits Expire</span>
+                    <span className="font-medium text-foreground">
+                      {new Date(creditData.creditExpiry).toLocaleDateString()} {new Date(creditData.creditExpiry).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
                 </div>
               )}
             </div>

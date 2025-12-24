@@ -28,8 +28,8 @@ import { ThemeProvider } from './components/theme/ThemeProvider'
 import { DashboardLayout } from '@/components/layout/DashboardLayout'
 import ProtectedRoute from '@/components/auth/ProtectedRoute'
 import { PermissionGuard } from '@/components/auth/PermissionGuard'
-// Onboarding feature
-import { OnboardingGuard, OnboardingPageGuard, OnboardingPage } from '@/features/onboarding'
+// Onboarding feature - using optimized version for better performance
+import { OnboardingGuard, OnboardingPageGuard, OnboardingPage } from '@/features/onboarding/indexOptimized'
 
 // Pages
 import { Landing, ProductPage } from '@/pages/landing'
@@ -43,7 +43,6 @@ import UserApplicationAccessPage from '@/pages/UserApplicationAccess'
 import SuiteDashboard from '@/pages/SuiteDashboard'
 // Admin feature
 import { AdminDashboardPage } from '@/features/admin'
-import { OverviewPage } from './pages/OverviewPage'
 import { ApplicationPage } from './pages/ApplicationPage'
 import { RolesPage } from './pages/RolesPage'
 import { Settings } from '@/features/settings'
@@ -217,7 +216,6 @@ function AppContent() {
           }
         >
           <Route index element={<ApplicationPage />} />
-          <Route path="overview" element={<OverviewPage />} />
           <Route path="applications" element={<ApplicationPage />} />
           <Route path="users" element={<UserManagementDashboard />} />
           <Route path="organization" element={<OrganizationPage />} />

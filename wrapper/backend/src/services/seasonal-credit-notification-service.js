@@ -1,9 +1,19 @@
 import { db } from '../db/index.js';
 import { eq, and, inArray, sql, lt, gte } from 'drizzle-orm';
-import { creditAllocations, tenants, tenantUsers } from '../db/schema/index.js';
+import { tenants, tenantUsers } from '../db/schema/index.js';
+// REMOVED: creditAllocations - Table removed, applications manage their own credits
 import EmailService from '../utils/email.js';
 import { NotificationService } from './notification-service.js';
 
+/**
+ * ⚠️ DEPRECATED: SeasonalCreditNotificationService
+ * 
+ * This service was built on top of the credit allocation system which has been removed.
+ * Applications now manage their own credit consumption and notifications.
+ * 
+ * This service needs to be refactored to use credit_transactions table instead.
+ * For now, methods will throw errors indicating they need refactoring.
+ */
 class SeasonalCreditNotificationService {
 
   /**
@@ -11,100 +21,9 @@ class SeasonalCreditNotificationService {
    * @param {number} daysAhead - Days ahead to warn about (default: 7)
    */
   async sendExpiryWarnings(daysAhead = 7) {
-    try {
-      console.log(`📧 Sending seasonal credit expiry warnings for credits expiring in ${daysAhead} days or less`);
-
-      const now = new Date();
-      const futureDate = new Date(now.getTime() + (daysAhead * 24 * 60 * 60 * 1000));
-
-      // Get all tenants with expiring seasonal credits (defensive against missing columns)
-      let expiringCredits = [];
-      try {
-        expiringCredits = await db
-          .select({
-            tenantId: creditAllocations.tenantId,
-            tenantName: tenants.companyName,
-            userEmail: tenantUsers.email,
-            userName: sql`CONCAT(${tenantUsers.firstName}, ' ', ${tenantUsers.lastName})`,
-            allocationId: creditAllocations.allocationId,
-            creditType: creditAllocations.creditType,
-            campaignId: sql`${creditAllocations.campaignId}`,
-            campaignName: sql`${creditAllocations.campaignName}`,
-            targetApplication: creditAllocations.targetApplication,
-            availableCredits: creditAllocations.availableCredits,
-            expiresAt: creditAllocations.expiresAt,
-            expiryWarningDays: sql`${creditAllocations.expiryWarningDays}`,
-            daysUntilExpiry: sql`EXTRACT(EPOCH FROM (${creditAllocations.expiresAt} - ${now})) / 86400`
-          })
-          .from(creditAllocations)
-          .innerJoin(tenants, eq(creditAllocations.tenantId, tenants.tenantId))
-          .innerJoin(tenantUsers, and(
-            eq(creditAllocations.tenantId, tenantUsers.tenantId),
-            eq(tenantUsers.role, 'admin') // Send to admin users
-          ))
-          .where(and(
-            eq(creditAllocations.isActive, true),
-            inArray(creditAllocations.creditType, ['seasonal', 'bonus', 'promotional', 'event', 'partnership', 'trial_extension']),
-            gte(creditAllocations.expiresAt, now),
-            lt(creditAllocations.expiresAt, futureDate)
-          ))
-          .orderBy(creditAllocations.tenantId, creditAllocations.expiresAt);
-      } catch (dbError) {
-        console.warn('Seasonal credit columns not available for expiry warnings:', dbError.message);
-        expiringCredits = [];
-      }
-
-      // Group by tenant for consolidated emails
-      const tenantNotifications = {};
-
-      for (const credit of expiringCredits) {
-        const tenantKey = credit.tenantId;
-
-        if (!tenantNotifications[tenantKey]) {
-          tenantNotifications[tenantKey] = {
-            tenantName: credit.tenantName,
-            userEmail: credit.userEmail,
-            userName: credit.userName,
-            credits: []
-          };
-        }
-
-        tenantNotifications[tenantKey].credits.push({
-          creditType: credit.creditType,
-          campaignName: credit.campaignName || 'Unnamed Campaign',
-          targetApplication: credit.targetApplication,
-          availableCredits: parseFloat(credit.availableCredits),
-          daysUntilExpiry: Math.ceil(credit.daysUntilExpiry),
-          expiresAt: credit.expiresAt
-        });
-      }
-
-      // Send consolidated emails and create database notifications per tenant
-      const notificationPromises = Object.values(tenantNotifications).map(tenantData =>
-        Promise.all([
-          this.sendTenantExpiryWarningEmail(tenantData),
-          this.createTenantExpiryWarningNotification(tenantData)
-        ])
-      );
-
-      const results = await Promise.allSettled(notificationPromises);
-
-      const successCount = results.filter(r => r.status === 'fulfilled').length;
-      const failureCount = results.filter(r => r.status === 'rejected').length;
-
-      console.log(`✅ Sent ${successCount} seasonal credit expiry warning emails and notifications, ${failureCount} failed`);
-
-      return {
-        totalTenants: Object.keys(tenantNotifications).length,
-        emailsSent: successCount,
-        emailsFailed: failureCount,
-        totalCredits: expiringCredits.length
-      };
-
-    } catch (error) {
-      console.error('Error sending seasonal credit expiry warnings:', error);
-      throw error;
-    }
+    // REMOVED: creditAllocations table queries
+    // TODO: Refactor to use credit_transactions table with expiry metadata
+    throw new Error('sendExpiryWarnings method needs refactoring. creditAllocations table has been removed.');
   }
 
   /**
@@ -277,67 +196,9 @@ class SeasonalCreditNotificationService {
    * @param {Array} tenantIds - Optional specific tenants, null for all applicable tenants
    */
   async sendCampaignLaunchNotifications(campaignId, campaignName, creditType, totalCredits, tenantIds = null) {
-    try {
-      console.log(`🎉 Sending campaign launch notifications for ${campaignName}`);
-
-      // Get tenants with seasonal credits (defensive against missing columns)
-      let tenantsData = [];
-      try {
-        let query = db
-          .select({
-            tenantId: tenants.tenantId,
-            tenantName: tenants.companyName,
-            userEmail: tenantUsers.email,
-            userName: sql`CONCAT(${tenantUsers.firstName}, ' ', ${tenantUsers.lastName})`,
-            allocatedCredits: sql`COALESCE(SUM(${creditAllocations.allocatedCredits}), 0)`
-          })
-          .from(tenants)
-          .leftJoin(tenantUsers, and(
-            eq(tenants.tenantId, tenantUsers.tenantId),
-            eq(tenantUsers.role, 'admin')
-          ))
-          .leftJoin(creditAllocations, and(
-            eq(tenants.tenantId, creditAllocations.tenantId),
-            eq(creditAllocations.campaignId, campaignId)
-          ))
-          .where(eq(tenants.isActive, true));
-
-        if (tenantIds) {
-          query = query.where(inArray(tenants.tenantId, tenantIds));
-        }
-
-        tenantsData = await query
-          .groupBy(tenants.tenantId, tenants.companyName, tenantUsers.email, tenantUsers.firstName, tenantUsers.lastName)
-          .having(sql`COALESCE(SUM(${creditAllocations.allocatedCredits}), 0) > 0`);
-      } catch (dbError) {
-        console.warn('Seasonal credit columns not available for campaign launch notifications:', dbError.message);
-        tenantsData = [];
-      }
-
-      const notificationPromises = tenantsData.map(tenantData =>
-        Promise.all([
-          this.sendCampaignLaunchEmail(tenantData, campaignName, creditType),
-          this.createCampaignLaunchNotification(tenantData, campaignName, creditType, campaignId)
-        ])
-      );
-
-      const results = await Promise.allSettled(notificationPromises);
-
-      const successCount = results.filter(r => r.status === 'fulfilled').length;
-      const failureCount = results.filter(r => r.status === 'rejected').length;
-
-      console.log(`✅ Sent ${successCount} campaign launch emails and notifications, ${failureCount} failed`);
-
-      return {
-        totalTenants: tenantsData.length,
-        emailsSent: successCount,
-        emailsFailed: failureCount
-      };
-
-    } catch (error) {
-      console.error('Error sending campaign launch notifications:', error);
-      throw error;
-    }
+    // REMOVED: creditAllocations table queries
+    // TODO: Refactor to use credit_transactions table with campaign metadata
+    throw new Error('sendCampaignLaunchNotifications method needs refactoring. creditAllocations table has been removed.');
   }
 
   /**

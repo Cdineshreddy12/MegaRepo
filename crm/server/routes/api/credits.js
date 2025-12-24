@@ -85,7 +85,7 @@ router.get('/balance', async (req, res) => {
 
     // Fetch credit balance
     const creditRecord = await CrmEntityCredit.findOne(query)
-      .select('allocatedCredits usedCredits availableCredits updatedAt entityId entityIdString');
+      .select('allocatedCredits usedCredits availableCredits updatedAt expiresAt entityId entityIdString');
 
     if (!creditRecord) {
       console.log('⚠️ No credit record found for:', { entityId, tenantId });
@@ -98,7 +98,8 @@ router.get('/balance', async (req, res) => {
     console.log('✅ Credit record found:', {
       entityId: creditRecord.entityId,
       entityIdString: creditRecord.entityIdString,
-      availableCredits: creditRecord.availableCredits
+      availableCredits: creditRecord.availableCredits,
+      expiresAt: creditRecord.expiresAt
     });
 
     // Set cache control headers to prevent any caching
@@ -113,7 +114,8 @@ router.get('/balance', async (req, res) => {
       allocatedCredits: creditRecord.allocatedCredits,
       usedCredits: creditRecord.usedCredits,
       availableCredits: creditRecord.availableCredits,
-      lastUpdated: creditRecord.updatedAt
+      lastUpdated: creditRecord.updatedAt,
+      creditExpiry: creditRecord.expiresAt ? creditRecord.expiresAt.toISOString() : undefined
     });
 
   } catch (error) {

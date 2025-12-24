@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useMemo, useEffect } from 'react';
 import { Form } from '@/components/ui/form';
 import { UseFormReturn } from 'react-hook-form';
 import { newBusinessData, existingBusinessData } from '../schemas';
@@ -32,32 +32,40 @@ export const MultiStepForm: React.FC<MultiStepFormProps> = ({
   className,
   userClassification
 }) => {
-  const { 
-    currentStep: internalCurrentStep, 
-    nextStep, 
-    prevStep, 
-    canProceed, 
-    canSubmit, 
-    getStepStatus, 
-    goToStep 
-  } = useStepNavigation(form, stepsConfig);
-  
-  const { addToast } = useToast();
-  const currentStep = externalCurrentStep ?? internalCurrentStep;
+  const {
+    currentStep: internalCurrentStep,
+    nextStep,
+    prevStep,
+    canProceed,
+    canSubmit,
+    getStepStatus,
+    goToStep
+  } = useStepNavigation(form, stepsConfig, userClassification, externalCurrentStep); // FIXED: Pass external step as initial
 
-  const handleEditStep = (stepNumber: number) => {
+  const { addToast } = useToast();
+  // FIXED: Use external step if provided, otherwise use internal
+  const currentStep = externalCurrentStep ?? internalCurrentStep;
+  
+  // FIXED: Sync internal step when external step changes
+  useEffect(() => {
+    if (externalCurrentStep && externalCurrentStep !== internalCurrentStep) {
+      goToStep(externalCurrentStep);
+    }
+  }, [externalCurrentStep, internalCurrentStep, goToStep]);
+
+  const handleEditStep = useCallback((stepNumber: number) => {
     goToStep(stepNumber);
     onStepChange?.(stepNumber);
     onEditStep?.(stepNumber);
-  };
+  }, [goToStep, onStepChange, onEditStep]);
 
-  const handleStepClick = (stepNumber: number) => {
+  const handleStepClick = useCallback((stepNumber: number) => {
     goToStep(stepNumber);
     onStepChange?.(stepNumber);
     onStepClick?.(stepNumber);
-  };
+  }, [goToStep, onStepChange, onStepClick]);
 
-  const handleValidationError = (errors: any, stepNumber: number) => {
+  const handleValidationError = useCallback((errors: any, stepNumber: number) => {
     const { message, fields } = formatValidationErrors(errors);
     
     // Show toast with clickable action to navigate to first error field
@@ -108,21 +116,30 @@ export const MultiStepForm: React.FC<MultiStepFormProps> = ({
       // Auto-navigate after a short delay
       setTimeout(navigateToField, 500);
     }
-  };
+  }, [goToStep, onStepChange, addToast]);
 
-  const handleNext = async () => {
-    await nextStep(handleValidationError);
-    onStepChange?.(currentStep + 1);
-  };
+  const handleNext = useCallback(async () => {
+    // FIXED: Only change step if validation passes
+    const success = await nextStep(handleValidationError);
+    if (success) {
+      onStepChange?.(currentStep + 1);
+    }
+    // If validation fails, nextStep already shows errors via handleValidationError
+  }, [nextStep, handleValidationError, onStepChange, currentStep]);
 
-  const handlePrev = () => {
+  const handlePrev = useCallback(() => {
     prevStep();
     onStepChange?.(currentStep - 1);
-  };
+  }, [prevStep, onStepChange, currentStep]);
 
-  const handleSubmit = (data: newBusinessData | existingBusinessData) => {
+  const handleSubmit = useCallback((data: newBusinessData | existingBusinessData) => {
     onSubmit(data);
-  };
+  }, [onSubmit]);
+
+  // Memoize the form submit handler to prevent re-renders
+  const formSubmitHandler = useMemo(() => {
+    return form.handleSubmit(handleSubmit);
+  }, [form, handleSubmit]);
 
   return (
     <div className={className}>
@@ -137,7 +154,7 @@ export const MultiStepForm: React.FC<MultiStepFormProps> = ({
             getStepStatus={getStepStatus}
             onPrev={handlePrev}
             onNext={handleNext}
-            onSubmit={() => form.handleSubmit(handleSubmit)()}
+            onSubmit={formSubmitHandler}
             onEditStep={handleEditStep}
             onStepClick={handleStepClick}
             userClassification={userClassification}

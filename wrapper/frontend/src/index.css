@@ -18,9 +18,8 @@ html {
 
 body {
   font-family: 'Inter', system-ui, sans-serif;
-  /* The Master White Gradient Background */
-  background-image: radial-gradient(circle at 0% 0%, #ffffff 0%, #f8fafc 50%, #f1f5f9 100%);
-  background-attachment: fixed;
+  /* Pure White Dashboard Look */
+  background: #ffffff;
 }
 
 /* Glassmorphism Utilities */
@@ -62,17 +61,44 @@ body {
   0% {
     opacity: 0;
   }
+
   100% {
     opacity: 1;
   }
 }
 
 @keyframes gradient {
-  0%, 100% {
+
+  0%,
+  100% {
     background-position: 0% 50%;
   }
+
   50% {
     background-position: 100% 50%;
+  }
+}
+
+@keyframes shake {
+
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  10%,
+  30%,
+  50%,
+  70%,
+  90% {
+    transform: translateX(-5px);
+  }
+
+  20%,
+  40%,
+  60%,
+  80% {
+    transform: translateX(5px);
   }
 }
 
@@ -83,6 +109,10 @@ body {
 .animate-gradient {
   background-size: 200% 200%;
   animation: gradient 3s ease infinite;
+}
+
+.animate-shake {
+  animation: shake 0.5s ease-in-out;
 }
 
 /* Optimize card animations */
@@ -132,13 +162,14 @@ body {
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
   --animate-aurora: aurora 60s linear infinite;
-  
+
   @keyframes aurora {
     from {
       background-position:
         50% 50%,
         50% 50%;
     }
+
     to {
       background-position:
         350% 50%,
@@ -150,6 +181,7 @@ body {
     from {
       height: 0;
     }
+
     to {
       height: var(--radix-accordion-content-height);
     }
@@ -159,6 +191,7 @@ body {
     from {
       height: var(--radix-accordion-content-height);
     }
+
     to {
       height: 0;
     }
@@ -235,44 +268,77 @@ body {
 }
 
 .monochrome {
-  --background: oklch(0.98 0 0); /* Near white */
-  --foreground: oklch(0.1 0 0); /* Near black */
-  --card: oklch(1 0 0); /* Pure white */
-  --card-foreground: oklch(0.1 0 0); /* Near black */
-  --popover: oklch(1 0 0); /* Pure white */
-  --popover-foreground: oklch(0.1 0 0); /* Near black */
-  --primary: oklch(0.1 0 0); /* Near black */
-  --primary-foreground: oklch(0.98 0 0); /* Near white */
-  --secondary: oklch(0.95 0 0); /* Light gray */
-  --secondary-foreground: oklch(0.1 0 0); /* Near black */
-  --muted: oklch(0.95 0 0); /* Light gray */
-  --muted-foreground: oklch(0.4 0 0); /* Medium gray */
-  --accent: oklch(0.9 0 0); /* Very light gray */
-  --accent-foreground: oklch(0.1 0 0); /* Near black */
-  --destructive: oklch(0.1 0 0); /* Near black */
-  --destructive-foreground: oklch(0.98 0 0); /* Near white */
-  --border: oklch(0.85 0 0); /* Light gray border */
-  --input: oklch(0.95 0 0); /* Light gray input background */
-  --ring: oklch(0.1 0 0); /* Near black ring */
-  --chart-1: oklch(0.2 0 0); /* Dark gray */
-  --chart-2: oklch(0.3 0 0); /* Medium dark gray */
-  --chart-3: oklch(0.4 0 0); /* Medium gray */
-  --chart-4: oklch(0.5 0 0); /* Medium light gray */
-  --chart-5: oklch(0.6 0 0); /* Light gray */
-  --sidebar: oklch(0.98 0 0); /* Near white sidebar */
-  --sidebar-foreground: oklch(0.1 0 0); /* Near black text */
-  --sidebar-primary: oklch(0.1 0 0); /* Near black primary */
-  --sidebar-primary-foreground: oklch(0.98 0 0); /* Near white text */
-  --sidebar-accent: oklch(0.95 0 0); /* Light gray accent */
-  --sidebar-accent-foreground: oklch(0.1 0 0); /* Near black text */
-  --sidebar-border: oklch(0.85 0 0); /* Light gray border */
-  --sidebar-ring: oklch(0.1 0 0); /* Near black ring */
+  --background: oklch(0.98 0 0);
+  /* Near white */
+  --foreground: oklch(0.1 0 0);
+  /* Near black */
+  --card: oklch(1 0 0);
+  /* Pure white */
+  --card-foreground: oklch(0.1 0 0);
+  /* Near black */
+  --popover: oklch(1 0 0);
+  /* Pure white */
+  --popover-foreground: oklch(0.1 0 0);
+  /* Near black */
+  --primary: oklch(0.1 0 0);
+  /* Near black */
+  --primary-foreground: oklch(0.98 0 0);
+  /* Near white */
+  --secondary: oklch(0.95 0 0);
+  /* Light gray */
+  --secondary-foreground: oklch(0.1 0 0);
+  /* Near black */
+  --muted: oklch(0.95 0 0);
+  /* Light gray */
+  --muted-foreground: oklch(0.4 0 0);
+  /* Medium gray */
+  --accent: oklch(0.9 0 0);
+  /* Very light gray */
+  --accent-foreground: oklch(0.1 0 0);
+  /* Near black */
+  --destructive: oklch(0.1 0 0);
+  /* Near black */
+  --destructive-foreground: oklch(0.98 0 0);
+  /* Near white */
+  --border: oklch(0.85 0 0);
+  /* Light gray border */
+  --input: oklch(0.95 0 0);
+  /* Light gray input background */
+  --ring: oklch(0.1 0 0);
+  /* Near black ring */
+  --chart-1: oklch(0.2 0 0);
+  /* Dark gray */
+  --chart-2: oklch(0.3 0 0);
+  /* Medium dark gray */
+  --chart-3: oklch(0.4 0 0);
+  /* Medium gray */
+  --chart-4: oklch(0.5 0 0);
+  /* Medium light gray */
+  --chart-5: oklch(0.6 0 0);
+  /* Light gray */
+  --sidebar: oklch(0.98 0 0);
+  /* Near white sidebar */
+  --sidebar-foreground: oklch(0.1 0 0);
+  /* Near black text */
+  --sidebar-primary: oklch(0.1 0 0);
+  /* Near black primary */
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  /* Near white text */
+  --sidebar-accent: oklch(0.95 0 0);
+  /* Light gray accent */
+  --sidebar-accent-foreground: oklch(0.1 0 0);
+  /* Near black text */
+  --sidebar-border: oklch(0.85 0 0);
+  /* Light gray border */
+  --sidebar-ring: oklch(0.1 0 0);
+  /* Near black ring */
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }
@@ -308,10 +374,8 @@ body {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: repeating-conic-gradient(
-    var(--stats-bg) 0.0000001%,
-    var(--stats-grey) 0.000104%
-  ) 60% 60%/600% 600%;
+  background: repeating-conic-gradient(var(--stats-bg) 0.0000001%,
+      var(--stats-grey) 0.000104%) 60% 60%/600% 600%;
   filter: opacity(10%) contrast(105%);
 }
 
@@ -387,20 +451,25 @@ body {
 }
 
 .dark .stats-card-title {
-  color: #d1d5db !important; /* Light gray for dark mode */
+  color: #d1d5db !important;
+  /* Light gray for dark mode */
 }
 
 .dark .stats-card-value {
-  color: #f9fafb !important; /* Off-white for dark mode */
+  color: #f9fafb !important;
+  /* Off-white for dark mode */
 }
 
 .dark .stats-card-description {
-  color: #9ca3af !important; /* Medium gray for dark mode */
+  color: #9ca3af !important;
+  /* Medium gray for dark mode */
 }
 
 .dark .stats-card-icon {
-  color: #a855f7 !important; /* Purple for dark mode icons */
-  background: rgba(168, 85, 247, 0.1) !important; /* Purple background with opacity */
+  color: #a855f7 !important;
+  /* Purple for dark mode icons */
+  background: rgba(168, 85, 247, 0.1) !important;
+  /* Purple background with opacity */
 }
 
 /* Monochrome theme adjustments */
@@ -421,15 +490,18 @@ body {
 }
 
 .monochrome .stats-card-title {
-  color: #6b7280 !important; /* Medium gray for monochrome */
+  color: #6b7280 !important;
+  /* Medium gray for monochrome */
 }
 
 .monochrome .stats-card-value {
-  color: #111827 !important; /* Dark gray/black for monochrome */
+  color: #111827 !important;
+  /* Dark gray/black for monochrome */
 }
 
 .monochrome .stats-card-description {
-  color: #9ca3af !important; /* Light gray for monochrome */
+  color: #9ca3af !important;
+  /* Light gray for monochrome */
 }
 
 /* Glassmorphism effect */
@@ -437,9 +509,9 @@ body:has(.glassmorphism-enabled) .stats-card {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   background: linear-gradient(135deg,
-    rgba(168, 85, 247, 0.1) 0%,
-    rgba(147, 51, 234, 0.05) 50%,
-    rgba(124, 58, 237, 0.1) 100%);
+      rgba(168, 85, 247, 0.1) 0%,
+      rgba(147, 51, 234, 0.05) 50%,
+      rgba(124, 58, 237, 0.1) 100%);
   border: 1px solid rgba(168, 85, 247, 0.2);
   --stats-shadow-color: rgba(168, 85, 247, 0.25);
   --stats-shadow-dark: rgba(147, 51, 234, 0.15);
@@ -451,9 +523,9 @@ body:has(.glassmorphism-enabled) .stats-card {
 
 body:has(.glassmorphism-enabled) .stats-card:hover {
   background: linear-gradient(135deg,
-    rgba(168, 85, 247, 0.15) 0%,
-    rgba(147, 51, 234, 0.08) 50%,
-    rgba(124, 58, 237, 0.15) 100%);
+      rgba(168, 85, 247, 0.15) 0%,
+      rgba(147, 51, 234, 0.08) 50%,
+      rgba(124, 58, 237, 0.15) 100%);
   border-color: rgba(168, 85, 247, 0.3);
   --stats-shadow-color: rgba(168, 85, 247, 0.35);
   --stats-shadow-dark: rgba(147, 51, 234, 0.25);
@@ -467,8 +539,8 @@ body:has(.glassmorphism-enabled) .stats-card-inner {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   background: linear-gradient(135deg,
-    rgba(255, 255, 255, 0.1) 0%,
-    rgba(168, 85, 247, 0.05) 100%);
+      rgba(255, 255, 255, 0.1) 0%,
+      rgba(168, 85, 247, 0.05) 100%);
   border: 1px solid rgba(168, 85, 247, 0.1);
 }
 
@@ -482,47 +554,56 @@ body:has(.glassmorphism-enabled) .stats-card-overlay {
 }
 
 body:has(.glassmorphism-enabled) .stats-card-title {
-  color: #e2e8f0 !important; /* Light color for glassmorphism */
+  color: #e2e8f0 !important;
+  /* Light color for glassmorphism */
 }
 
 body:has(.glassmorphism-enabled) .stats-card-value {
-  color: #ffffff !important; /* White for glassmorphism */
+  color: #ffffff !important;
+  /* White for glassmorphism */
 }
 
 body:has(.glassmorphism-enabled) .stats-card-description {
-  color: #cbd5e1 !important; /* Light gray for glassmorphism */
+  color: #cbd5e1 !important;
+  /* Light gray for glassmorphism */
 }
 
 .dark body:has(.glassmorphism-enabled) .stats-card-title {
-  color: #e2e8f0 !important; /* Light color for dark glassmorphism */
+  color: #e2e8f0 !important;
+  /* Light color for dark glassmorphism */
 }
 
 .dark body:has(.glassmorphism-enabled) .stats-card-value {
-  color: #f8fafc !important; /* Off-white for dark glassmorphism */
+  color: #f8fafc !important;
+  /* Off-white for dark glassmorphism */
 }
 
 .dark body:has(.glassmorphism-enabled) .stats-card-description {
-  color: #cbd5e1 !important; /* Light gray for dark glassmorphism */
+  color: #cbd5e1 !important;
+  /* Light gray for dark glassmorphism */
 }
 
 .monochrome body:has(.glassmorphism-enabled) .stats-card-title {
-  color: #475569 !important; /* Dark gray for monochrome glassmorphism */
+  color: #475569 !important;
+  /* Dark gray for monochrome glassmorphism */
 }
 
 .monochrome body:has(.glassmorphism-enabled) .stats-card-value {
-  color: #1e293b !important; /* Darker for monochrome glassmorphism */
+  color: #1e293b !important;
+  /* Darker for monochrome glassmorphism */
 }
 
 .monochrome body:has(.glassmorphism-enabled) .stats-card-description {
-  color: #64748b !important; /* Medium gray for monochrome glassmorphism */
+  color: #64748b !important;
+  /* Medium gray for monochrome glassmorphism */
 }
 
 /* Dark + Glassmorphism */
 .dark body:has(.glassmorphism-enabled) .stats-card {
   background: linear-gradient(135deg,
-    rgba(168, 85, 247, 0.08) 0%,
-    rgba(147, 51, 234, 0.04) 50%,
-    rgba(124, 58, 237, 0.08) 100%);
+      rgba(168, 85, 247, 0.08) 0%,
+      rgba(147, 51, 234, 0.04) 50%,
+      rgba(124, 58, 237, 0.08) 100%);
   --stats-shadow-color: rgba(168, 85, 247, 0.3);
   --stats-shadow-dark: rgba(147, 51, 234, 0.2);
   box-shadow:
@@ -533,8 +614,8 @@ body:has(.glassmorphism-enabled) .stats-card-description {
 
 .dark body:has(.glassmorphism-enabled) .stats-card-inner {
   background: linear-gradient(135deg,
-    rgba(255, 255, 255, 0.05) 0%,
-    rgba(168, 85, 247, 0.03) 100%);
+      rgba(255, 255, 255, 0.05) 0%,
+      rgba(168, 85, 247, 0.03) 100%);
 }
 
 .dark body:has(.glassmorphism-enabled) .stats-card:hover {
@@ -549,9 +630,9 @@ body:has(.glassmorphism-enabled) .stats-card-description {
 /* Monochrome + Glassmorphism */
 .monochrome body:has(.glassmorphism-enabled) .stats-card {
   background: linear-gradient(135deg,
-    rgba(168, 85, 247, 0.06) 0%,
-    rgba(147, 51, 234, 0.03) 50%,
-    rgba(124, 58, 237, 0.06) 100%);
+      rgba(168, 85, 247, 0.06) 0%,
+      rgba(147, 51, 234, 0.03) 50%,
+      rgba(124, 58, 237, 0.06) 100%);
   --stats-shadow-color: rgba(168, 85, 247, 0.2);
   --stats-shadow-dark: rgba(147, 51, 234, 0.15);
   box-shadow:
@@ -562,8 +643,8 @@ body:has(.glassmorphism-enabled) .stats-card-description {
 
 .monochrome body:has(.glassmorphism-enabled) .stats-card-inner {
   background: linear-gradient(135deg,
-    rgba(255, 255, 255, 0.08) 0%,
-    rgba(168, 85, 247, 0.02) 100%);
+      rgba(255, 255, 255, 0.08) 0%,
+      rgba(168, 85, 247, 0.02) 100%);
 }
 
 .monochrome body:has(.glassmorphism-enabled) .stats-card:hover {
@@ -584,13 +665,16 @@ body:has(.glassmorphism-enabled) .stats-card-description {
 
   /* Glassy card pulse animation */
   @keyframes glassyPulse {
-    0%, 100% {
+
+    0%,
+    100% {
       box-shadow:
         0 8px 32px rgba(168, 85, 247, 0.2),
         0 0 0 1px rgba(168, 85, 247, 0.1),
         inset 0 1px 0 rgba(255, 255, 255, 0.1),
         inset 0 -1px 0 rgba(168, 85, 247, 0.1);
     }
+
     50% {
       box-shadow:
         0 12px 40px rgba(168, 85, 247, 0.3),

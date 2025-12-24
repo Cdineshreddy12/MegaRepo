@@ -1,16 +1,18 @@
-import { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useOnboardingForm } from '../hooks';
+import { useFormPersistence } from '../hooks/useFormPersistence';
 import { UserClassification } from './FlowSelector';
 import { MultiStepForm } from './MultiStepForm';
 import { ErrorBoundary } from './ErrorBoundary';
 import { LoadingSpinner } from './LoadingSpinner';
 import { SuccessMessage } from './SuccessMessage';
 import { useToast } from './Toast';
-import { useFormPersistence } from '../hooks/useFormPersistence';
+import { toast as sonnerToast } from 'sonner'; // Direct import for reliability
 import { useRateLimit } from '../hooks/useRateLimit';
 import { sanitizeFormData } from '../utils/sanitization';
 import { existingBusinessData, newBusinessData } from '../schemas';
 import { getFlowConfig } from '../config/flowConfigs';
+import { getStepNumberForField, getDisplayNameForField } from '../utils/validationHelpers';
 
 /**
  * Verify if email is a domain email (not personal email provider)
@@ -155,17 +157,61 @@ export const OnboardingForm = () => {
   
   const flowConfig = getFlowConfig(selectedFlow);
 
-  const { clearFormData } = useFormPersistence(
-    form, 
-    selectedFlow, 
-    currentStep
-  );
+  const { clearFormData, restoreFormData, hasPersistedData } = useFormPersistence({
+    form,
+    flowType: selectedFlow,
+    currentStep,
+    autoSave: true,
+    autoRestore: true,
+    clearOnSubmit: true,
+  });
+
+  // Restore progress on mount - use ref to prevent multiple restorations
+  const hasRestoredRef = React.useRef(false);
+  
+  useEffect(() => {
+    if (hasRestoredRef.current) return; // Only restore once
+    hasRestoredRef.current = true;
+    
+    let isMounted = true;
+    
+    restoreFormData().then((restoredStep) => {
+      if (!isMounted) return;
+      
+      if (restoredStep && restoredStep > 1 && restoredStep !== currentStep) {
+        setCurrentStep(restoredStep);
+        // Show notification that progress was restored
+        sonnerToast.info('Your previous progress has been restored', {
+          description: `Continuing from step ${restoredStep}`,
+          duration: 3000,
+        });
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []); // Only run on mount
+
+  // Listen for step restoration events
+  useEffect(() => {
+    const handleStepRestored = (event: CustomEvent) => {
+      const { step } = event.detail;
+      if (step && step > 1) {
+        setCurrentStep(step);
+      }
+    };
+
+    window.addEventListener('onboarding-step-restored', handleStepRestored as EventListener);
+    return () => {
+      window.removeEventListener('onboarding-step-restored', handleStepRestored as EventListener);
+    };
+  }, []);
 
   const handleSubmit = useCallback(async (data: newBusinessData | existingBusinessData) => {
     if (isRateLimited) {
       const remainingTime = Math.ceil(getTimeUntilReset() / 1000);
-      addToast(`Too Many Attempts: Please wait ${remainingTime} seconds before trying again.`, {
-        type: 'error',
+      sonnerToast.error(`Too Many Attempts: Please wait ${remainingTime} seconds before trying again.`, {
         duration: 5000
       });
       return;
@@ -173,6 +219,11 @@ export const OnboardingForm = () => {
 
     setIsSubmitting(true);
     recordAttempt();
+    
+    // Show loading toast with animation
+    const loadingToastId = sonnerToast.loading('Setting up your organization...', {
+      duration: Infinity,
+    });
     
     try {
       const sanitizedData = sanitizeFormData(data);
@@ -256,6 +307,14 @@ export const OnboardingForm = () => {
 
       console.log('🚀 Submitting onboarding data:', submissionData);
       
+      // Helper function to filter out empty/null/undefined values
+      const filterEmpty = (value: any): any => {
+        if (value === null || value === undefined || value === '') {
+          return undefined; // Don't include in request
+        }
+        return value;
+      };
+      
       // Call the /onboard-frontend endpoint with ALL fields
       const { default: api } = await import('@/lib/api');
       const response = await api.post('/onboarding/onboard-frontend', {
@@ -264,37 +323,37 @@ export const OnboardingForm = () => {
         companyType: submissionData.companyType,
         companySize: submissionData.companySize || submissionData.organizationSize,
         businessType: submissionData.businessType,
-        industry: submissionData.industry,
-        website: submissionData.website,
+        industry: filterEmpty(submissionData.industry),
+        website: filterEmpty(submissionData.website),
         
         // Admin/Contact Information
         firstName: submissionData.firstName,
         lastName: submissionData.lastName,
         email: submissionData.email || submissionData.adminEmail,
         adminEmail: submissionData.adminEmail,
-        adminMobile: submissionData.phone,
-        supportEmail: submissionData.supportEmail,
-        billingEmail: submissionData.billingEmail,
+        adminMobile: filterEmpty(submissionData.phone),
+        supportEmail: filterEmpty(submissionData.supportEmail),
+        billingEmail: filterEmpty(submissionData.billingEmail),
         
         // Contact Details
-        contactSalutation: submissionData.contactSalutation,
-        contactMiddleName: submissionData.contactMiddleName,
-        contactJobTitle: submissionData.contactJobTitle,
-        contactDepartment: submissionData.contactDepartment,
-        contactAuthorityLevel: submissionData.contactAuthorityLevel,
-        preferredContactMethod: submissionData.preferredContactMethod,
-        contactDirectPhone: submissionData.contactDirectPhone,
-        contactMobilePhone: submissionData.contactMobilePhone,
+        contactSalutation: filterEmpty(submissionData.contactSalutation),
+        contactMiddleName: filterEmpty(submissionData.contactMiddleName),
+        contactJobTitle: filterEmpty(submissionData.contactJobTitle),
+        contactDepartment: filterEmpty(submissionData.contactDepartment),
+        contactAuthorityLevel: filterEmpty(submissionData.contactAuthorityLevel),
+        preferredContactMethod: filterEmpty(submissionData.preferredContactMethod),
+        contactDirectPhone: filterEmpty(submissionData.contactDirectPhone),
+        contactMobilePhone: filterEmpty(submissionData.contactMobilePhone),
         
-        // Tax & Compliance
+        // Tax & Compliance - Only include if they have values
         taxRegistered: submissionData.taxRegistered,
         vatGstRegistered: submissionData.vatGstRegistered,
         hasGstin: submissionData.hasGstin || false,
-        gstin: submissionData.gstin,
-        panNumber: submissionData.panNumber,
-        einNumber: submissionData.einNumber,
-        vatNumber: submissionData.vatNumber,
-        cinNumber: submissionData.cinNumber,
+        gstin: filterEmpty(submissionData.gstin),
+        panNumber: filterEmpty(submissionData.panNumber), // Only send if not empty
+        einNumber: filterEmpty(submissionData.einNumber),
+        vatNumber: filterEmpty(submissionData.vatNumber),
+        cinNumber: filterEmpty(submissionData.cinNumber),
         taxRegistrationDetails: submissionData.taxRegistrationDetails,
         
         // Address Information
@@ -324,90 +383,369 @@ export const OnboardingForm = () => {
       });
 
       if (response.data.success) {
-        clearFormData();
-        setIsSubmitted(true);
+        // Dismiss loading toast
+        sonnerToast.dismiss(loadingToastId);
         
-        addToast(`Company Created Successfully! Your ${selectedFlow} company has been created.`, {
-          type: 'success',
-          duration: 5000
+        clearFormData();
+        
+        // Show success animation with progress
+        sonnerToast.success('🎉 Organization Created Successfully!', {
+          description: 'Setting up your workspace...',
+          duration: 3000,
         });
+        
+        // Small delay for smooth transition
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        setIsSubmitted(true);
       } else {
         throw new Error(response.data.message || 'Onboarding failed');
       }
 
     } catch (error: any) {
-      console.error('Submission error:', error);
+      console.error('🔴 Submission error:', error);
+      console.error('🔴 Error response:', error?.response);
+      console.error('🔴 Error data:', error?.response?.data);
+      
+      // Dismiss loading toast
+      sonnerToast.dismiss(loadingToastId);
+      
+      // IMPORTANT: Hide loading spinner FIRST so user can see the form and error
+      setIsSubmitting(false);
       
       // Handle API error responses
       let errorMessage = 'There was an error submitting your form. Please try again.';
-      let errorFields: any[] = [];
+      let errorFields: { fieldPath: string; displayName: string; stepNumber: number; backendField: string; errorMessage: string }[] = [];
       
-      if (error?.response?.data) {
-        const errorData = error.response.data;
+      // Helper function to get user-friendly field name
+      const getFieldDisplayName = (fieldPath: string): string => {
+        const fieldName = fieldPath.replace(/^\//, ''); // Remove leading slash
+        const fieldMapping: Record<string, string> = {
+          'email': 'Email',
+          'adminEmail': 'Admin Email',
+          'legalCompanyName': 'Company Name',
+          'companyName': 'Company Name',
+          'firstName': 'First Name',
+          'lastName': 'Last Name',
+          'companySize': 'Company Size',
+          'businessType': 'Business Type',
+          'gstin': 'GSTIN',
+          'hasGstin': 'GSTIN Status',
+          'country': 'Country',
+          'timezone': 'Timezone',
+          'currency': 'Currency',
+          'termsAccepted': 'Terms & Conditions'
+        };
+        return fieldMapping[fieldName] || fieldName.charAt(0).toUpperCase() + fieldName.slice(1);
+      };
+
+      // Helper function to map backend field to frontend field path
+      const mapFieldToFrontendPath = (fieldPath: string): string => {
+        const fieldName = fieldPath.replace(/^\//, ''); // Remove leading slash
+        const fieldMapping: Record<string, string> = {
+          'legalCompanyName': 'businessDetails.companyName',
+          'companyName': 'businessDetails.companyName',
+          'firstName': 'firstName',
+          'lastName': 'lastName',
+          'email': 'email',
+          'adminEmail': 'adminEmail',
+          'companySize': 'businessDetails.organizationSize',
+          'businessType': 'businessDetails.businessType',
+          'gstin': 'gstin',
+          'hasGstin': 'hasGstin',
+          'country': 'businessDetails.country',
+          'timezone': 'timezone',
+          'currency': 'currency',
+          'termsAccepted': 'termsAccepted'
+        };
+        return fieldMapping[fieldName] || fieldName;
+      };
+
+      // Helper function to navigate to field and highlight it
+      const navigateToFieldAndHighlight = (fieldPath: string, stepNumber: number, fieldErrorMessage: string) => {
+        console.log('🔴 Navigating to field:', { fieldPath, stepNumber, fieldErrorMessage });
         
-        // Check for validation errors
-        if (errorData.errors) {
-          const { formatValidationErrors } = await import('../utils/validationHelpers');
-          const formatted = formatValidationErrors(errorData.errors);
-          errorMessage = formatted.message;
-          errorFields = formatted.fields;
-        } 
-        // Check for error message
+        // Navigate to the step first
+        setCurrentStep(stepNumber);
+        
+        // Wait for step to render, then find and highlight the field
+        setTimeout(() => {
+          const fieldName = fieldPath.split('.').pop() || fieldPath;
+          const baseFieldName = fieldName.replace('businessDetails.', '');
+          
+          console.log('🔴 Searching for field:', { fieldName, baseFieldName });
+          
+          // Try multiple selectors to find the field (react-hook-form fields)
+          const selectors = [
+            // Direct name match
+            `input[name="${fieldPath}"]`,
+            `input[name="${baseFieldName}"]`,
+            `input[name="${fieldName}"]`,
+            // ID-based selectors
+            `input[id="${fieldPath}"]`,
+            `input[id="${baseFieldName}"]`,
+            `input[id="${fieldName}"]`,
+            // Partial matches
+            `input[name*="${fieldName}"]`,
+            `input[id*="${fieldName}"]`,
+            // Try textarea and select as well
+            `textarea[name="${fieldPath}"]`,
+            `textarea[name="${baseFieldName}"]`,
+            `select[name="${fieldPath}"]`,
+            `select[name="${baseFieldName}"]`,
+            // Try with form field wrapper (shadcn/ui pattern)
+            `[data-field-name="${fieldPath}"] input`,
+            `[data-field-name="${baseFieldName}"] input`,
+          ];
+          
+          let fieldElement: HTMLElement | null = null;
+          for (const selector of selectors) {
+            fieldElement = document.querySelector(selector) as HTMLElement;
+            if (fieldElement) {
+              console.log('🔴 Found field with selector:', selector);
+              break;
+            }
+          }
+          
+          // If still not found, try finding by label text and then the associated input
+          if (!fieldElement) {
+            const labels = Array.from(document.querySelectorAll('label'));
+            const matchingLabel = labels.find(
+              (l) => l.textContent?.toLowerCase().includes(fieldName.toLowerCase())
+            );
+            if (matchingLabel) {
+              console.log('🔴 Found matching label:', matchingLabel.textContent);
+              const inputId = matchingLabel.getAttribute('for');
+              if (inputId) {
+                fieldElement = document.querySelector(`#${inputId}`) as HTMLElement;
+              }
+              if (!fieldElement) {
+                const formItem = matchingLabel.closest('[class*="form-item"], [class*="FormItem"]');
+                if (formItem) {
+                  fieldElement = formItem.querySelector('input, textarea, select') as HTMLElement;
+                }
+              }
+            }
+          }
+          
+          // If still not found, try finding by closest form item
+          if (!fieldElement) {
+            const formItems = document.querySelectorAll('[class*="form-item"], [class*="FormItem"]');
+            for (const item of Array.from(formItems)) {
+              const input = item.querySelector(`input[name*="${fieldName}"], textarea[name*="${fieldName}"], select[name*="${fieldName}"]`);
+              if (input) {
+                fieldElement = input as HTMLElement;
+                break;
+              }
+            }
+          }
+          
+          if (fieldElement) {
+            console.log('🔴 Found field element, highlighting:', fieldElement);
+            
+            // Scroll to field with smooth animation
+            fieldElement.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+            
+            // Small delay before focusing to ensure scroll completes
+            setTimeout(() => {
+              // Focus the field
+              if (fieldElement instanceof HTMLInputElement || fieldElement instanceof HTMLTextAreaElement || fieldElement instanceof HTMLSelectElement) {
+                fieldElement.focus();
+                fieldElement.select?.();
+              }
+              
+              // Add visual highlighting with animation
+              fieldElement.classList.add(
+                'ring-2',
+                'ring-red-500',
+                'ring-offset-2',
+                'border-red-500',
+                'border-2'
+              );
+              
+              // Add shake animation
+              fieldElement.style.animation = 'shake 0.5s ease-in-out';
+              
+              // Set form error state
+              form.setError(fieldPath as any, {
+                type: 'manual',
+                message: fieldErrorMessage
+              });
+              
+              // Remove highlight after 5 seconds but keep error state
+              setTimeout(() => {
+                fieldElement?.classList.remove(
+                  'ring-2',
+                  'ring-red-500',
+                  'ring-offset-2',
+                  'border-red-500',
+                  'border-2'
+                );
+                fieldElement?.style.removeProperty('animation');
+              }, 5000);
+            }, 300);
+          } else {
+            console.warn('🔴 Could not find field:', fieldPath, '- Available fields:', 
+              Array.from(document.querySelectorAll('input, textarea, select')).map(el => ({
+                name: (el as HTMLInputElement).name,
+                id: el.id,
+                type: el.tagName
+              }))
+            );
+          }
+        }, 600); // Wait for step transition (increased for better reliability)
+      };
+      
+      // Check if we have an error response from the API
+      const errorData = error?.response?.data || error?.data;
+      
+      if (errorData) {
+        console.log('🔴 Processing error data:', errorData);
+        
+        // Check for details array FIRST (Fastify validation format from global error handler)
+        if (errorData.details && Array.isArray(errorData.details) && errorData.details.length > 0) {
+          const details = errorData.details;
+          console.log('🔴 Found validation details:', details);
+          
+          // Map backend field names to frontend field paths for navigation
+          errorFields = details.map((d: any) => {
+            const fieldPath = d.field || '';
+            const cleanFieldPath = fieldPath.replace(/^\//, ''); // Remove leading slash
+            const frontendPath = mapFieldToFrontendPath(cleanFieldPath);
+            const stepNumber = getStepNumberForField(cleanFieldPath);
+            const displayName = getDisplayNameForField(cleanFieldPath);
+            const fieldMessage = d.message || 'Invalid value';
+            
+            console.log('🔴 Mapped field:', { fieldPath, cleanFieldPath, frontendPath, stepNumber, displayName });
+            
+            return {
+              fieldPath: frontendPath,
+              displayName: displayName,
+              stepNumber: stepNumber,
+              backendField: cleanFieldPath,
+              errorMessage: fieldMessage
+            };
+          });
+          
+          // Format error message for toast
+          if (errorFields.length === 1) {
+            // Single error - show field name and message
+            const field = errorFields[0];
+            errorMessage = `${field.displayName}: ${field.errorMessage}`;
+          } else {
+            // Multiple errors - show count and first few field names
+            const fieldNames = errorFields.slice(0, 3).map(f => f.displayName).join(', ');
+            const remaining = errorFields.length - 3;
+            errorMessage = remaining > 0
+              ? `Please fix ${errorFields.length} fields: ${fieldNames} and ${remaining} more`
+              : `Please fix the following fields: ${fieldNames}`;
+          }
+        }
+        // Check for validation errors array from backend (custom route handler format)
+        else if (errorData.errors && Array.isArray(errorData.errors)) {
+          // Backend sends errors in format: [{ field, message, code }]
+          const validationErrors = errorData.errors;
+          console.log('🔴 Found validation errors:', validationErrors);
+          
+          if (validationErrors.length === 1) {
+            // Single error - show the exact message
+            errorMessage = validationErrors[0].message || errorMessage;
+          } else {
+            // Multiple errors - combine messages
+            errorMessage = validationErrors.map((e: any) => e.message).join(', ');
+          }
+          
+          // Map backend field names to frontend field paths for navigation
+          errorFields = validationErrors.map((e: any) => {
+            const fieldPath = e.field || '';
+            const cleanFieldPath = fieldPath.replace(/^\//, ''); // Remove leading slash
+            const frontendPath = mapFieldToFrontendPath(cleanFieldPath);
+            const stepNumber = getStepNumberForField(cleanFieldPath);
+            return {
+              fieldPath: frontendPath,
+              displayName: getDisplayNameForField(cleanFieldPath),
+              stepNumber: stepNumber,
+              backendField: cleanFieldPath,
+              errorMessage: e.message
+            };
+          });
+        }
+        // Check for error message (fallback)
         else if (errorData.message) {
           errorMessage = errorData.message;
+          console.log('🔴 Using error message:', errorMessage);
         }
-        // Check for error field
+        // Check for error field (legacy format)
         else if (errorData.error) {
           errorMessage = typeof errorData.error === 'string' 
             ? errorData.error 
             : errorData.error.message || errorMessage;
+          console.log('🔴 Using legacy error format:', errorMessage);
         }
       } 
       // Handle network errors
       else if (error?.message) {
         errorMessage = error.message;
+        console.log('🔴 Network error:', errorMessage);
       }
       
-      // Show toast with error message
+      console.log('🔴 Final error state:', { errorMessage, errorFields });
+      
+      // Show toast with error message and navigate to field
       if (errorFields.length > 0) {
         const firstField = errorFields[0];
-        addToast(errorMessage, {
-          type: 'error',
-          duration: 6000,
-          action: {
-            label: 'Go to Field',
-            onClick: () => {
-              // Navigate to step with error
-              setCurrentStep(firstField.stepNumber);
-              // Scroll to field after navigation
-              setTimeout(() => {
-                const fieldElement = document.querySelector(`[name="${firstField.fieldPath}"]`);
-                if (fieldElement) {
-                  fieldElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                  (fieldElement as HTMLElement).focus();
-                }
-              }, 300);
-            },
-          },
-        });
+        const fieldErrorMessage = firstField.errorMessage || errorMessage;
+        
+        console.log('🔴 Will navigate to field:', firstField);
+        
+        // Navigate to field and highlight it automatically
+        navigateToFieldAndHighlight(
+          firstField.fieldPath,
+          firstField.stepNumber,
+          fieldErrorMessage
+        );
+        
+        // Show toast with error message - using direct sonner import for reliability
+        console.log('🔴 Showing toast:', errorMessage);
+        try {
+          // Use direct sonner toast for reliability
+          sonnerToast.error(errorMessage, {
+            duration: 8000,
+            action: errorFields.length === 1 ? {
+              label: 'Go to Field',
+              onClick: () => {
+                navigateToFieldAndHighlight(
+                  firstField.fieldPath,
+                  firstField.stepNumber,
+                  fieldErrorMessage
+                );
+              },
+            } : undefined,
+          });
+        } catch (toastError) {
+          console.error('🔴 Toast error:', toastError);
+          // Fallback: use alert
+          alert(errorMessage);
+        }
       } else {
-        addToast(errorMessage, {
-          type: 'error',
-          duration: 6000
-        });
+        // No specific field errors, just show general error message
+        console.log('🔴 Showing general error toast:', errorMessage);
+        try {
+          sonnerToast.error(errorMessage, { duration: 6000 });
+        } catch (toastError) {
+          console.error('🔴 Toast error:', toastError);
+          alert(errorMessage);
+        }
       }
-    } finally {
-      setIsSubmitting(false);
     }
-  }, [selectedFlow, addToast, clearFormData, form, setIsSubmitting, isRateLimited, recordAttempt, getTimeUntilReset, setCurrentStep]);
+  }, [selectedFlow, clearFormData, form, setIsSubmitting, isRateLimited, recordAttempt, getTimeUntilReset, setCurrentStep]);
 
   const handleError = useCallback((error: Error, errorInfo: any) => {
     console.error('Onboarding Error:', error, errorInfo);
-    addToast('An unexpected error occurred. Please refresh the page and try again.', {
-      type: 'error',
+    sonnerToast.error('An unexpected error occurred. Please refresh the page and try again.', {
       duration: 10000
     });
-  }, [addToast]);
+  }, []);
 
   if (isSubmitted) {
     return <SuccessMessage />;
@@ -438,8 +776,17 @@ export const OnboardingForm = () => {
 
   if (isSubmitting) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <LoadingSpinner size="lg" message="Submitting your form..." />
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 relative overflow-hidden">
+        {/* Animated background elements */}
+        <div className="absolute inset-0 overflow-hidden">
+          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-200/30 rounded-full blur-3xl animate-pulse"></div>
+          <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-200/30 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
+          <div className="absolute top-1/2 left-1/2 w-96 h-96 bg-pink-200/30 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }}></div>
+        </div>
+        
+        <div className="relative z-10">
+          <LoadingSpinner size="lg" message="Setting up your organization..." showProgress={true} />
+        </div>
       </div>
     );
   }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChevronDown, ChevronRight, Building2, MapPin, Users, UserCheck, MoreHorizontal, Eye, Edit, Trash2, ZoomIn, ZoomOut, Maximize2, RotateCcw, Move, CreditCard } from 'lucide-react';
 import { PearlButton } from '@/components/ui/pearl-button';
+import { CreditAllocationModal } from '@/components/common/CreditAllocationModal';
 
 // Types based on your documentation
 interface Entity {
@@ -200,11 +201,12 @@ const EntityIcon = ({ entityType, organizationType, className = "w-5 h-5" }: {
   }
 };
 
-const EntityCard = ({ 
-  entity, 
-  onSelect, 
-  onEdit, 
+const EntityCard = ({
+  entity,
+  onSelect,
+  onEdit,
   onDelete,
+  onAllocateCredits,
   isExpanded,
   onToggleExpanded,
   updatePosition
@@ -213,6 +215,7 @@ const EntityCard = ({
   onSelect?: (entity: Entity) => void;
   onEdit?: (entity: Entity) => void;
   onDelete?: (entityId: string) => void;
+  onAllocateCredits?: (entityId: string) => void;
   isExpanded?: boolean;
   onToggleExpanded?: () => void;
   updatePosition?: (id: string, element: HTMLElement) => void;
@@ -327,6 +330,19 @@ const EntityCard = ({
                     <Edit className="w-4 h-4" />
                     <span>Edit</span>
                   </button>
+                  {/* Credit Allocation - only for organizations and locations */}
+                  {(entity.entityType === 'organization' || entity.entityType === 'location') && onAllocateCredits && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onAllocateCredits(entity.entityId);
+                      }}
+                      className="flex items-center space-x-2 px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-600 w-full text-left"
+                    >
+                      <CreditCard className="w-4 h-4" />
+                      <span>Allocate Credits</span>
+                    </button>
+                  )}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -462,6 +478,7 @@ const HierarchyNode = ({
         onSelect={onSelect}
         onEdit={onEdit}
         onDelete={onDelete}
+        onAllocateCredits={handleAllocateCredits}
         isExpanded={isExpanded}
         onToggleExpanded={() => toggleExpanded(entity.entityId)}
         updatePosition={updatePosition}
@@ -499,6 +516,8 @@ export const OrganizationHierarchyChart: React.FC<OrganizationHierarchyChartProp
   isOpen = false,
   onClose
 }) => {
+  // Filter out tenant entities to start from primary organization
+  const filteredHierarchy = hierarchy.filter(entity => entity.organizationType !== 'tenant');
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -507,15 +526,24 @@ export const OrganizationHierarchyChart: React.FC<OrganizationHierarchyChartProp
   const chartRef = useRef<HTMLDivElement>(null);
   const { updatePosition, getPosition, positions, clearPositions } = useEntityPositions();
 
+  // Credit allocation modal state
+  const [showCreditAllocationModal, setShowCreditAllocationModal] = useState(false);
+  const [selectedEntityForAllocation, setSelectedEntityForAllocation] = useState<{
+    id: string;
+    name: string;
+    type: 'organization' | 'location';
+    availableCredits: number;
+  } | null>(null);
+
   // Auto-expand root nodes and their first level children
   useEffect(() => {
-    if (hierarchy && hierarchy.length > 0) {
+    if (filteredHierarchy && filteredHierarchy.length > 0) {
       const expandedIds = new Set<string>();
-      
-      hierarchy.forEach(entity => {
-        // Expand root entity (tenant)
+
+      filteredHierarchy.forEach(entity => {
+        // Expand root entity (primary organization)
         expandedIds.add(entity.entityId);
-        
+
         // Also expand first level children if they exist
         if (entity.children && entity.children.length > 0) {
           entity.children.forEach(child => {
@@ -523,10 +551,10 @@ export const OrganizationHierarchyChart: React.FC<OrganizationHierarchyChartProp
           });
         }
       });
-      
+
       setExpandedNodes(expandedIds);
     }
-  }, [hierarchy]);
+  }, [filteredHierarchy]);
 
   const toggleExpanded = (entityId: string) => {
     setExpandedNodes(prev => {
@@ -551,8 +579,35 @@ export const OrganizationHierarchyChart: React.FC<OrganizationHierarchyChartProp
       });
       return ids;
     };
-    
-    setExpandedNodes(new Set(getAllEntityIds(hierarchy)));
+
+    setExpandedNodes(new Set(getAllEntityIds(filteredHierarchy)));
+  };
+
+  const handleAllocateCredits = (entityId: string) => {
+    // Find the entity in the hierarchy to get its details
+    const findEntity = (entities: Entity[]): Entity | null => {
+      for (const entity of entities) {
+        if (entity.entityId === entityId) {
+          return entity;
+        }
+        if (entity.children) {
+          const found = findEntity(entity.children);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    const entity = findEntity(filteredHierarchy);
+    if (entity) {
+      setSelectedEntityForAllocation({
+        id: entityId,
+        name: entity.entityName,
+        type: entity.entityType,
+        availableCredits: entity.availableCredits || 0
+      });
+      setShowCreditAllocationModal(true);
+    }
   };
 
   const collapseAll = () => {
@@ -641,12 +696,12 @@ export const OrganizationHierarchyChart: React.FC<OrganizationHierarchyChartProp
       }
     };
 
-    if (hierarchy && hierarchy.length > 0) {
-      hierarchy.forEach(processEntity);
+    if (filteredHierarchy && filteredHierarchy.length > 0) {
+      filteredHierarchy.forEach(processEntity);
     }
     
     return connections;
-  }, [hierarchy, expandedNodes, getPosition, positions]);
+  }, [filteredHierarchy, expandedNodes, getPosition, positions]);
 
   // Clear positions and trigger updates when expand/collapse changes
   useEffect(() => {
@@ -675,7 +730,7 @@ export const OrganizationHierarchyChart: React.FC<OrganizationHierarchyChartProp
     );
   }
 
-  if (!hierarchy || hierarchy.length === 0) {
+  if (!filteredHierarchy || filteredHierarchy.length === 0) {
     return (
       <div className="text-center p-8 text-gray-500 dark:text-gray-400">
         <Building2 className="h-12 w-12 mx-auto mb-4 text-gray-300 dark:text-gray-600" />
@@ -871,7 +926,7 @@ export const OrganizationHierarchyChart: React.FC<OrganizationHierarchyChartProp
 
                 {/* Entity Nodes */}
                 <div className="min-w-max flex flex-col items-center space-y-16 relative z-10">
-                  {hierarchy.map((rootEntity) => (
+                  {filteredHierarchy.map((rootEntity) => (
                     <HierarchyNode
                       key={rootEntity.entityId}
                       entity={rootEntity}
@@ -893,11 +948,11 @@ export const OrganizationHierarchyChart: React.FC<OrganizationHierarchyChartProp
               <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-300">
                 <div className="flex items-center space-x-4">
                   <div>
-                    Total Entities: <span className="font-medium dark:text-white">{getAllEntityCount(hierarchy)}</span>
+                    Total Entities: <span className="font-medium dark:text-white">{getAllEntityCount(filteredHierarchy)}</span>
                   </div>
                   <div>
-                    Expanded: <span className="font-medium dark:text-white">{expandedNodes.size}</span> / 
-                    <span className="font-medium dark:text-white">{getAllEntityCount(hierarchy)}</span>
+                    Expanded: <span className="font-medium dark:text-white">{expandedNodes.size}</span> /
+                    <span className="font-medium dark:text-white">{getAllEntityCount(filteredHierarchy)}</span>
                   </div>
                 </div>
                 <div className="flex items-center space-x-4 text-xs text-gray-500 dark:text-gray-400">
@@ -908,6 +963,21 @@ export const OrganizationHierarchyChart: React.FC<OrganizationHierarchyChartProp
             </div>
           </div>
         </div>
+      )}
+
+      {/* Credit Allocation Modal */}
+      {selectedEntityForAllocation && (
+        <CreditAllocationModal
+          isOpen={showCreditAllocationModal}
+          onClose={() => {
+            setShowCreditAllocationModal(false);
+            setSelectedEntityForAllocation(null);
+          }}
+          entityId={selectedEntityForAllocation.id}
+          entityName={selectedEntityForAllocation.name}
+          entityType={selectedEntityForAllocation.type}
+          availableCredits={selectedEntityForAllocation.availableCredits}
+        />
       )}
     </>
   );

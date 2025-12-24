@@ -417,25 +417,14 @@ export default async function adminManagementRoutes(fastify, options) {
 
       // Create admin role
       console.log(`🔐 [${requestId}] Step 9: Creating admin role...`);
+      // FIXED: Import from permission-matrix.js instead of utils folder
+      const { createSuperAdminRoleConfig } = await import('../../../data/permission-matrix.js');
+      const roleConfig = createSuperAdminRoleConfig('free', tenant.tenantId, adminUser.userId);
+      roleConfig.organizationId = tenant.tenantId;
+      
       const [adminRole] = await db
         .insert(customRoles)
-        .values({
-          roleId: `role_${Date.now()}`,
-          tenantId: tenant.tenantId,
-          roleName: 'Organization Admin',
-          description: 'Full administrative access to all features',
-          permissions: {
-            crm: ['read', 'write', 'delete'],
-            users: ['read', 'write', 'delete'],
-            roles: ['read', 'write', 'delete'],
-            billing: ['read', 'write'],
-            analytics: ['read']
-          },
-          createdBy: adminUser.userId,
-          isSystemRole: true,
-          isDefault: true,
-          priority: 100
-        })
+        .values(roleConfig)
         .returning();
 
       // Assign role to admin user

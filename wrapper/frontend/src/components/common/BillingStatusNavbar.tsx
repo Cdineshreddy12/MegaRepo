@@ -1,11 +1,12 @@
 import React from 'react';
-import { Coins, Calendar, Crown, AlertTriangle, Clock, Shield } from 'lucide-react';
+import { Coins, Calendar, Crown, AlertTriangle, Clock, Shield, ArrowUp, Sparkles } from 'lucide-react';
 import { useCreditStatusQuery } from '@/hooks/useSharedQueries';
 import { useKindeAuth } from '@kinde-oss/kinde-auth-react';
 import { useQuery } from '@tanstack/react-query';
 import { subscriptionAPI } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+import { useNavigate } from 'react-router-dom';
 
 interface BillingStatusNavbarProps {
   className?: string;
@@ -13,6 +14,7 @@ interface BillingStatusNavbarProps {
 
 export function BillingStatusNavbar({ className }: BillingStatusNavbarProps) {
   const { isAuthenticated } = useKindeAuth();
+  const navigate = useNavigate();
 
   // Fetch credit status
   const { data: creditResponse, isLoading: creditLoading } = useCreditStatusQuery();
@@ -71,6 +73,7 @@ export function BillingStatusNavbar({ className }: BillingStatusNavbarProps) {
     availableCredits = 0,
     freeCredits = 0,
     paidCredits = 0,
+    seasonalCredits = 0,
     creditExpiry,
     lowBalanceThreshold = 100,
     criticalBalanceThreshold = 10
@@ -95,103 +98,125 @@ export function BillingStatusNavbar({ className }: BillingStatusNavbarProps) {
     return 'text-gray-600 dark:text-gray-400';
   };
 
+  // Map plan IDs to proper plan names
+  const planNameMap: Record<string, string> = {
+    'free': 'Free',
+    'starter': 'Starter',
+    'professional': 'Professional',
+    'premium': 'Premium',
+    'enterprise': 'Enterprise',
+    'standard': 'Standard',
+    'credit_based': 'Free' // Map credit_based to Free as default
+  };
+  
+  // Get plan name - prioritize mapping, fallback to capitalized plan ID, default to Free
+  const planId = subscription.plan || 'free';
+  const planName = planNameMap[planId] || 
+                   (planId === 'credit_based' ? 'Free' : planId.charAt(0).toUpperCase() + planId.slice(1)) || 
+                   'Free';
+  const isFreePlan = subscription.plan === 'free' || !subscription.plan;
+  const showUpgradePrompt = isFreePlan || subscription.plan === 'starter';
+
+  // Get categorized expiry dates - prioritize subscription expiry for consistency
+  // Use subscription.currentPeriodEnd as the primary source (same as billing page)
+  const subscriptionExpiryDate = subscription?.currentPeriodEnd || subscription?.subscriptionExpiry;
+  const freeCreditsExpiry = creditData?.freeCreditsExpiry || subscriptionExpiryDate || subscription?.freeCreditsExpiry;
+  const paidCreditsExpiry = creditData?.paidCreditsExpiry || subscription?.paidCreditsExpiry; // null = never expires
+  const seasonalCreditsExpiry = creditData?.seasonalCreditsExpiry || subscription?.seasonalCreditsExpiry;
+  
+  // Format date consistently with billing page (includes year)
+  const formatExpiryDate = (date: string | null | undefined) => {
+    if (!date) return null;
+    return formatDate(date); // Uses the same formatDate utility as billing page
+  };
+
   return (
-    <div className={cn("flex items-center gap-4 px-3 py-2 bg-gray-50/50 dark:bg-gray-800/50 rounded-lg border border-gray-200/50 dark:border-gray-700/50", className)}>
-      {/* Credits Section */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2">
-          <Coins className={cn("w-4 h-4", getStatusColor())} />
-          <div className="flex flex-col">
-            <span className="text-xs font-medium text-gray-900 dark:text-gray-100">
-              {availableCredits.toLocaleString()} credits
+    <div className={cn("flex items-center gap-3 px-4 py-2 bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-all duration-300", className)}>
+      {/* Subscription Plan Expiry - SHOWN FIRST */}
+      {subscription?.currentPeriodEnd && (
+        <div className="group flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-gray-50 transition-colors cursor-help" title={`Plan ${subscription.plan === 'free' ? 'expires' : 'renews'} on ${formatDate(subscription.currentPeriodEnd)}`}>
+          <Calendar className={cn("w-4 h-4 transition-transform group-hover:scale-110", getExpiryColor())} />
+          <div className="flex flex-col leading-none">
+            <span className="text-[10px] uppercase tracking-wider font-semibold text-gray-500">
+              {subscription.plan === 'free' ? 'Expires' : 'Renews'}
+            </span>
+            <span className={cn("text-xs font-bold", getExpiryColor())}>
+              {formatDate(subscription.currentPeriodEnd).split(',')[0]}
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div className="w-px h-8 bg-gray-100"></div>
+
+      {/* Subscription Plan */}
+      <div className="group flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-purple-50 transition-colors">
+        <div className="p-1 bg-purple-100 rounded-full group-hover:bg-purple-200 transition-colors">
+          <Crown className="w-3 h-3 text-purple-600" />
+        </div>
+        <div className="flex flex-col leading-none">
+          <span className="text-[10px] uppercase tracking-wider font-semibold text-gray-500">Plan</span>
+          <span className="text-xs font-bold text-gray-900 capitalize">
+            {planName}
+          </span>
+        </div>
+      </div>
+
+      <div className="w-px h-8 bg-gray-100"></div>
+
+      {/* Credits Section - Show Paid and Free Credits */}
+      <div className="flex items-center gap-1">
+        {/* Paid Credits */}
+        {paidCredits > 0 && (
+          <div className="group flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-amber-50 transition-colors">
+            <div className="p-1 bg-amber-100 rounded-full group-hover:bg-amber-200 transition-colors">
+              <Shield className="w-3 h-3 text-amber-600" />
+            </div>
+            <div className="flex flex-col leading-none">
+              <span className="text-[10px] uppercase tracking-wider font-semibold text-gray-500">Paid</span>
+              <span className="text-xs font-bold text-gray-900">
+                {paidCredits.toLocaleString()}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Free Credits */}
+        <div className="group flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-emerald-50 transition-colors">
+          <div className="p-1 bg-emerald-100 rounded-full group-hover:bg-emerald-200 transition-colors">
+            <Clock className="w-3 h-3 text-emerald-600" />
+          </div>
+          <div className="flex flex-col leading-none">
+            <span className="text-[10px] uppercase tracking-wider font-semibold text-gray-500">Free</span>
+            <span className="text-xs font-bold text-gray-900">
+              {freeCredits.toLocaleString()}
             </span>
           </div>
         </div>
 
-        {/* Free Credits */}
-        <div className="flex items-center gap-1 px-2 py-1 bg-emerald-50 dark:bg-emerald-900/20 rounded-md border border-emerald-200/50 dark:border-emerald-800/50">
-          <Clock className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-          <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
-            {freeCredits} free
-          </span>
-        </div>
-
-        {/* Paid Credits */}
-        {paidCredits > 0 && (
-          <div className="flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 rounded-md border border-amber-200/70 dark:border-amber-800/50">
-            <Shield className="w-3 h-3 text-amber-600 dark:text-amber-400" />
-            <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">
-              {paidCredits} paid
-            </span>
+        {/* Seasonal Credits - Only if present */}
+        {seasonalCredits > 0 && (
+          <div className="group flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-indigo-50 transition-colors">
+            <div className="p-1 bg-indigo-100 rounded-full group-hover:bg-indigo-200 transition-colors">
+              <Sparkles className="w-3 h-3 text-indigo-600" />
+            </div>
+            <div className="flex flex-col leading-none">
+              <span className="text-[10px] uppercase tracking-wider font-semibold text-gray-500">Seasonal</span>
+              <span className="text-xs font-bold text-gray-900">
+                {seasonalCredits.toLocaleString()}
+              </span>
+            </div>
           </div>
         )}
       </div>
 
-      {/* Separator */}
-      <div className="w-px h-6 bg-gray-300 dark:bg-gray-600"></div>
-
-      {/* Subscription Plan */}
-      <div className="flex items-center gap-2">
-        <Crown className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-        <div className="flex flex-col">
-          <span className="text-xs font-medium text-gray-900 dark:text-gray-100 capitalize">
-            {subscription.plan} Plan
-          </span>
-          {subscription.status === 'trial' && (
-            <span className="text-xs text-blue-600 dark:text-blue-400">
-              Trial
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Subscription Plan Expiry */}
-      {subscription?.currentPeriodEnd && (
-        <>
-          <div className="w-px h-6 bg-gray-300 dark:bg-gray-600"></div>
-          <div className="flex items-center gap-2">
-            <Crown className={cn("w-4 h-4", "text-purple-600 dark:text-purple-400")} />
-            <div className="flex flex-col">
-              <span className="text-xs font-medium text-gray-900 dark:text-gray-100">
-                {subscription.plan === 'free' ? 'Plan Expires' : 'Plan Renews'}
-              </span>
-              <span className={cn("text-xs", getExpiryColor())}>
-                {(() => {
-                  const periodEnd = new Date(subscription.currentPeriodEnd);
-                  return periodEnd.toLocaleDateString() + ' ' + periodEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                })()}
-              </span>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Credit Expiry Date */}
-      {creditExpiry && (
-        <>
-          <div className="w-px h-6 bg-gray-300 dark:bg-gray-600"></div>
-          <div className="flex items-center gap-2">
-            <Calendar className={cn("w-4 h-4", getExpiryColor())} />
-            <div className="flex flex-col">
-              <span className="text-xs font-medium text-gray-900 dark:text-gray-100">
-                Credits Expire
-              </span>
-              <span className={cn("text-xs", getExpiryColor())}>
-                {(() => {
-                  const expiryDate = new Date(creditExpiry);
-                  return expiryDate.toLocaleDateString() + ' ' + expiryDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                })()}
-              </span>
-            </div>
-          </div>
-        </>
-      )}
-
       {/* Low Balance Warning */}
       {(isLowBalance || isExpiringSoon) && (
         <>
-          <div className="w-px h-6 bg-gray-300 dark:bg-gray-600"></div>
-          <AlertTriangle className="w-4 h-4 text-orange-500 dark:text-orange-400" />
+          <div className="w-px h-8 bg-gray-100"></div>
+          <div className="flex items-center justify-center w-8 h-8 rounded-full bg-orange-50 animate-pulse">
+            <AlertTriangle className="w-4 h-4 text-orange-500" />
+          </div>
         </>
       )}
     </div>

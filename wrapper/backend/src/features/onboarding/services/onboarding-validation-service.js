@@ -2,11 +2,13 @@
  * 🚀 **ONBOARDING VALIDATION SERVICE**
  * Handles validation checks during onboarding process
  * Ensures no duplicate emails or other conflicts exist
+ * Verifies PAN and GSTIN using verification APIs before onboarding
  */
 
 import { systemDbConnection } from '../../../db/index.js';
 import { tenants, tenantUsers } from '../../../db/schema/index.js';
 import { eq, and } from 'drizzle-orm';
+import VerificationService from '../../../services/verification-service.js';
 
 class OnboardingValidationService {
 
@@ -197,6 +199,64 @@ class OnboardingValidationService {
         }
       } catch (duplicateError) {
         errors.push({ field: 'email', message: duplicateError.message });
+      }
+    }
+
+    // Verify PAN and GSTIN using verification APIs before proceeding
+    if (errors.length === 0) {
+      // Verify PAN if provided
+      if (data.panNumber || data.taxRegistrationDetails?.pan) {
+        const pan = data.panNumber || data.taxRegistrationDetails?.pan;
+        const companyName = data.legalCompanyName || data.companyName;
+        
+        console.log(`🔍 Verifying PAN: ${pan} for company: ${companyName}`);
+        const panVerification = await VerificationService.verifyPAN(pan, companyName);
+        
+        if (!panVerification.verified) {
+          errors.push({ 
+            field: 'panNumber', 
+            message: panVerification.error || 'PAN verification failed. Please check the PAN number.',
+            code: 'PAN_VERIFICATION_FAILED'
+          });
+        } else {
+          console.log(`✅ PAN verified successfully: ${pan}`);
+          // Optionally store verification details for later use
+          if (panVerification.details) {
+            console.log(`📋 PAN Details: Name Match Score: ${panVerification.details.nameMatchScore}, Type: ${panVerification.details.type}`);
+          }
+        }
+      }
+
+      // Verify GSTIN if provided
+      if (data.hasGstin && data.gstin) {
+        const gstin = data.gstin;
+        const companyName = data.legalCompanyName || data.companyName;
+        
+        console.log(`🔍 Verifying GSTIN: ${gstin} for company: ${companyName}`);
+        const gstinVerification = await VerificationService.verifyGSTIN(gstin, companyName);
+        
+        if (!gstinVerification.verified) {
+          errors.push({ 
+            field: 'gstin', 
+            message: gstinVerification.error || 'GSTIN verification failed. Please check the GSTIN number.',
+            code: 'GSTIN_VERIFICATION_FAILED'
+          });
+        } else {
+          console.log(`✅ GSTIN verified successfully: ${gstin}`);
+          // Check if GSTIN status is active
+          const status = gstinVerification.details?.status;
+          const isActive = gstinVerification.details?.isActive;
+          
+          if (status && status.toLowerCase() !== 'active' && !isActive) {
+            errors.push({ 
+              field: 'gstin', 
+              message: `GSTIN status is ${status}. Only active GSTINs are allowed.`,
+              code: 'GSTIN_NOT_ACTIVE'
+            });
+          } else if (gstinVerification.details) {
+            console.log(`📋 GSTIN Details: Status: ${status}, Legal Name: ${gstinVerification.details.legalBusinessName}`);
+          }
+        }
       }
     }
 

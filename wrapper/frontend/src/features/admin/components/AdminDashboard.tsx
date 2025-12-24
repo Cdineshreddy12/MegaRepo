@@ -16,9 +16,6 @@ import ApplicationAssignmentManager from './ApplicationAssignmentManager';
 import CreditOperationCostManager from './credit-configuration/CreditOperationCostManager';
 import SeasonalCreditsManagement from './SeasonalCreditsManagement';
 
-// Import the new component we'll create
-import ApplicationCreditAllocations from './ApplicationCreditAllocations';
-
 interface DashboardStats {
   tenantStats: {
     total: number;
@@ -37,19 +34,6 @@ interface DashboardStats {
     totalReserved: number;
     lowBalanceAlerts: number;
   };
-  applicationCreditStats?: {
-    totalAllocations: number;
-    totalAllocatedCredits: number;
-    totalUsedCredits: number;
-    totalAvailableCredits: number;
-    allocationsByApplication: Array<{
-      application: string;
-      allocationCount: number;
-      totalAllocated: number;
-      totalUsed: number;
-      totalAvailable: number;
-    }>;
-  };
 }
 
 interface RecentActivity {
@@ -58,6 +42,8 @@ interface RecentActivity {
   description: string;
   timestamp: string;
 }
+
+import { Container } from '@/components/common/Page/Container';
 
 const AdminDashboard: React.FC = () => {
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -71,10 +57,9 @@ const AdminDashboard: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      const [overviewResponse, activityResponse, appCreditResponse] = await Promise.all([
+      const [overviewResponse, activityResponse] = await Promise.all([
         api.get('/admin/dashboard/overview'),
-        api.get('/admin/dashboard/recent-activity'),
-        api.get('/admin/credits/application-allocations')
+        api.get('/admin/dashboard/recent-activity')
       ]);
 
       if (overviewResponse.data.success) {
@@ -83,14 +68,6 @@ const AdminDashboard: React.FC = () => {
 
       if (activityResponse.data.success) {
         setRecentActivity(activityResponse.data.data.activities || []);
-      }
-
-      // Update stats with application credit data
-      if (appCreditResponse.data.success && appCreditResponse.data.data) {
-        setStats(prevStats => ({
-          ...prevStats,
-          applicationCreditStats: appCreditResponse.data.data.summary
-        }));
       }
     } catch (err) {
       console.error('Failed to fetch dashboard data:', err);
@@ -121,52 +98,46 @@ const AdminDashboard: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <div className="container mx-auto p-6">
-          <div className="flex items-center justify-center min-h-[400px]">
-            <Loader2 className="h-8 w-8 animate-spin" />
-            <span className="ml-2">Loading dashboard...</span>
-          </div>
-        </div>
-      </div>
+      <Container className="min-h-[400px] flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
+        <span className="ml-2">Loading dashboard...</span>
+      </Container>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <div className="container mx-auto p-6">
-          <Alert>
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-          <div className="mt-4">
-            <Button onClick={handleRefresh} variant="outline">
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Try Again
-            </Button>
-          </div>
+      <Container>
+        <Alert>
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+        <div className="mt-4">
+          <Button onClick={handleRefresh} variant="outline">
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Try Again
+          </Button>
         </div>
-      </div>
+      </Container>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="container mx-auto p-6">
-        <div className="mb-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <nav className="mb-4">
-                <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                  <span>Admin Dashboard</span>
-                </div>
-              </nav>
-              <h1 className="text-3xl font-bold tracking-tight">Company Admin Dashboard</h1>
-              <p className="text-muted-foreground">
-                Comprehensive overview of all tenants, entities, and credits
-              </p>
-            </div>
+    <Container wide className="bg-transparent">
+      <div className="mb-6">
+
+        <div className="flex items-center justify-between">
+          <div>
+            <nav className="mb-4">
+              <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                <span>Admin Dashboard</span>
+              </div>
+            </nav>
+            <h1 className="text-3xl font-bold tracking-tight">Company Admin Dashboard</h1>
+            <p className="text-muted-foreground">
+              Comprehensive overview of all tenants, entities, and credits
+            </p>
+          </div>
           <div className="flex gap-2">
             <Button onClick={handleRefresh} variant="outline" size="sm">
               <RefreshCw className="h-4 w-4 mr-2" />
@@ -186,7 +157,6 @@ const AdminDashboard: React.FC = () => {
           <TabsTrigger value="tenants">Tenants</TabsTrigger>
           <TabsTrigger value="entities">Entities</TabsTrigger>
           <TabsTrigger value="credits">Credits</TabsTrigger>
-          <TabsTrigger value="app-credits">App Credits</TabsTrigger>
           <TabsTrigger value="applications">Applications</TabsTrigger>
           <TabsTrigger value="operation-costs">Operation Costs</TabsTrigger>
           <TabsTrigger value="seasonal-credits">Seasonal Credits</TabsTrigger>
@@ -230,19 +200,6 @@ const AdminDashboard: React.FC = () => {
                 <div className="text-2xl font-bold">{stats?.creditStats.totalCredits.toFixed(2) || '0.00'}</div>
                 <p className="text-xs text-muted-foreground">
                   {stats?.creditStats.totalReserved.toFixed(2) || '0.00'} reserved
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">App Credits</CardTitle>
-                <CreditCard className="h-4 w-4 text-blue-600" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats?.applicationCreditStats?.totalAllocatedCredits.toFixed(2) || '0.00'}</div>
-                <p className="text-xs text-muted-foreground">
-                  {stats?.applicationCreditStats?.totalAllocations || 0} allocations
                 </p>
               </CardContent>
             </Card>
@@ -301,10 +258,6 @@ const AdminDashboard: React.FC = () => {
           <CreditManagement />
         </TabsContent>
 
-        <TabsContent value="app-credits">
-          <ApplicationCreditAllocations />
-        </TabsContent>
-
         <TabsContent value="applications">
           <ApplicationAssignmentManager />
         </TabsContent>
@@ -317,9 +270,9 @@ const AdminDashboard: React.FC = () => {
           <SeasonalCreditsManagement />
         </TabsContent>
       </Tabs>
-      </div>
-    </div>
+    </Container>
   );
 };
+
 
 export default AdminDashboard;

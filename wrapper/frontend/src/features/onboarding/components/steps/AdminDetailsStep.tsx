@@ -7,7 +7,8 @@ import { Badge } from '@/components/ui/badge';
 import { UserClassification } from '../FlowSelector';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Info } from 'lucide-react';
-import { memo } from 'react';
+import React, { memo, useEffect } from 'react';
+import { useKindeAuth } from '@kinde-oss/kinde-auth-react';
 
 interface AdminDetailsStepProps {
   form: UseFormReturn<newBusinessData | existingBusinessData>;
@@ -15,6 +16,38 @@ interface AdminDetailsStepProps {
 }
 
 export const AdminDetailsStep = memo(({ form, userClassification }: AdminDetailsStepProps) => {
+  const { user } = useKindeAuth();
+  
+  // Auto-fill email from Kinde on mount - use ref to prevent multiple fills
+  const hasAutoFilledRef = React.useRef(false);
+  
+  useEffect(() => {
+    // Only auto-fill once
+    if (hasAutoFilledRef.current) return;
+    
+    if (user?.email && !form.getValues('adminEmail')) {
+      hasAutoFilledRef.current = true;
+      
+      // Batch all setValue calls together
+      const updates: Array<{ field: any; value: any }> = [];
+      
+      if (user.email) {
+        updates.push({ field: 'adminEmail', value: user.email });
+      }
+      if (user.given_name && !form.getValues('firstName')) {
+        updates.push({ field: 'firstName', value: user.given_name });
+      }
+      if (user.family_name && !form.getValues('lastName')) {
+        updates.push({ field: 'lastName', value: user.family_name });
+      }
+      
+      // Apply all updates in a single batch
+      updates.forEach(({ field, value }) => {
+        form.setValue(field as any, value, { shouldValidate: false, shouldDirty: false });
+      });
+    }
+  }, [user?.email, form]); // Only depend on user.email, not entire user object
+
   // Get personalized content based on user classification
   const getPersonalizedContent = () => {
     switch (userClassification) {
@@ -124,13 +157,9 @@ export const AdminDetailsStep = memo(({ form, userClassification }: AdminDetails
                 <FormControl>
                   <Input
                     {...field}
-                        key="first-name-input"
+                    value={field.value || ''}
                     className={inputClasses}
                     placeholder="Enter your first name"
-                        onChange={(e) => {
-                          field.onChange(e);
-                        }}
-                        onBlur={field.onBlur}
                   />
                 </FormControl>
                 <FormMessage />
@@ -158,13 +187,9 @@ export const AdminDetailsStep = memo(({ form, userClassification }: AdminDetails
                 <FormControl>
                   <Input
                     {...field}
-                        key="last-name-input"
+                    value={field.value || ''}
                     className={inputClasses}
                     placeholder="Enter your last name"
-                        onChange={(e) => {
-                          field.onChange(e);
-                        }}
-                        onBlur={field.onBlur}
                   />
                 </FormControl>
                 <FormMessage />
@@ -191,24 +216,34 @@ export const AdminDetailsStep = memo(({ form, userClassification }: AdminDetails
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs bg-slate-900 text-white">
                           <p className="font-semibold mb-1">Mandatory Field</p>
-                          <p>Primary email address for the administrator account. Used for login, account recovery, important notifications, and official communications.</p>
+                          <p>Primary email address for the administrator account. Automatically filled from your Kinde authentication. Used for login, account recovery, important notifications, and official communications.</p>
                         </TooltipContent>
                       </Tooltip>
                 </FormLabel>
                 <FormControl>
                   <Input
                     {...field}
-                        key="admin-email-input"
+                    value={field.value || user?.email || ''}
                     type="email"
-                    className={inputClasses}
+                    readOnly
+                    disabled
+                    onChange={(e) => {
+                      // Prevent manual changes - always use Kinde email
+                      if (user?.email) {
+                        field.onChange(user.email);
+                      }
+                    }}
+                    className={`${inputClasses} bg-slate-50 cursor-not-allowed opacity-75`}
                     placeholder={personalizedContent.emailPlaceholder}
-                        onChange={(e) => {
-                          field.onChange(e);
-                        }}
-                        onBlur={field.onBlur}
                   />
                 </FormControl>
                 <FormMessage />
+                {user?.email && (
+                  <p className="text-xs text-blue-600 mt-1 font-medium flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+                    Auto-filled from your Kinde account
+                  </p>
+                )}
                 {personalizedContent.showDomainIntegration && (
                   <p className="text-xs text-green-600 mt-1 font-medium flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
@@ -230,14 +265,10 @@ export const AdminDetailsStep = memo(({ form, userClassification }: AdminDetails
                 <FormControl>
                   <Input
                     {...field}
-                        key="admin-mobile-input"
+                    value={field.value || ''}
                     type="tel"
                     className={inputClasses}
                     placeholder={personalizedContent.mobilePlaceholder}
-                        onChange={(e) => {
-                          field.onChange(e);
-                        }}
-                        onBlur={field.onBlur}
                   />
                 </FormControl>
                 <FormMessage />
@@ -273,14 +304,10 @@ export const AdminDetailsStep = memo(({ form, userClassification }: AdminDetails
                     <FormControl>
                       <Input
                         {...field}
-                        key="support-email-input"
+                        value={field.value || ''}
                         type="email"
                         className={inputClasses}
                         placeholder="support@company.com"
-                        onChange={(e) => {
-                          field.onChange(e);
-                        }}
-                        onBlur={field.onBlur}
                       />
                     </FormControl>
                     <FormMessage />
@@ -310,14 +337,10 @@ export const AdminDetailsStep = memo(({ form, userClassification }: AdminDetails
                     <FormControl>
                       <Input
                         {...field}
-                        key="website-input"
+                        value={field.value || ''}
                         type="url"
                         className={inputClasses}
                         placeholder={personalizedContent.websitePlaceholder}
-                        onChange={(e) => {
-                          field.onChange(e);
-                        }}
-                        onBlur={field.onBlur}
                       />
                     </FormControl>
                     <FormMessage />
@@ -393,13 +416,9 @@ export const AdminDetailsStep = memo(({ form, userClassification }: AdminDetails
                 <FormControl>
                   <Input
                     {...field}
-                        key="job-title-input"
+                    value={field.value || ''}
                     className={inputClasses}
                     placeholder="e.g. CEO, Founder, CTO"
-                        onChange={(e) => {
-                          field.onChange(e);
-                        }}
-                        onBlur={field.onBlur}
                   />
                 </FormControl>
                 <FormMessage />
@@ -429,13 +448,9 @@ export const AdminDetailsStep = memo(({ form, userClassification }: AdminDetails
                 <FormControl>
                   <Input
                     {...field}
-                        key="middle-name-input"
+                    value={field.value || ''}
                     className={inputClasses}
                     placeholder="Middle name"
-                        onChange={(e) => {
-                          field.onChange(e);
-                        }}
-                        onBlur={field.onBlur}
                   />
                 </FormControl>
                 <FormMessage />
@@ -462,13 +477,9 @@ export const AdminDetailsStep = memo(({ form, userClassification }: AdminDetails
                 <FormControl>
                   <Input
                     {...field}
-                        key="department-input"
+                    value={field.value || ''}
                     className={inputClasses}
                     placeholder="e.g. Operations, Finance"
-                        onChange={(e) => {
-                          field.onChange(e);
-                        }}
-                        onBlur={field.onBlur}
                   />
                 </FormControl>
                 <FormMessage />
@@ -571,14 +582,10 @@ export const AdminDetailsStep = memo(({ form, userClassification }: AdminDetails
                 <FormControl>
                   <Input
                     {...field}
-                        key="direct-phone-input"
+                    value={field.value || ''}
                     type="tel"
                     className={inputClasses}
                     placeholder="+1 (555) 123-4567"
-                        onChange={(e) => {
-                          field.onChange(e);
-                        }}
-                        onBlur={field.onBlur}
                   />
                 </FormControl>
                 <FormMessage />
@@ -605,14 +612,10 @@ export const AdminDetailsStep = memo(({ form, userClassification }: AdminDetails
                 <FormControl>
                   <Input
                     {...field}
-                        key="mobile-phone-input"
+                    value={field.value || ''}
                     type="tel"
                     className={inputClasses}
                     placeholder="+1 (555) 987-6543"
-                        onChange={(e) => {
-                          field.onChange(e);
-                        }}
-                        onBlur={field.onBlur}
                   />
                 </FormControl>
                 <FormMessage />
@@ -642,6 +645,7 @@ export const AdminDetailsStep = memo(({ form, userClassification }: AdminDetails
                 <FormControl>
                   <Input
                     {...field}
+                    value={field.value || ''}
                     type="email"
                     className={inputClasses}
                     placeholder="billing@company.com"

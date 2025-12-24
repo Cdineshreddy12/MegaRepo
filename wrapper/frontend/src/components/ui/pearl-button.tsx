@@ -1,191 +1,215 @@
-import React, { useState } from 'react'
-import { cn } from '@/lib/utils'
-import { useTheme } from '@/components/theme/ThemeProvider'
+import React, { useState, forwardRef } from 'react';
+import { cn } from '@/lib/utils';
+import { useTheme } from '@/components/theme/ThemeProvider';
 
 interface PearlButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  children: React.ReactNode
-  className?: string
-  variant?: 'primary' | 'secondary' | 'outline'
-  size?: 'sm' | 'md' | 'lg'
+  children: React.ReactNode;
+  className?: string;
+  variant?: 'primary' | 'secondary' | 'outline';
+  size?: 'sm' | 'md' | 'lg';
+  color?: 'blue' | 'sky' | 'indigo' | 'cyan' | 'emerald' | 'rose' | 'amber' | 'violet' | 'purple' | 'orange' | 'red' | 'yellow';
 }
 
-export const PearlButton: React.FC<PearlButtonProps> = ({
+export const PearlButton = forwardRef<HTMLButtonElement, PearlButtonProps>(({
   children,
   className,
   variant = 'primary',
   size = 'md',
+  color = 'blue',
   ...props
-}) => {
-  const [isHovered, setIsHovered] = useState(false)
-  const { actualTheme } = useTheme()
+}, ref) => {
+  const [isHovered, setIsHovered] = useState(false);
+  const { actualTheme } = useTheme();
 
-  // Variant and size styles
   const getVariantStyles = () => {
+    const colorClassMap: Record<string, string> = {
+      blue: 'blue-600',
+      sky: 'sky-500',
+      indigo: 'indigo-600',
+      cyan: 'cyan-500',
+      emerald: 'emerald-600',
+      rose: 'rose-500',
+      amber: 'amber-500',
+      violet: 'violet-600',
+      purple: 'purple-600',
+      orange: 'orange-500',
+      red: 'red-600',
+      yellow: 'yellow-500'
+    };
+
+    const themeColorClass = colorClassMap[color] || 'blue-600';
+    const isLightColor = color === 'yellow' || color === 'amber' || color === 'sky' || color === 'cyan';
+
     const baseStyles = {
       light: {
         primary: {
-          background: 'bg-gradient-to-br from-violet-50 to-purple-50',
-          text: 'text-purple-900 font-semibold',
-          shadow: 'shadow-[inset_0_0.5rem_1.5rem_rgba(147,51,234,0.1),inset_0_-0.2rem_0.5rem_rgba(255,255,255,0.2),inset_0_-0.7rem_1.5rem_rgba(147,51,234,0.15),0_2rem_2rem_rgba(147,51,234,0.15),0_0.7rem_0.7rem_-0.25rem_rgba(147,51,234,0.1)]',
-          hoverShadow: 'hover:shadow-[inset_0_0.5rem_0.8rem_rgba(147,51,234,0.15),inset_0_-0.2rem_0.5rem_rgba(255,255,255,0.3),inset_0_-0.7rem_1.5rem_rgba(147,51,234,0.2),0_2rem_2rem_rgba(147,51,234,0.15),0_0.7rem_0.7rem_-0.25rem_rgba(147,51,234,0.1)]',
-          activeShadow: 'active:shadow-[inset_0_0.5rem_0.8rem_rgba(147,51,234,0.25),inset_0_-0.2rem_0.5rem_rgba(255,255,255,0.8),inset_0_-0.7rem_1.5rem_rgba(147,51,234,0.1),0_2rem_2rem_rgba(147,51,234,0.15),0_0.7rem_0.7rem_-0.25rem_rgba(147,51,234,0.1)]',
-          overlayBg: 'bg-purple-500/10',
-          highlightShadow: 'inset 0 10px 8px -10px rgba(147, 51, 234, 0.4)',
-          highlightBg: 'linear-gradient(180deg, rgba(147, 51, 234, 0.15) 0%, rgba(255, 255, 255, 0) 50%, rgba(255, 255, 255, 0) 100%)'
+          background: `bg-${themeColorClass}`,
+          text: isLightColor ? 'text-slate-900 font-black tracking-tight' : 'text-white font-bold tracking-tight',
+          shadow: `shadow-[inset_0_2px_4px_rgba(255,255,255,0.4),0_10px_20px_rgba(0,0,0,0.1)]`,
+          hoverShadow: `hover:shadow-[inset_0_2px_4px_rgba(255,255,255,0.5),0_15px_30px_rgba(0,0,0,0.15)]`,
+          activeShadow: `active:shadow-[inset_0_4px_8px_rgba(0,0,0,0.3)]`,
+          overlayBg: 'bg-white/10',
+          highlightShadow: 'inset 0 12px 10px -10px rgba(255, 255, 255, 1)',
+          highlightBg: 'linear-gradient(180deg, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0.05) 45%, rgba(255, 255, 255, 0) 100%)'
         },
         secondary: {
-          background: 'bg-gray-100',
-          text: 'text-gray-700 font-medium',
-          shadow: 'shadow-[inset_0_0.5rem_1.5rem_rgba(255,255,255,0.3),inset_0_-0.2rem_0.5rem_rgba(0,0,0,0.1),inset_0_-0.7rem_1.5rem_rgba(0,0,0,0.1),0_2rem_2rem_rgba(0,0,0,0.1),0_0.7rem_0.7rem_-0.25rem_rgba(0,0,0,0.2)]',
-          hoverShadow: 'hover:shadow-[inset_0_0.5rem_0.8rem_rgba(255,255,255,0.4),inset_0_-0.2rem_0.5rem_rgba(0,0,0,0.1),inset_0_-0.7rem_1.5rem_rgba(0,0,0,0.15),0_2rem_2rem_rgba(0,0,0,0.1),0_0.7rem_0.7rem_-0.25rem_rgba(0,0,0,0.2)]',
-          activeShadow: 'active:shadow-[inset_0_0.5rem_0.8rem_rgba(255,255,255,0.5),inset_0_-0.2rem_0.5rem_rgba(0,0,0,0.2),inset_0_-0.7rem_1.5rem_rgba(0,0,0,0.05),0_2rem_2rem_rgba(0,0,0,0.1),0_0.7rem_0.7rem_-0.25rem_rgba(0,0,0,0.2)]',
-          overlayBg: 'bg-gray-500/8',
-          highlightShadow: 'inset 0 10px 8px -10px rgba(0, 0, 0, 0.2)',
-          highlightBg: 'linear-gradient(180deg, rgba(0, 0, 0, 0.08) 0%, rgba(255, 255, 255, 0) 50%, rgba(255, 255, 255, 0) 100%)'
+          background: 'bg-slate-100',
+          text: 'text-slate-700 font-medium',
+          shadow: 'shadow-sm',
+          hoverShadow: 'hover:shadow-md',
+          activeShadow: 'active:shadow-inner',
+          overlayBg: 'bg-slate-500/5',
+          highlightShadow: 'none',
+          highlightBg: 'transparent'
         },
         outline: {
-          background: 'bg-transparent border-2 border-purple-200',
-          text: 'text-purple-700 font-medium',
-          shadow: 'shadow-[0_2rem_2rem_rgba(147,51,234,0.1),0_0.7rem_0.7rem_-0.25rem_rgba(147,51,234,0.05)]',
-          hoverShadow: 'hover:shadow-[0_2rem_2rem_rgba(147,51,234,0.15),0_0.7rem_0.7rem_-0.25rem_rgba(147,51,234,0.1)]',
-          activeShadow: 'active:shadow-[0_1rem_1rem_rgba(147,51,234,0.2),0_0.5rem_0.5rem_-0.25rem_rgba(147,51,234,0.15)]',
-          overlayBg: 'bg-purple-500/5',
-          highlightShadow: 'inset 0 10px 8px -10px rgba(147, 51, 234, 0.2)',
-          highlightBg: 'linear-gradient(180deg, rgba(147, 51, 234, 0.05) 0%, rgba(255, 255, 255, 0) 50%, rgba(255, 255, 255, 0) 100%)'
+          background: 'bg-transparent border border-slate-200',
+          text: `text-${themeColorClass.split('-')[0]}-600`,
+          shadow: 'shadow-none',
+          hoverShadow: 'hover:bg-slate-50',
+          activeShadow: 'active:bg-slate-100',
+          overlayBg: 'bg-black/5',
+          highlightShadow: 'none',
+          highlightBg: 'transparent'
         }
       },
       monochrome: {
         primary: {
-          background: 'bg-gray-100',
-          text: 'text-gray-900 font-semibold',
-          shadow: 'shadow-[inset_0_0.5rem_1.5rem_rgba(255,255,255,0.1),inset_0_-0.2rem_0.5rem_rgba(0,0,0,0.3),inset_0_-0.7rem_1.5rem_rgba(0,0,0,0.3),0_2rem_2rem_rgba(0,0,0,0.15),0_0.7rem_0.7rem_-0.25rem_rgba(0,0,0,0.5)]',
-          hoverShadow: 'hover:shadow-[inset_0_0.5rem_0.8rem_rgba(255,255,255,0.6),inset_0_-0.2rem_0.5rem_rgba(0,0,0,0.3),inset_0_-0.7rem_1.5rem_rgba(0,0,0,0.4),0_2rem_2rem_rgba(0,0,0,0.15),0_0.7rem_0.7rem_-0.25rem_rgba(0,0,0,0.5)]',
-          activeShadow: 'active:shadow-[inset_0_0.5rem_0.8rem_rgba(255,255,255,0.7),inset_0_-0.2rem_0.5rem_rgba(0,0,0,0.4),inset_0_-0.7rem_1.5rem_rgba(0,0,0,0.2),0_2rem_2rem_rgba(0,0,0,0.15),0_0.7rem_0.7rem_-0.25rem_rgba(0,0,0,0.5)]',
-          overlayBg: 'bg-gray-900/6',
-          highlightShadow: 'inset 0 10px 8px -10px rgba(0, 0, 0, 0.4)',
-          highlightBg: 'linear-gradient(180deg, rgba(0, 0, 0, 0.15) 0%, rgba(255, 255, 255, 0) 50%, rgba(255, 255, 255, 0) 100%)'
+          background: 'bg-slate-900',
+          text: 'text-white font-semibold',
+          shadow: 'shadow-md',
+          hoverShadow: 'hover:shadow-lg',
+          activeShadow: 'active:shadow-inner',
+          overlayBg: 'bg-white/5',
+          highlightShadow: 'none',
+          highlightBg: 'transparent'
         },
         secondary: {
-          background: 'bg-gray-200',
-          text: 'text-gray-800 font-medium',
-          shadow: 'shadow-[inset_0_0.5rem_1.5rem_rgba(255,255,255,0.2),inset_0_-0.2rem_0.5rem_rgba(0,0,0,0.2),inset_0_-0.7rem_1.5rem_rgba(0,0,0,0.2),0_2rem_2rem_rgba(0,0,0,0.1),0_0.7rem_0.7rem_-0.25rem_rgba(0,0,0,0.3)]',
-          hoverShadow: 'hover:shadow-[inset_0_0.5rem_0.8rem_rgba(255,255,255,0.3),inset_0_-0.2rem_0.5rem_rgba(0,0,0,0.2),inset_0_-0.7rem_1.5rem_rgba(0,0,0,0.25),0_2rem_2rem_rgba(0,0,0,0.1),0_0.7rem_0.7rem_-0.25rem_rgba(0,0,0,0.3)]',
-          activeShadow: 'active:shadow-[inset_0_0.5rem_0.8rem_rgba(255,255,255,0.4),inset_0_-0.2rem_0.5rem_rgba(0,0,0,0.3),inset_0_-0.7rem_1.5rem_rgba(0,0,0,0.1),0_2rem_2rem_rgba(0,0,0,0.1),0_0.7rem_0.7rem_-0.25rem_rgba(0,0,0,0.3)]',
-          overlayBg: 'bg-gray-900/4',
-          highlightShadow: 'inset 0 10px 8px -10px rgba(0, 0, 0, 0.3)',
-          highlightBg: 'linear-gradient(180deg, rgba(0, 0, 0, 0.1) 0%, rgba(255, 255, 255, 0) 50%, rgba(255, 255, 255, 0) 100%)'
+          background: 'bg-slate-200',
+          text: 'text-slate-900',
+          shadow: 'shadow-md',
+          hoverShadow: 'hover:shadow-lg',
+          activeShadow: 'active:shadow-inner',
+          overlayBg: 'bg-slate-900/5',
+          highlightShadow: 'none',
+          highlightBg: 'transparent'
         },
         outline: {
-          background: 'bg-transparent border-2 border-gray-400',
-          text: 'text-gray-700 font-medium',
-          shadow: 'shadow-[0_2rem_2rem_rgba(0,0,0,0.1),0_0.7rem_0.7rem_-0.25rem_rgba(0,0,0,0.05)]',
-          hoverShadow: 'hover:shadow-[0_2rem_2rem_rgba(0,0,0,0.15),0_0.7rem_0.7rem_-0.25rem_rgba(0,0,0,0.1)]',
-          activeShadow: 'active:shadow-[0_1rem_1rem_rgba(0,0,0,0.2),0_0.5rem_0.5rem_-0.25rem_rgba(0,0,0,0.15)]',
-          overlayBg: 'bg-gray-900/3',
-          highlightShadow: 'inset 0 10px 8px -10px rgba(0, 0, 0, 0.2)',
-          highlightBg: 'linear-gradient(180deg, rgba(0, 0, 0, 0.05) 0%, rgba(255, 255, 255, 0) 50%, rgba(255, 255, 255, 0) 100%)'
+          background: 'bg-transparent border border-slate-300',
+          text: 'text-slate-800',
+          shadow: 'shadow-none',
+          hoverShadow: 'hover:shadow-sm',
+          activeShadow: 'active:bg-slate-100',
+          overlayBg: 'bg-slate-900/5',
+          highlightShadow: 'none',
+          highlightBg: 'transparent'
         }
       },
       dark: {
         primary: {
-          background: 'bg-gradient-to-br from-purple-900 to-indigo-900',
-          text: 'text-purple-100 font-semibold',
-          shadow: 'shadow-[inset_0_0.5rem_1.5rem_rgba(196,181,253,0.2),inset_0_-0.2rem_0.5rem_rgba(0,0,0,0.8),inset_0_-0.7rem_1.5rem_rgba(196,181,253,0.3),0_2rem_2rem_rgba(0,0,0,0.4),0_0.7rem_0.7rem_-0.25rem_rgba(0,0,0,0.9)]',
-          hoverShadow: 'hover:shadow-[inset_0_0.5rem_0.8rem_rgba(196,181,253,0.25),inset_0_-0.2rem_0.5rem_rgba(0,0,0,0.8),inset_0_-0.7rem_1.5rem_rgba(196,181,253,0.4),0_2rem_2rem_rgba(0,0,0,0.4),0_0.7rem_0.7rem_-0.25rem_rgba(0,0,0,0.9)]',
-          activeShadow: 'active:shadow-[inset_0_0.5rem_0.8rem_rgba(196,181,253,0.3),inset_0_-0.2rem_0.5rem_rgba(0,0,0,0.9),inset_0_-0.7rem_1.5rem_rgba(196,181,253,0.2),0_2rem_2rem_rgba(0,0,0,0.4),0_0.7rem_0.7rem_-0.25rem_rgba(0,0,0,0.9)]',
-          overlayBg: 'bg-purple-400/15',
-          highlightShadow: 'inset 0 10px 8px -10px rgba(196, 181, 253, 0.6)',
-          highlightBg: 'linear-gradient(180deg, rgba(196, 181, 253, 0.2) 0%, rgba(0, 0, 0, 0) 50%, rgba(0, 0, 0, 0) 100%)'
+          background: `bg-${themeColorClass}`,
+          text: isLightColor ? 'text-slate-900 font-black' : 'text-white font-bold',
+          shadow: 'shadow-[inset_0_2px_4px_rgba(255,255,255,0.2),0_10px_30px_rgba(0,0,0,0.5)]',
+          hoverShadow: 'hover:shadow-[inset_0_2px_4px_rgba(255,255,255,0.3),0_15px_40px_rgba(0,0,0,0.6)]',
+          activeShadow: 'active:shadow-inner',
+          overlayBg: 'bg-white/10',
+          highlightShadow: 'inset 0 12px 10px -10px rgba(255, 255, 255, 0.4)',
+          highlightBg: 'linear-gradient(180deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.02) 45%, rgba(255, 255, 255, 0) 100%)'
         },
         secondary: {
-          background: 'bg-gray-800',
-          text: 'text-gray-200 font-medium',
-          shadow: 'shadow-[inset_0_0.5rem_1.5rem_rgba(255,255,255,0.05),inset_0_-0.2rem_0.5rem_rgba(0,0,0,0.6),inset_0_-0.7rem_1.5rem_rgba(0,0,0,0.6),0_2rem_2rem_rgba(0,0,0,0.3),0_0.7rem_0.7rem_-0.25rem_rgba(0,0,0,0.7)]',
-          hoverShadow: 'hover:shadow-[inset_0_0.5rem_0.8rem_rgba(255,255,255,0.1),inset_0_-0.2rem_0.5rem_rgba(0,0,0,0.6),inset_0_-0.7rem_1.5rem_rgba(0,0,0,0.7),0_2rem_2rem_rgba(0,0,0,0.3),0_0.7rem_0.7rem_-0.25rem_rgba(0,0,0,0.7)]',
-          activeShadow: 'active:shadow-[inset_0_0.5rem_0.8rem_rgba(255,255,255,0.15),inset_0_-0.2rem_0.5rem_rgba(0,0,0,0.7),inset_0_-0.7rem_1.5rem_rgba(0,0,0,0.5),0_2rem_2rem_rgba(0,0,0,0.3),0_0.7rem_0.7rem_-0.25rem_rgba(0,0,0,0.7)]',
-          overlayBg: 'bg-gray-600/10',
-          highlightShadow: 'inset 0 10px 8px -10px rgba(255, 255, 255, 0.2)',
-          highlightBg: 'linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(0, 0, 0, 0) 50%, rgba(0, 0, 0, 0) 100%)'
+          background: 'bg-slate-800',
+          text: 'text-slate-300',
+          shadow: 'shadow-md',
+          hoverShadow: 'hover:shadow-lg',
+          activeShadow: 'active:shadow-inner',
+          overlayBg: 'bg-white/5',
+          highlightShadow: 'none',
+          highlightBg: 'transparent'
         },
         outline: {
-          background: 'bg-transparent border-2 border-purple-500/50',
-          text: 'text-purple-300 font-medium',
-          shadow: 'shadow-[0_2rem_2rem_rgba(0,0,0,0.3),0_0.7rem_0.7rem_-0.25rem_rgba(0,0,0,0.4)]',
-          hoverShadow: 'hover:shadow-[0_2rem_2rem_rgba(0,0,0,0.4),0_0.7rem_0.7rem_-0.25rem_rgba(0,0,0,0.5)]',
-          activeShadow: 'active:shadow-[0_1rem_1rem_rgba(0,0,0,0.5),0_0.5rem_0.5rem_-0.25rem_rgba(0,0,0,0.6)]',
-          overlayBg: 'bg-purple-500/8',
-          highlightShadow: 'inset 0 10px 8px -10px rgba(196, 181, 253, 0.3)',
-          highlightBg: 'linear-gradient(180deg, rgba(196, 181, 253, 0.08) 0%, rgba(0, 0, 0, 0) 50%, rgba(0, 0, 0, 0) 100%)'
+          background: 'bg-transparent border border-white/20',
+          text: 'text-white',
+          shadow: 'shadow-none',
+          hoverShadow: 'hover:bg-white/5',
+          activeShadow: 'active:bg-white/10',
+          overlayBg: 'bg-white/5',
+          highlightShadow: 'none',
+          highlightBg: 'transparent'
         }
       }
-    }
+    };
 
-    const themeKey = actualTheme as keyof typeof baseStyles
-    const variantKey = variant as keyof typeof baseStyles.light
+    const themeKey = (actualTheme === 'dark' || actualTheme === 'light' || actualTheme === 'monochrome') ? actualTheme : 'light';
+    const variantKey = variant || 'primary';
 
-    return baseStyles[themeKey][variantKey] || baseStyles[themeKey].primary
-  }
+    return baseStyles[themeKey][variantKey];
+  };
 
-  // Size styles
   const getSizeStyles = () => {
     switch (size) {
       case 'sm':
-        return 'text-xs px-4 py-2'
+        return 'text-xs px-5 py-2';
       case 'lg':
-        return 'text-base px-8 py-4'
+        return 'text-lg px-10 py-5';
       default:
-        return 'text-sm px-6 py-3'
+        return 'text-base px-8 py-3.5';
     }
-  }
+  };
 
-  const variantStyles = getVariantStyles()
-  const sizeStyles = getSizeStyles()
+  const variantStyles = getVariantStyles();
+  const sizeStyles = getSizeStyles();
 
   return (
     <button
+      ref={ref}
       className={cn(
-        "outline-none cursor-pointer border-0 relative rounded-full transition-all duration-200",
+        "outline-none cursor-pointer border-0 relative rounded-full transition-all duration-300 ease-out",
         variantStyles.background,
         variantStyles.shadow,
         variantStyles.hoverShadow,
         variantStyles.activeShadow,
-        "active:translate-y-1",
+        "active:scale-95 active:translate-y-0.5",
+        "hover:-translate-y-1",
         className
       )}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       {...props}
     >
-      <div className={cn("rounded-full relative overflow-hidden flex items-center justify-center", variantStyles.text, sizeStyles)}>
-        {/* Background overlay */}
+      <div className={cn(
+        "rounded-full relative overflow-hidden flex items-center justify-center gap-3",
+        variantStyles.text,
+        sizeStyles
+      )}>
+        {/* Animated Gloss Overlay */}
         <div
-          className={cn("absolute inset-0 rounded-full transition-all duration-300", variantStyles.overlayBg)}
-          style={{
-            transform: isHovered ? 'scale(1.05)' : 'scale(1)'
-          }}
-        ></div>
+          className={cn("absolute inset-0 rounded-full transition-opacity duration-500", variantStyles.overlayBg)}
+          style={{ opacity: isHovered ? 1 : 0 }}
+        />
 
-        {/* Top highlight */}
-        <div
-          className="absolute left-[6%] right-[6%] top-[12%] bottom-[40%] rounded-t-[22px] transition-all duration-300"
-          style={{
-            opacity: isHovered ? 0.6 : 0.8,
-            transform: isHovered ? 'translateY(5%)' : 'translateY(0%)',
-            boxShadow: variantStyles.highlightShadow,
-            background: variantStyles.highlightBg
-          }}
-        ></div>
+        {/* The Spherical Gloss Effect (Top Highlight) */}
+        {variant !== 'outline' && (
+          <div
+            className="absolute left-[8%] right-[8%] top-[8%] h-[50%] rounded-full transition-all duration-500 pointer-events-none"
+            style={{
+              opacity: isHovered ? 0.9 : 0.7,
+              transform: isHovered ? 'translateY(2%) scaleX(1.05)' : 'translateY(0) scaleX(1)',
+              boxShadow: variantStyles.highlightShadow,
+              background: variantStyles.highlightBg,
+            }}
+          />
+        )}
 
         {/* Content */}
         <span
-          className="relative z-10 flex items-center justify-center gap-2 font-medium transition-all duration-200"
-          style={{
-            transform: isHovered ? 'translateY(-2%)' : 'translateY(0%)'
-          }}
+          className="relative z-10 flex items-center justify-center gap-2 transition-transform duration-300"
+          style={{ transform: isHovered ? 'translateY(-1px)' : 'translateY(0)' }}
         >
           {children}
         </span>
       </div>
     </button>
-  )
-}
+  );
+});
+
+PearlButton.displayName = 'PearlButton';

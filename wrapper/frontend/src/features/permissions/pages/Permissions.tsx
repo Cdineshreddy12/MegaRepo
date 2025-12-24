@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react'
+import { motion } from 'framer-motion'
 import { ChevronDown, ChevronRight, Users, Shield, Search, Plus, Settings, Filter, Grid, List, UserCheck, Crown, Key, Eye, EyeOff, ToggleLeft, ToggleRight } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -49,7 +50,7 @@ function PermissionsContent() {
   const [roles, setRoles] = useState<CustomRole[]>(customRoleTemplates)
   const [permissions, setPermissions] = useState<PermissionItem[]>(mockPermissions)
   const [featureFlags, setFeatureFlags] = useState<KindePermission[]>(kindePermissions)
-  
+
   // UI State
   const [viewMode, setViewMode] = useState<'workspace' | 'matrix' | 'overview'>('overview')
   const [searchQuery, setSearchQuery] = useState('')
@@ -72,23 +73,23 @@ function PermissionsContent() {
   // Filter functions
   const filteredUsers = useMemo(() => {
     return users.filter(user => {
-      const matchesSearch = user.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                           user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                           user.department.toLowerCase().includes(searchQuery.toLowerCase())
+      const matchesSearch = user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        user.department.toLowerCase().includes(searchQuery.toLowerCase())
       const matchesStatus = showInactive || user.status === 'active'
       return matchesSearch && matchesStatus
     })
   }, [users, searchQuery, showInactive])
 
   const filteredRoles = useMemo(() => {
-    return roles.filter(role => 
+    return roles.filter(role =>
       role.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       role.description.toLowerCase().includes(searchQuery.toLowerCase())
     )
   }, [roles, searchQuery])
 
   const filteredPermissions = useMemo(() => {
-    return permissions.filter(permission => 
+    return permissions.filter(permission =>
       permission.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       permission.description.toLowerCase().includes(searchQuery.toLowerCase())
     )
@@ -111,11 +112,11 @@ function PermissionsContent() {
     setUserPermissions(prev => {
       const userPerms = prev[userId] || []
       const hasPermission = userPerms.includes(permissionId)
-      
-      const updatedPerms = hasPermission 
+
+      const updatedPerms = hasPermission
         ? userPerms.filter(id => id !== permissionId)
         : [...userPerms, permissionId]
-      
+
       return {
         ...prev,
         [userId]: updatedPerms
@@ -124,16 +125,16 @@ function PermissionsContent() {
   }
 
   const hasAccess = (user: EnhancedUser, permission: PermissionItem) => {
-    const requiredLevel = permission.tool === 'crm' ? 'starter' : 
-                         permission.tool === 'hr' ? 'professional' : 
-                         permission.tool === 'accounting' ? 'enterprise' : 'starter'
-    
+    const requiredLevel = permission.tool === 'crm' ? 'starter' :
+      permission.tool === 'hr' ? 'professional' :
+        permission.tool === 'accounting' ? 'enterprise' : 'starter'
+
     const hasSubscription = (
       (requiredLevel === 'starter') ||
       (requiredLevel === 'professional' && ['professional', 'enterprise'].includes(user.subscription)) ||
       (requiredLevel === 'enterprise' && user.subscription === 'enterprise')
     )
-    
+
     return hasSubscription
   }
 
@@ -168,7 +169,7 @@ function PermissionsContent() {
 
   // Draggable Permission Card
   const DraggablePermissionCard = ({ permission }: { permission: PermissionItem }) => (
-    <Card 
+    <Card
       className="h-24 hover:shadow-lg transition-all cursor-grab active:cursor-grabbing border-2 hover:border-green-300 hover:bg-green-50 mb-3"
       draggable
       onDragStart={(e) => {
@@ -193,19 +194,19 @@ function PermissionsContent() {
                 {permission.tool}
               </Badge>
               <span className="capitalize text-gray-500">{permission.level}</span>
-        </div>
-                </div>
+            </div>
+          </div>
           <div className="text-lg">
             {permission.level === 'admin' ? '🔴' : permission.level === 'advanced' ? '🟡' : '🟢'}
-                </div>
-              </div>
+          </div>
+        </div>
       </CardContent>
     </Card>
   )
 
   // Droppable User Card
   const DroppableUserCard = ({ user }: { user: EnhancedUser }) => (
-    <Card 
+    <Card
       className="h-28 hover:shadow-lg transition-all cursor-pointer border-2 hover:border-blue-300 hover:bg-blue-50 mb-3"
       onDragOver={(e) => {
         e.preventDefault()
@@ -218,16 +219,16 @@ function PermissionsContent() {
         e.preventDefault()
         e.currentTarget.classList.remove('border-blue-500', 'bg-blue-100', 'scale-105')
         e.currentTarget.classList.add('border-green-500', 'bg-green-100')
-        
+
         setTimeout(() => {
           e.currentTarget.classList.remove('border-green-500', 'bg-green-100')
         }, 1000)
-        
+
         const permissionData = e.dataTransfer.getData('application/json')
         if (permissionData) {
           const permission = JSON.parse(permissionData)
-          setUsers(prev => prev.map(u => 
-            u.id === user.id 
+          setUsers(prev => prev.map(u =>
+            u.id === user.id
               ? { ...u, assignedPermissions: [...new Set([...u.assignedPermissions, permission.id])] }
               : u
           ))
@@ -238,14 +239,14 @@ function PermissionsContent() {
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-lg font-bold shadow-md">
             {user.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-              </div>
+          </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-2">
               <h4 className="text-base font-bold truncate">{user.name}</h4>
               <Badge className={`text-xs px-2 py-1 ${getStatusColor(user.status)}`}>
                 {user.status}
               </Badge>
-                  </div>
+            </div>
             <p className="text-sm text-gray-600 truncate mb-1">{user.email}</p>
             <div className="flex items-center gap-3 text-sm">
               <span className="flex items-center gap-1">
@@ -254,13 +255,13 @@ function PermissionsContent() {
               <Badge className={`text-xs px-2 py-0.5 ${getSubscriptionColor(user.subscription)}`}>
                 {user.subscription}
               </Badge>
-                </div>
-                  </div>
+            </div>
+          </div>
           <div className="text-sm text-gray-500 text-center">
             <div className="font-medium">{user.assignedPermissions.length}</div>
             <div className="text-xs">permissions</div>
-                </div>
-              </div>
+          </div>
+        </div>
       </CardContent>
     </Card>
   )
@@ -272,7 +273,7 @@ function PermissionsContent() {
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-lg bg-purple-100 flex items-center justify-center text-purple-600">
             <Crown className="w-6 h-6" />
-                </div>
+          </div>
           <div className="flex-1 min-w-0">
             <h4 className="text-base font-semibold truncate">{role.name}</h4>
             <p className="text-sm text-gray-600 truncate mb-1">{role.description}</p>
@@ -281,9 +282,9 @@ function PermissionsContent() {
                 {role.permissions.length} permissions
               </Badge>
               <span className="text-gray-500">{role.userCount} users</span>
-              </div>
-                    </div>
-                  </div>
+            </div>
+          </div>
+        </div>
       </CardContent>
     </Card>
   )
@@ -296,7 +297,7 @@ function PermissionsContent() {
           <CardTitle className="text-xl flex items-center gap-3 font-bold text-gray-800">
             <div className="w-8 h-8 rounded-lg bg-gray-700 flex items-center justify-center">
               <Grid className="w-4 h-4 text-white" />
-        </div>
+            </div>
             Permission Matrix
             <Badge className="bg-gray-100 text-gray-700 ml-auto">
               {filteredUsers.length} × {filteredPermissions.length}
@@ -345,7 +346,7 @@ function PermissionsContent() {
                     {filteredPermissions.slice(0, 8).map(permission => {
                       const canAccess = hasAccess(user, permission)
                       const isEnabled = userPermissions[user.id]?.includes(permission.id) || false
-                      
+
                       return (
                         <td key={permission.id} className="text-center p-3">
                           <div className="flex items-center justify-center">
@@ -385,11 +386,11 @@ function PermissionsContent() {
             <div>
               <p className="text-2xl font-bold">{filteredUsers.length}</p>
               <p className="text-sm text-gray-600">Active Users</p>
-              </div>
             </div>
+          </div>
         </CardContent>
       </Card>
-      
+
       <Card className="border-l-4 border-l-purple-500">
         <CardContent className="p-4">
           <div className="flex items-center gap-3">
@@ -398,22 +399,22 @@ function PermissionsContent() {
               <p className="text-2xl font-bold">{filteredRoles.length}</p>
               <p className="text-sm text-gray-600">Roles</p>
             </div>
-                  </div>
+          </div>
         </CardContent>
       </Card>
-      
+
       <Card className="border-l-4 border-l-green-500">
         <CardContent className="p-4">
-                  <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3">
             <Key className="w-8 h-8 text-green-500" />
-                    <div>
+            <div>
               <p className="text-2xl font-bold">{filteredPermissions.length}</p>
               <p className="text-sm text-gray-600">Permissions</p>
-                      </div>
-                    </div>
+            </div>
+          </div>
         </CardContent>
       </Card>
-      
+
       <Card className="border-l-4 border-l-orange-500">
         <CardContent className="p-4">
           <div className="flex items-center gap-3">
@@ -421,14 +422,14 @@ function PermissionsContent() {
             <div>
               <p className="text-2xl font-bold">{users.filter(u => u.status === 'active').length}</p>
               <p className="text-sm text-gray-600">Active</p>
-                    </div>
-                    </div>
+            </div>
+          </div>
         </CardContent>
       </Card>
-        </div>
-      )
+    </div>
+  )
 
-    return (
+  return (
     <div className="space-y-6">
       {/* Custom Scrollbar Styles - Hidden but functional */}
       <style dangerouslySetInnerHTML={{
@@ -464,11 +465,16 @@ function PermissionsContent() {
       }} />
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-              <div>
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: "easeOut" }}
+        className="flex items-center justify-between"
+      >
+        <div>
           <h1 className="text-3xl font-bold">Permissions Management</h1>
           <p className="text-gray-600">Drag & drop permissions • Matrix toggles • Role management</p>
-              </div>
+        </div>
         <div className="flex items-center gap-3">
           <Button variant="outline" size="sm">
             <Plus className="w-4 h-4 mr-2" />
@@ -478,8 +484,8 @@ function PermissionsContent() {
             <Settings className="w-4 h-4 mr-2" />
             Settings
           </Button>
-                  </div>
-                  </div>
+        </div>
+      </motion.div>
 
       {/* Controls */}
       <div className="flex items-center justify-between gap-4">
@@ -491,30 +497,29 @@ function PermissionsContent() {
               { key: 'workspace', label: 'Workspace', icon: Users },
               { key: 'matrix', label: 'Matrix', icon: List }
             ].map(({ key, label, icon: Icon }) => (
-                  <button
+              <button
                 key={key}
                 onClick={() => setViewMode(key as any)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
-                  viewMode === key 
-                    ? 'bg-white text-blue-600 shadow-sm' 
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${viewMode === key
+                    ? 'bg-white text-blue-600 shadow-sm'
                     : 'text-gray-600 hover:text-gray-900'
-                }`}
+                  }`}
               >
                 <Icon className="w-4 h-4" />
                 {label}
-                  </button>
-                ))}
-              </div>
-            </div>
+              </button>
+            ))}
+          </div>
+        </div>
 
-            <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3">
           {/* Search */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
             <Input
               placeholder="Search..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10 w-64"
             />
           </div>
@@ -528,14 +533,14 @@ function PermissionsContent() {
           >
             {showInactive ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
           </Button>
-            </div>
-          </div>
+        </div>
+      </div>
 
       {/* Content */}
       {viewMode === 'overview' && (
         <div className="space-y-6">
           <StatsOverview />
-          
+
           {/* Quick Overview Grid */}
           <div className="grid md:grid-cols-3 gap-6">
             {/* Recent Users */}
@@ -544,7 +549,7 @@ function PermissionsContent() {
                 <CardTitle className="text-lg flex items-center gap-3 font-semibold text-gray-800">
                   <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center">
                     <Users className="w-4 h-4 text-white" />
-        </div>
+                  </div>
                   Recent Users
                   <Badge className="bg-blue-100 text-blue-700 ml-auto">{filteredUsers.length}</Badge>
                 </CardTitle>
@@ -562,7 +567,7 @@ function PermissionsContent() {
                 <CardTitle className="text-lg flex items-center gap-3 font-semibold text-gray-800">
                   <div className="w-8 h-8 rounded-lg bg-purple-500 flex items-center justify-center">
                     <Crown className="w-4 h-4 text-white" />
-      </div>
+                  </div>
                   Active Roles
                   <Badge className="bg-purple-100 text-purple-700 ml-auto">{filteredRoles.length}</Badge>
                 </CardTitle>
@@ -580,7 +585,7 @@ function PermissionsContent() {
                 <CardTitle className="text-lg flex items-center gap-3 font-semibold text-gray-800">
                   <div className="w-8 h-8 rounded-lg bg-green-500 flex items-center justify-center">
                     <Key className="w-4 h-4 text-white" />
-                </div>
+                  </div>
                   Key Permissions
                   <Badge className="bg-green-100 text-green-700 ml-auto">{filteredPermissions.length}</Badge>
                 </CardTitle>
@@ -600,8 +605,8 @@ function PermissionsContent() {
           {/* Permissions Panel */}
           <div className="col-span-4">
             <Card className={`h-full flex flex-col shadow-lg border-0 professional-dropdown ${expandedPanels.has('permissions') ? 'expanded' : ''}`}>
-                <button
-                  onClick={() => togglePanel('permissions')}
+              <button
+                onClick={() => togglePanel('permissions')}
                 className="flex items-center justify-between p-6 professional-dropdown-header hover:bg-green-50 transition-all duration-200 rounded-t-lg"
               >
                 <div className="flex items-center gap-4">
@@ -615,14 +620,14 @@ function PermissionsContent() {
                 </div>
                 <div className="flex items-center gap-3">
                   <Badge className="bg-green-100 text-green-700 px-3 py-1 text-sm font-medium">{filteredPermissions.length}</Badge>
-                  {expandedPanels.has('permissions') ? 
-                    <ChevronDown className="w-6 h-6 text-gray-400 transition-transform duration-200" /> : 
+                  {expandedPanels.has('permissions') ?
+                    <ChevronDown className="w-6 h-6 text-gray-400 transition-transform duration-200" /> :
                     <ChevronRight className="w-6 h-6 text-gray-400 transition-transform duration-200" />
                   }
                 </div>
-                </button>
-                
-                {expandedPanels.has('permissions') && (
+              </button>
+
+              {expandedPanels.has('permissions') && (
                 <div className="flex-1 flex flex-col professional-dropdown-content">
                   <div className="p-5 bg-gradient-to-r from-green-50 to-emerald-50 border-b border-green-100">
                     <div className="flex items-center gap-3 text-sm text-green-700 font-medium">
@@ -632,21 +637,21 @@ function PermissionsContent() {
                   </div>
                   <CardContent className="flex-1 p-6 overflow-y-auto hidden-scrollbar">
                     <div className="space-y-3">
-                        {filteredPermissions.map(permission => (
+                      {filteredPermissions.map(permission => (
                         <DraggablePermissionCard key={permission.id} permission={permission} />
-                        ))}
-                      </div>
-                  </CardContent>
+                      ))}
                     </div>
+                  </CardContent>
+                </div>
               )}
             </Card>
-            </div>
+          </div>
 
-            {/* Users Panel */}
-            <div className="col-span-5">
+          {/* Users Panel */}
+          <div className="col-span-5">
             <Card className={`h-full flex flex-col shadow-lg border-0 professional-dropdown ${expandedPanels.has('users') ? 'expanded' : ''}`}>
-                <button
-                  onClick={() => togglePanel('users')}
+              <button
+                onClick={() => togglePanel('users')}
                 className="flex items-center justify-between p-6 professional-dropdown-header hover:bg-blue-50 transition-all duration-200"
               >
                 <div className="flex items-center gap-4">
@@ -660,14 +665,14 @@ function PermissionsContent() {
                 </div>
                 <div className="flex items-center gap-3">
                   <Badge className="bg-blue-100 text-blue-700 px-3 py-1 text-sm font-medium">{filteredUsers.length}</Badge>
-                  {expandedPanels.has('users') ? 
-                    <ChevronDown className="w-6 h-6 text-gray-400 transition-transform duration-200" /> : 
+                  {expandedPanels.has('users') ?
+                    <ChevronDown className="w-6 h-6 text-gray-400 transition-transform duration-200" /> :
                     <ChevronRight className="w-6 h-6 text-gray-400 transition-transform duration-200" />
                   }
                 </div>
-                </button>
-                
-                {expandedPanels.has('users') && (
+              </button>
+
+              {expandedPanels.has('users') && (
                 <div className="flex-1 flex flex-col professional-dropdown-content">
                   <div className="p-5 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100">
                     <div className="flex items-center gap-3 text-sm text-blue-700 font-medium">
@@ -676,22 +681,22 @@ function PermissionsContent() {
                     </div>
                   </div>
                   <CardContent className="flex-1 p-6 overflow-y-auto hidden-scrollbar">
-                      <div className="space-y-3">
-                        {filteredUsers.map(user => (
+                    <div className="space-y-3">
+                      {filteredUsers.map(user => (
                         <DroppableUserCard key={user.id} user={user} />
-                        ))}
-                      </div>
-                  </CardContent>
+                      ))}
                     </div>
+                  </CardContent>
+                </div>
               )}
             </Card>
-            </div>
+          </div>
 
-            {/* Roles Panel */}
-            <div className="col-span-3">
+          {/* Roles Panel */}
+          <div className="col-span-3">
             <Card className={`h-full flex flex-col shadow-lg border-0 professional-dropdown ${expandedPanels.has('roles') ? 'expanded' : ''}`}>
-                <button
-                  onClick={() => togglePanel('roles')}
+              <button
+                onClick={() => togglePanel('roles')}
                 className="flex items-center justify-between p-6 professional-dropdown-header hover:bg-purple-50 transition-all duration-200 rounded-t-lg"
               >
                 <div className="flex items-center gap-4">
@@ -705,14 +710,14 @@ function PermissionsContent() {
                 </div>
                 <div className="flex items-center gap-3">
                   <Badge className="bg-purple-100 text-purple-700 px-3 py-1 text-sm font-medium">{filteredRoles.length}</Badge>
-                  {expandedPanels.has('roles') ? 
-                    <ChevronDown className="w-6 h-6 text-gray-400 transition-transform duration-200" /> : 
+                  {expandedPanels.has('roles') ?
+                    <ChevronDown className="w-6 h-6 text-gray-400 transition-transform duration-200" /> :
                     <ChevronRight className="w-6 h-6 text-gray-400 transition-transform duration-200" />
                   }
                 </div>
-                </button>
-                
-                {expandedPanels.has('roles') && (
+              </button>
+
+              {expandedPanels.has('roles') && (
                 <div className="flex-1 flex flex-col professional-dropdown-content">
                   <div className="p-5 bg-gradient-to-r from-purple-50 to-violet-50 border-b border-purple-100">
                     <div className="flex items-center gap-3 text-sm text-purple-700 font-medium">
@@ -721,18 +726,18 @@ function PermissionsContent() {
                     </div>
                   </div>
                   <CardContent className="flex-1 p-6 overflow-y-auto hidden-scrollbar">
-                      <div className="space-y-3">
-                        {filteredRoles.map(role => (
+                    <div className="space-y-3">
+                      {filteredRoles.map(role => (
                         <CompactRoleCard key={role.id} role={role} />
-                        ))}
-                      </div>
-                  </CardContent>
+                      ))}
                     </div>
+                  </CardContent>
+                </div>
               )}
             </Card>
-            </div>
           </div>
-        )}
+        </div>
+      )}
 
       {viewMode === 'matrix' && (
         <PermissionMatrix />

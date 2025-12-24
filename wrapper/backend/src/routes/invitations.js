@@ -301,8 +301,27 @@ async function validateMultiEntityInvitationPermissions(inviterId, tenantId, tar
 
 // Helper function to generate proper invitation URLs
 async function generateInvitationUrl(invitationToken, request, tenantId = null) {
-  // Priority 1: Use tenant subdomain in production
-  if (process.env.NODE_ENV === 'production' && tenantId) {
+  // CRITICAL: In development, always prioritize localhost first
+  const isDevelopment = process.env.NODE_ENV !== 'production';
+  
+  // Priority 1: In development, check request origin first (most reliable for local testing)
+  if (isDevelopment && request) {
+    const origin = request?.headers?.origin || request?.headers?.referer;
+    if (origin && (origin.includes('localhost') || origin.includes('127.0.0.1'))) {
+      try {
+        const url = new URL(origin);
+        const baseUrl = `${url.protocol}//${url.host}`;
+        const invitationUrl = `${baseUrl}/invite/accept?token=${invitationToken}`;
+        console.log('🔗 Generated invitation URL using request origin (development):', invitationUrl);
+        return invitationUrl;
+      } catch (e) {
+        console.warn('⚠️ Invalid origin URL, continuing with other methods:', origin);
+      }
+    }
+  }
+
+  // Priority 2: Use tenant subdomain in production
+  if (!isDevelopment && tenantId) {
     try {
       const [tenant] = await db
         .select({
@@ -325,37 +344,56 @@ async function generateInvitationUrl(invitationToken, request, tenantId = null) 
     }
   }
 
-  // Priority 2: Use INVITATION_BASE_URL if set (for production)
+  // Priority 3: In development, force localhost
+  if (isDevelopment) {
+    const baseUrl = 'http://localhost:3001';
+    const invitationUrl = `${baseUrl}/invite/accept?token=${invitationToken}`;
+    console.log('🔗 Generated invitation URL for development (localhost):', invitationUrl);
+    return invitationUrl;
+  }
+
+  // Priority 4: Use INVITATION_BASE_URL if set (for production)
   let baseUrl = process.env.INVITATION_BASE_URL;
   
-  // Priority 3: Use FRONTEND_URL if INVITATION_BASE_URL not set
+  // Priority 5: Use FRONTEND_URL if INVITATION_BASE_URL not set (for production)
   if (!baseUrl) {
     baseUrl = process.env.FRONTEND_URL;
   }
   
-  // Priority 4: Use request origin if environment variables are localhost
-  if (!baseUrl || baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
-    // Get the origin from the request headers
-    const origin = request?.headers?.origin || request?.headers?.referer;
-    if (origin) {
-      // Extract the base URL from origin (remove path and query)
-      const url = new URL(origin);
-      baseUrl = `${url.protocol}//${url.host}`;
-      console.log('🔗 Using request origin for invitation URL:', baseUrl);
+  // Priority 6: Use sensible defaults based on environment
+  if (!baseUrl) {
+    if (isDevelopment) {
+      baseUrl = 'http://localhost:3001';
+      console.log('⚠️ No base URL found, using development default:', baseUrl);
     } else {
-      // Priority 5: Use a sensible default based on environment
-      if (process.env.NODE_ENV === 'production') {
-        baseUrl = 'https://yourdomain.com'; // Replace with your actual domain
-        console.log('⚠️ No origin found, using production default:', baseUrl);
-      } else {
-        baseUrl = 'http://localhost:3001';
-        console.log('⚠️ No origin found, using localhost default:', baseUrl);
-      }
+      baseUrl = process.env.BASE_URL || 'https://zopkit.com';
+      console.log('⚠️ No base URL found, using production default:', baseUrl);
     }
   }
   
   // Generate the full invitation URL
   const invitationUrl = `${baseUrl}/invite/accept?token=${invitationToken}`;
+  
+  // Ensure we always have a valid URL
+  if (!invitationUrl || !invitationUrl.startsWith('http')) {
+    console.error('❌ Invalid invitation URL generated:', {
+      baseUrl,
+      invitationToken,
+      invitationUrl,
+      env: {
+        INVITATION_BASE_URL: process.env.INVITATION_BASE_URL,
+        FRONTEND_URL: process.env.FRONTEND_URL,
+        BASE_URL: process.env.BASE_URL,
+        NODE_ENV: process.env.NODE_ENV
+      }
+    });
+    // Fallback to a safe default
+    const fallbackUrl = isDevelopment 
+      ? 'http://localhost:3001' 
+      : 'https://zopkit.com';
+    return `${fallbackUrl}/invite/accept?token=${invitationToken}`;
+  }
+  
   console.log('🔗 Generated invitation URL:', invitationUrl);
   
   return invitationUrl;
@@ -666,7 +704,28 @@ export default async function invitationRoutes(fastify, options) {
 
       // Format invitations with invitation URLs
       const formattedInvitations = await Promise.all(invitations.map(async ({ invitation, role, inviter }) => {
-        const invitationUrl = await generateInvitationUrl(invitation.invitationToken, request, tenant.tenantId);
+        // Use stored URL if available, otherwise generate a new one
+        const invitationUrl = invitation.invitationUrl || await generateInvitationUrl(invitation.invitationToken, request, tenant.tenantId);
+        
+        // Ensure we always have a URL - this should never be undefined
+        if (!invitationUrl) {
+          console.warn(`⚠️ No invitation URL found for invitation ${invitation.invitationId}, generating fallback`);
+          const fallbackUrl = await generateInvitationUrl(invitation.invitationToken, request, tenant.tenantId);
+          return {
+            invitationId: invitation.invitationId,
+            email: invitation.email,
+            roleName: role?.roleName || 'No role assigned',
+            status: invitation.status,
+            invitedBy: inviter?.name || 'Unknown',
+            invitedAt: invitation.createdAt,
+            expiresAt: invitation.expiresAt,
+            acceptedAt: invitation.acceptedAt,
+            invitationUrl: fallbackUrl,
+            isExpired: invitation.expiresAt < new Date(),
+            daysUntilExpiry: Math.ceil((new Date(invitation.expiresAt) - new Date()) / (1000 * 60 * 60 * 24)),
+            urlIssue: 'Generated fallback URL - original was missing'
+          };
+        }
         
         return {
           invitationId: invitation.invitationId,
@@ -843,6 +902,10 @@ export default async function invitationRoutes(fastify, options) {
           }
         }
         
+        // Ensure we always have organization information for the email
+        const emailOrganizations = organizations.length > 0 ? organizations : [tenant.companyName];
+        const emailLocations = locations.length > 0 ? locations : undefined;
+
         await EmailService.sendUserInvitation({
           email: invitation.invitation.email,
           tenantName: tenant.companyName,
@@ -850,8 +913,8 @@ export default async function invitationRoutes(fastify, options) {
           invitationToken: invitationUrl, // Pass full URL instead of token
           invitedByName: invitation.inviter?.name || 'Team Administrator',
           message: 'Your invitation has been resent by an administrator.',
-          organizations: organizations.length > 0 ? organizations : undefined,
-          locations: locations.length > 0 ? locations : undefined,
+          organizations: emailOrganizations,
+          locations: emailLocations,
           invitedDate: invitation.invitation.createdAt,
           expiryDate: invitation.invitation.expiresAt
         });
@@ -1189,6 +1252,24 @@ export default async function invitationRoutes(fastify, options) {
       // Generate the full invitation URL using tenant subdomain
       const invitationUrl = await generateInvitationUrl(invitationToken, request, tenant.tenantId);
       
+      // Get the internal user ID for invitedBy (must reference tenantUsers.userId)
+      const invitedByUserId = inviter.internalUserId || inviter.userId;
+      if (!invitedByUserId) {
+        // Fallback: try to find user by kindeUserId
+        const [inviterUser] = await db
+          .select({ userId: tenantUsers.userId })
+          .from(tenantUsers)
+          .where(eq(tenantUsers.kindeUserId, inviter.kindeUserId))
+          .limit(1);
+        if (!inviterUser) {
+          return reply.code(400).send({
+            error: 'Inviter not found',
+            message: 'Unable to find inviter user record'
+          });
+        }
+        invitedByUserId = inviterUser.userId;
+      }
+
       const [newInvitation] = await db.insert(tenantInvitations).values({
         tenantId: tenant.tenantId,
         email: email,
@@ -1196,7 +1277,7 @@ export default async function invitationRoutes(fastify, options) {
         invitationUrl: invitationUrl,
         status: 'pending',
         expiresAt: expiresAt,
-        invitedBy: inviter.kindeUserId,
+        invitedBy: invitedByUserId, // FIXED: Use internal user ID instead of kindeUserId
         roleId: role.roleId
       }).returning();
 
@@ -1204,8 +1285,36 @@ export default async function invitationRoutes(fastify, options) {
         invitationId: newInvitation.invitationId,
         email: newInvitation.email,
         token: newInvitation.invitationToken,
-        url: newInvitation.invitationUrl
+        url: newInvitation.invitationUrl,
+        invitedBy: newInvitation.invitedBy,
+        roleId: newInvitation.roleId,
+        urlStored: !!newInvitation.invitationUrl,
+        urlLength: newInvitation.invitationUrl?.length || 0
       });
+
+      // Send invitation email
+      try {
+        // Import EmailService dynamically to avoid circular dependencies
+        const EmailService = (await import('../utils/email.js')).default;
+        
+        await EmailService.sendUserInvitation({
+          email: newInvitation.email,
+          tenantName: tenant.companyName,
+          roleName: role.roleName,
+          invitationToken: invitationUrl, // Pass full URL instead of token
+          invitedByName: request.userContext.name || 'Team Administrator',
+          message: request.body.message || `You've been invited to join ${tenant.companyName} as a ${role.roleName}.`,
+          organizations: [tenant.companyName], // Include tenant as organization
+          invitedDate: new Date(),
+          expiryDate: expiresAt
+        });
+
+        console.log(`✅ Invitation email sent successfully to ${newInvitation.email}`);
+      } catch (emailError) {
+        console.error(`❌ Failed to send invitation email to ${newInvitation.email}:`, emailError.message);
+        // Don't fail the invitation creation if email fails
+        console.log(`⚠️ Invitation created but email failed. Token: ${newInvitation.invitationToken}`);
+      }
 
       return {
         success: true,
@@ -1448,6 +1557,21 @@ export default async function invitationRoutes(fastify, options) {
 
       // Generate the full invitation URL using tenant subdomain
       const invitationUrl = await generateInvitationUrl(invitationToken, request, tenant.tenantId);
+      
+      // Ensure we have a valid URL
+      if (!invitationUrl || !invitationUrl.startsWith('http')) {
+        console.error('❌ Invalid invitation URL generated for multi-entity invitation:', invitationUrl);
+        return reply.code(500).send({
+          error: 'Failed to generate invitation URL',
+          message: 'Could not generate a valid invitation URL'
+        });
+      }
+      
+      console.log('🔗 Generated invitation URL for multi-entity invitation:', {
+        invitationUrl,
+        token: invitationToken.substring(0, 8) + '...',
+        email
+      });
 
       // Try simple raw SQL with string interpolation (temporary workaround)
       // Ensure we have a valid primary entity ID
@@ -1462,6 +1586,9 @@ export default async function invitationRoutes(fastify, options) {
       // Try a two-step approach: insert without JSONB first, then update
       const dbConnection = dbManager.getAppConnection();
 
+      // Escape the invitation URL for SQL (replace single quotes and backslashes)
+      const escapedInvitationUrl = invitationUrl.replace(/'/g, "''").replace(/\\/g, '\\\\');
+
       // First insert without the JSONB field
       const insertQuery = `
         INSERT INTO tenant_invitations (
@@ -1470,18 +1597,30 @@ export default async function invitationRoutes(fastify, options) {
         ) VALUES (
           '${tenant.tenantId}', '${email}', 'multi-entity',
           '${finalPrimaryEntityId}', '${request.userContext.internalUserId}', '${invitationToken}',
-          '${invitationUrl}', 'pending', '${expiresAt.toISOString()}', '${new Date().toISOString()}'
+          '${escapedInvitationUrl}', 'pending', '${expiresAt.toISOString()}', '${new Date().toISOString()}'
         )
-        RETURNING invitation_id
+        RETURNING invitation_id, invitation_url
       `;
 
-      console.log('🔍 Step 1 - Inserting base invitation:', insertQuery);
+      console.log('🔍 Step 1 - Inserting base invitation with URL:', {
+        email,
+        invitationToken: invitationToken.substring(0, 8) + '...',
+        invitationUrl: invitationUrl.substring(0, 50) + '...',
+        hasUrl: !!invitationUrl
+      });
 
       const insertResult = await dbConnection.unsafe(insertQuery);
       const invitationId = insertResult[0].invitation_id;
+      const storedUrl = insertResult[0].invitation_url;
+      
+      console.log('✅ Base invitation inserted:', {
+        invitationId,
+        storedUrl: storedUrl ? storedUrl.substring(0, 50) + '...' : 'NULL',
+        urlMatches: storedUrl === invitationUrl
+      });
 
       // Now update with JSONB
-      const targetEntitiesJson = JSON.stringify(validatedEntities).replace(/'/g, "''");
+      const targetEntitiesJson = JSON.stringify(validatedEntities).replace(/'/g, "''").replace(/\\/g, '\\\\');
       const updateQuery = `
         UPDATE tenant_invitations
         SET target_entities = '${targetEntitiesJson}'::jsonb
@@ -1489,10 +1628,25 @@ export default async function invitationRoutes(fastify, options) {
         RETURNING *
       `;
 
-      console.log('🔍 Step 2 - Updating with JSONB:', updateQuery);
+      console.log('🔍 Step 2 - Updating with JSONB');
 
       const updateResult = await dbConnection.unsafe(updateQuery);
       const newInvitation = updateResult[0];
+      
+      // Verify the URL was stored correctly
+      if (!newInvitation.invitation_url) {
+        console.error('❌ WARNING: Invitation URL was not stored! Attempting to update...');
+        // Try to update the URL again
+        const urlUpdateQuery = `
+          UPDATE tenant_invitations
+          SET invitation_url = '${escapedInvitationUrl}'
+          WHERE invitation_id = '${invitationId}'
+          RETURNING invitation_url
+        `;
+        const urlUpdateResult = await dbConnection.unsafe(urlUpdateQuery);
+        newInvitation.invitation_url = urlUpdateResult[0]?.invitation_url || invitationUrl;
+        console.log('✅ URL updated:', newInvitation.invitation_url ? 'SUCCESS' : 'FAILED');
+      }
 
       console.log('✅ Multi-entity invitation created successfully:', {
         invitationId: newInvitation.invitation_id,
@@ -1528,39 +1682,132 @@ export default async function invitationRoutes(fastify, options) {
           // Get role details
           const [roleRecord] = await db
             .select({
-              roleName: customRoles.roleName
+              roleId: customRoles.roleId,
+              roleName: customRoles.roleName,
+              description: customRoles.description
             })
             .from(customRoles)
             .where(eq(customRoles.roleId, entity.roleId))
             .limit(1);
 
+          console.log(`🔍 Entity ${entity.entityId} - Role lookup:`, {
+            entityId: entity.entityId,
+            roleId: entity.roleId,
+            roleRecord: roleRecord ? {
+              roleId: roleRecord.roleId,
+              roleName: roleRecord.roleName
+            } : null,
+            entityRecord: entityRecord ? {
+              entityId: entityRecord.entityId,
+              entityName: entityRecord.entityName,
+              entityType: entityRecord.entityType
+            } : null
+          });
+
           if (entityRecord) {
-            const roleName = roleRecord?.roleName || 'Member';
-            roleNames.push(roleName);
+            // Get the actual role name from the role record
+            let roleName = null;
+            if (roleRecord && roleRecord.roleName) {
+              roleName = roleRecord.roleName;
+            } else {
+              console.warn(`⚠️ Role not found for roleId: ${entity.roleId}, entityId: ${entity.entityId}`);
+              // Don't add 'Member' as default - only add if we have a valid role
+              // This ensures we can detect missing roles
+            }
+
+            if (roleName) {
+              roleNames.push(roleName);
+            }
 
             if (entityRecord.entityType === 'organization') {
               organizations.push(entityRecord.entityName);
             } else if (entityRecord.entityType === 'location') {
               locations.push(entityRecord.entityName);
             }
+          } else {
+            console.warn(`⚠️ Entity not found: ${entity.entityId}`);
           }
         }
 
         // Determine primary role name (use first role or most common)
-        const primaryRoleName = roleNames.length > 0 
-          ? (roleNames.length === 1 ? roleNames[0] : `${roleNames[0]} (${roleNames.length} roles)`)
-          : 'Team Member';
+        // If we have role names, use the first one (or combine if multiple)
+        // Only default to 'Member' if we truly have no role names (should not happen if validation passed)
+        let primaryRoleName = 'Member';
+        if (roleNames.length > 0) {
+          // Remove duplicates and use the first unique role name
+          const uniqueRoleNames = [...new Set(roleNames)];
+          if (uniqueRoleNames.length === 1) {
+            primaryRoleName = uniqueRoleNames[0];
+          } else {
+            // Multiple different roles - show first one with count
+            primaryRoleName = `${uniqueRoleNames[0]} (${uniqueRoleNames.length} roles)`;
+          }
+        } else {
+          console.error('⚠️ No role names found for invitation! This should not happen if validation passed.');
+          // Fallback: try to get role name from first validated entity directly
+          if (validatedEntities.length > 0 && validatedEntities[0].roleId) {
+            const [fallbackRole] = await db
+              .select({ roleName: customRoles.roleName })
+              .from(customRoles)
+              .where(eq(customRoles.roleId, validatedEntities[0].roleId))
+              .limit(1);
+            if (fallbackRole && fallbackRole.roleName) {
+              primaryRoleName = fallbackRole.roleName;
+              console.log(`✅ Recovered role name from fallback lookup: ${primaryRoleName}`);
+            }
+          }
+        }
 
         console.log(`📧 Email details:`, {
           email: newInvitation.email,
           tenantName: tenant.companyName,
           roleName: primaryRoleName,
-          organizations: organizations.length,
-          locations: locations.length,
+          roleNamesArray: roleNames,
+          organizations: organizations,
+          locations: locations,
           invitationToken: newInvitation.invitation_token.substring(0, 8) + '...',
           invitationUrl: invitationUrl,
           invitedByName: request.userContext.name || 'Team Administrator',
-          entityCount: validatedEntities.length
+          entityCount: validatedEntities.length,
+          validatedEntities: validatedEntities.map(e => ({
+            entityId: e.entityId,
+            roleId: e.roleId,
+            entityType: e.entityType
+          }))
+        });
+
+        // Ensure we always have organization information for multi-entity invitations
+        const emailOrganizations = organizations.length > 0 ? organizations : [tenant.companyName];
+        const emailLocations = locations.length > 0 ? locations : undefined;
+
+        // Determine primary organization name (from primary entity or first organization)
+        let primaryOrganizationName = null;
+        if (finalPrimaryEntityId && organizations.length > 0) {
+          // Find the organization name for the primary entity
+          const primaryEntity = validatedEntities.find(e => e.entityId === finalPrimaryEntityId);
+          if (primaryEntity) {
+            const [primaryEntityRecord] = await db
+              .select({ entityName: entities.entityName, entityType: entities.entityType })
+              .from(entities)
+              .where(eq(entities.entityId, primaryEntity.entityId))
+              .limit(1);
+            if (primaryEntityRecord && primaryEntityRecord.entityType === 'organization') {
+              primaryOrganizationName = primaryEntityRecord.entityName;
+            } else if (organizations.length > 0) {
+              primaryOrganizationName = organizations[0];
+            }
+          } else if (organizations.length > 0) {
+            primaryOrganizationName = organizations[0];
+          }
+        } else if (organizations.length > 0) {
+          primaryOrganizationName = organizations[0];
+        }
+
+        console.log(`📧 Primary organization name determined:`, {
+          primaryOrganizationName,
+          organizations,
+          finalPrimaryEntityId,
+          hasOrganizations: organizations.length > 0
         });
 
         const emailResult = await EmailService.sendUserInvitation({
@@ -1569,9 +1816,10 @@ export default async function invitationRoutes(fastify, options) {
           roleName: primaryRoleName,
           invitationToken: invitationUrl, // Pass full URL instead of token
           invitedByName: request.userContext.name || 'Team Administrator',
-          message: request.body.message || `You've been invited to join ${tenant.companyName} with access to ${validatedEntities.length} organization${validatedEntities.length > 1 ? 's' : ''}.`,
-          organizations: organizations.length > 0 ? organizations : undefined,
-          locations: locations.length > 0 ? locations : undefined,
+          message: request.body.message || `You've been invited to join ${tenant.companyName} with access to ${validatedEntities.length} organization${validatedEntities.length > 1 ? 's' : ''} as a ${primaryRoleName}.`,
+          organizations: emailOrganizations,
+          locations: emailLocations,
+          primaryOrganizationName: primaryOrganizationName,
           invitedDate: new Date(),
           expiryDate: expiresAt
         });
@@ -2044,10 +2292,7 @@ export default async function invitationRoutes(fastify, options) {
       const [invitation] = await db
         .select()
         .from(tenantInvitations)
-        .where(and(
-          eq(tenantInvitations.invitationToken, token),
-          eq(tenantInvitations.status, 'pending')
-        ))
+        .where(eq(tenantInvitations.invitationToken, token))
         .limit(1);
 
       if (!invitation) {
@@ -2055,6 +2300,39 @@ export default async function invitationRoutes(fastify, options) {
         return reply.code(404).send({
           error: 'Invitation not found',
           message: 'Invalid or expired invitation token'
+        });
+      }
+
+      // Check if invitation has already been accepted
+      if (invitation.status === 'accepted') {
+        console.log('ℹ️ Invitation already accepted:', invitation.invitationId);
+        
+        // Check if user already exists and return success
+        const [existingUser] = await db
+          .select()
+          .from(tenantUsers)
+          .where(and(
+            eq(tenantUsers.email, invitation.email),
+            eq(tenantUsers.tenantId, invitation.tenantId)
+          ))
+          .limit(1);
+
+        if (existingUser) {
+          return reply.code(200).send({
+            success: true,
+            message: 'Invitation already accepted',
+            userId: existingUser.userId,
+            email: existingUser.email
+          });
+        }
+      }
+
+      // Ensure invitation is pending
+      if (invitation.status !== 'pending') {
+        console.log('❌ Invitation is not pending:', invitation.status);
+        return reply.code(400).send({
+          error: 'Invitation not available',
+          message: `Invitation status is ${invitation.status}, cannot accept`
         });
       }
 
@@ -2211,34 +2489,62 @@ export default async function invitationRoutes(fastify, options) {
       if (existingUser) {
         // Update existing user record (from legacy invitation)
         console.log('✅ Updating existing user record:', existingUser.userId);
+        
+        // Get existing preferences or create new object
+        const existingPreferences = existingUser.preferences || {};
+        
         [newUser] = await db
           .update(tenantUsers)
           .set({
             kindeUserId: kindeUserId,
             isActive: true,
             onboardingCompleted: true, // ✅ INVITED USERS SKIP ONBOARDING
+            preferences: {
+              ...existingPreferences,
+              userType: 'INVITED_USER',
+              isInvitedUser: true,
+              invitedAt: invitation.createdAt?.toISOString() || new Date().toISOString()
+            },
             updatedAt: new Date()
           })
           .where(eq(tenantUsers.userId, existingUser.userId))
           .returning();
       } else {
         // Create new user record
-        console.log('✅ Creating new user record');
+        console.log('✅ Creating new user record:', {
+          email: invitation.email,
+          kindeUserId: kindeUserId,
+          tenantId: invitation.tenantId,
+          invitedBy: invitation.invitedBy
+        });
         [newUser] = await db
           .insert(tenantUsers)
           .values({
             tenantId: invitation.tenantId,
             kindeUserId: kindeUserId,
-            email: invitation.email,
+            email: invitation.email, // FIXED: Email is properly set
             name: invitation.email.split('@')[0], // Use email prefix as name
             isActive: true,
             onboardingCompleted: true, // ✅ INVITED USERS SKIP ONBOARDING
             isTenantAdmin: false, // Invited users are never admins
             invitedBy: invitation.invitedBy,
             invitedAt: invitation.createdAt,
+            preferences: {
+              userType: 'INVITED_USER',
+              isInvitedUser: true,
+              invitedAt: invitation.createdAt?.toISOString() || new Date().toISOString()
+            },
             updatedAt: new Date()
           })
           .returning();
+        
+        console.log('✅ User created successfully:', {
+          userId: newUser.userId,
+          email: newUser.email,
+          kindeUserId: newUser.kindeUserId,
+          tenantId: newUser.tenantId,
+          isActive: newUser.isActive
+        });
 
         // Publish user creation event to Redis streams
         try {
@@ -2270,32 +2576,161 @@ export default async function invitationRoutes(fastify, options) {
         console.log('🎯 Processing multi-entity invitation with', invitation.targetEntities.length, 'target entities');
 
         const memberships = [];
+        const assignedRoleIds = new Set(); // Track unique role IDs to avoid duplicates
+        
         for (const targetEntity of invitation.targetEntities) {
-          // Create organization membership for each target entity
-          const [membership] = await db
-            .insert(organizationMemberships)
-            .values({
-              userId: newUser.userId,
-              tenantId: invitation.tenantId,
-              entityId: targetEntity.entityId,
-              entityType: targetEntity.entityType,
-              roleId: targetEntity.roleId,
-              roleName: null, // Will be set by trigger or separate query
-              membershipType: targetEntity.membershipType || 'direct',
-              membershipStatus: 'active',
-              isPrimary: targetEntity.entityId === invitation.primaryEntityId,
-              canAccessSubEntities: true, // Default for invited users
-              invitedBy: invitation.invitedBy,
-              invitedAt: invitation.createdAt,
-              joinedAt: new Date(),
-              createdBy: invitation.invitedBy,
-              createdAt: new Date(),
-              updatedAt: new Date()
-            })
-            .returning();
+          // Check if membership already exists for this user and entity
+          const [existingMembership] = await db
+            .select()
+            .from(organizationMemberships)
+            .where(and(
+              eq(organizationMemberships.userId, newUser.userId),
+              eq(organizationMemberships.entityId, targetEntity.entityId),
+              eq(organizationMemberships.tenantId, invitation.tenantId)
+            ))
+            .limit(1);
 
-          memberships.push(membership);
-          console.log('✅ Created membership for entity:', targetEntity.entityId);
+          if (existingMembership) {
+            console.log('ℹ️ Membership already exists for user and entity, skipping duplicate:', {
+              userId: newUser.userId,
+              entityId: targetEntity.entityId,
+              membershipId: existingMembership.membershipId
+            });
+            memberships.push(existingMembership);
+            
+            // Still ensure role assignment exists
+            if (targetEntity.roleId && !assignedRoleIds.has(targetEntity.roleId)) {
+              // Check if role assignment already exists
+              const [existingRoleAssignment] = await db
+                .select()
+                .from(userRoleAssignments)
+                .where(and(
+                  eq(userRoleAssignments.userId, newUser.userId),
+                  eq(userRoleAssignments.roleId, targetEntity.roleId)
+                ))
+                .limit(1);
+
+              if (!existingRoleAssignment) {
+                try {
+                  await db
+                    .insert(userRoleAssignments)
+                    .values({
+                      userId: newUser.userId,
+                      roleId: targetEntity.roleId,
+                      assignedBy: invitation.invitedBy,
+                      assignedAt: new Date()
+                    });
+                  assignedRoleIds.add(targetEntity.roleId);
+                  console.log('✅ Assigned role to user:', {
+                    userId: newUser.userId,
+                    roleId: targetEntity.roleId
+                  });
+                } catch (roleError) {
+                  if (roleError.code !== '23505') { // PostgreSQL unique constraint violation
+                    console.warn('⚠️ Failed to assign role:', roleError.message);
+                  } else {
+                    console.log('ℹ️ Role already assigned, skipping duplicate');
+                  }
+                }
+              } else {
+                console.log('ℹ️ Role assignment already exists, skipping duplicate');
+                assignedRoleIds.add(targetEntity.roleId);
+              }
+            }
+            continue; // Skip creating duplicate membership
+          }
+
+          // Create organization membership for each target entity
+          try {
+            const [membership] = await db
+              .insert(organizationMemberships)
+              .values({
+                userId: newUser.userId,
+                tenantId: invitation.tenantId,
+                entityId: targetEntity.entityId,
+                entityType: targetEntity.entityType,
+                roleId: targetEntity.roleId,
+                roleName: null, // Will be set by trigger or separate query
+                membershipType: targetEntity.membershipType || 'direct',
+                membershipStatus: 'active',
+                isPrimary: targetEntity.entityId === invitation.primaryEntityId,
+                canAccessSubEntities: true, // Default for invited users
+                invitedBy: invitation.invitedBy,
+                invitedAt: invitation.createdAt,
+                joinedAt: new Date(),
+                createdBy: invitation.invitedBy,
+                createdAt: new Date(),
+                updatedAt: new Date()
+              })
+              .returning();
+
+            memberships.push(membership);
+            console.log('✅ Created membership for entity:', targetEntity.entityId);
+          } catch (membershipError) {
+            // If membership already exists (race condition), that's okay
+            if (membershipError.code === '23505') { // PostgreSQL unique constraint violation
+              console.log('ℹ️ Membership already exists (race condition), skipping duplicate');
+              // Try to fetch the existing membership
+              const [existing] = await db
+                .select()
+                .from(organizationMemberships)
+                .where(and(
+                  eq(organizationMemberships.userId, newUser.userId),
+                  eq(organizationMemberships.entityId, targetEntity.entityId),
+                  eq(organizationMemberships.tenantId, invitation.tenantId)
+                ))
+                .limit(1);
+              if (existing) {
+                memberships.push(existing);
+              }
+            } else {
+              console.error('❌ Failed to create membership:', membershipError.message);
+              throw membershipError;
+            }
+          }
+
+          // Also create userRoleAssignments entry so roles show up in user details
+          // Only create if we haven't already assigned this roleId
+          if (targetEntity.roleId && !assignedRoleIds.has(targetEntity.roleId)) {
+            // Check if role assignment already exists
+            const [existingRoleAssignment] = await db
+              .select()
+              .from(userRoleAssignments)
+              .where(and(
+                eq(userRoleAssignments.userId, newUser.userId),
+                eq(userRoleAssignments.roleId, targetEntity.roleId)
+              ))
+              .limit(1);
+
+            if (!existingRoleAssignment) {
+              try {
+                await db
+                  .insert(userRoleAssignments)
+                  .values({
+                    userId: newUser.userId,
+                    roleId: targetEntity.roleId,
+                    assignedBy: invitation.invitedBy,
+                    assignedAt: new Date()
+                  });
+                assignedRoleIds.add(targetEntity.roleId);
+                console.log('✅ Assigned role to user:', {
+                  userId: newUser.userId,
+                  roleId: targetEntity.roleId
+                });
+              } catch (roleError) {
+                // If role assignment already exists, that's okay
+                if (roleError.code !== '23505') { // PostgreSQL unique constraint violation
+                  console.warn('⚠️ Failed to assign role:', roleError.message);
+                } else {
+                  console.log('ℹ️ Role already assigned, skipping duplicate');
+                  assignedRoleIds.add(targetEntity.roleId);
+                }
+              }
+            } else {
+              console.log('ℹ️ Role assignment already exists, skipping duplicate');
+              assignedRoleIds.add(targetEntity.roleId);
+            }
+          }
         }
 
         // Update user's primary organization
@@ -2311,8 +2746,8 @@ export default async function invitationRoutes(fastify, options) {
         }
 
       } else {
-        // Legacy single-entity invitation - assign role directly
-        console.log('📋 Processing legacy single-entity invitation');
+        // Single-entity invitation - assign role and create organization membership
+        console.log('📋 Processing single-entity invitation');
 
         if (invitation.roleId) {
           await db
@@ -2323,40 +2758,158 @@ export default async function invitationRoutes(fastify, options) {
               assignedBy: invitation.invitedBy,
               assignedAt: new Date()
             });
-          console.log('✅ Assigned legacy role:', invitation.roleId);
+          console.log('✅ Assigned role to user:', {
+            userId: newUser.userId,
+            roleId: invitation.roleId,
+            assignedBy: invitation.invitedBy
+          });
+        } else {
+          console.warn('⚠️ No roleId in invitation for single-entity invitation');
         }
 
-        // Create default organization membership if primaryEntityId exists
-        if (invitation.primaryEntityId) {
-          const [membership] = await db
-            .insert(organizationMemberships)
-            .values({
-              userId: newUser.userId,
-              tenantId: invitation.tenantId,
-              entityId: invitation.primaryEntityId,
-              entityType: 'organization', // Assume organization for legacy compatibility
-              roleId: invitation.roleId,
-              membershipType: 'direct',
-              membershipStatus: 'active',
-              isPrimary: true,
-              canAccessSubEntities: true,
-              invitedBy: invitation.invitedBy,
-              invitedAt: invitation.createdAt,
-              joinedAt: new Date(),
-              createdBy: invitation.invitedBy,
-              createdAt: new Date(),
-              updatedAt: new Date()
+        // Create organization membership - use primaryEntityId if available, otherwise find root organization
+        let targetEntityId = invitation.primaryEntityId;
+
+        // If no primaryEntityId, find the root organization for this tenant
+        if (!targetEntityId) {
+          const [tenantEntity] = await db
+            .select({
+              entityId: entities.entityId
             })
-            .returning();
+            .from(entities)
+            .where(and(
+              eq(entities.tenantId, invitation.tenantId),
+              eq(entities.entityType, 'organization'),
+              eq(entities.parentEntityId, null) // Root organization
+            ))
+            .limit(1);
+
+          if (tenantEntity) {
+            targetEntityId = tenantEntity.entityId;
+          }
+        }
+
+        if (targetEntityId) {
+          // Check if membership already exists for this user and entity
+          const [existingMembership] = await db
+            .select()
+            .from(organizationMemberships)
+            .where(and(
+              eq(organizationMemberships.userId, newUser.userId),
+              eq(organizationMemberships.entityId, targetEntityId),
+              eq(organizationMemberships.tenantId, invitation.tenantId)
+            ))
+            .limit(1);
+
+          if (existingMembership) {
+            console.log('ℹ️ Membership already exists for user and entity, skipping duplicate:', {
+              userId: newUser.userId,
+              entityId: targetEntityId,
+              membershipId: existingMembership.membershipId
+            });
+          } else {
+            // Get entity type for the target entity
+            const [entityRecord] = await db
+              .select({
+                entityId: entities.entityId,
+                entityType: entities.entityType
+              })
+              .from(entities)
+              .where(eq(entities.entityId, targetEntityId))
+              .limit(1);
+
+            const entityType = entityRecord?.entityType || 'organization';
+
+            try {
+              const [membership] = await db
+                .insert(organizationMemberships)
+                .values({
+                  userId: newUser.userId,
+                  tenantId: invitation.tenantId,
+                  entityId: targetEntityId, // FIXED: Use targetEntityId instead of invitation.primaryEntityId
+                  entityType: entityType,
+                  roleId: invitation.roleId,
+                  membershipType: 'direct',
+                  membershipStatus: 'active',
+                  isPrimary: true,
+                  canAccessSubEntities: true,
+                  invitedBy: invitation.invitedBy,
+                  invitedAt: invitation.createdAt,
+                  joinedAt: new Date(),
+                  createdBy: invitation.invitedBy,
+                  createdAt: new Date(),
+                  updatedAt: new Date()
+                })
+                .returning();
+
+              console.log('✅ Created organization membership:', {
+                membershipId: membership.membershipId,
+                entityId: targetEntityId,
+                entityType: entityType,
+                roleId: invitation.roleId
+              });
+            } catch (membershipError) {
+              // If membership already exists (race condition), that's okay
+              if (membershipError.code === '23505') { // PostgreSQL unique constraint violation
+                console.log('ℹ️ Membership already exists (race condition), skipping duplicate');
+              } else {
+                console.error('❌ Failed to create membership:', membershipError.message);
+                throw membershipError;
+              }
+            }
+          }
+
+          // Ensure role assignment exists (check before creating)
+          if (invitation.roleId) {
+            const [existingRoleAssignment] = await db
+              .select()
+              .from(userRoleAssignments)
+              .where(and(
+                eq(userRoleAssignments.userId, newUser.userId),
+                eq(userRoleAssignments.roleId, invitation.roleId)
+              ))
+              .limit(1);
+
+            if (!existingRoleAssignment) {
+              try {
+                await db
+                  .insert(userRoleAssignments)
+                  .values({
+                    userId: newUser.userId,
+                    roleId: invitation.roleId,
+                    assignedBy: invitation.invitedBy,
+                    assignedAt: new Date()
+                  });
+                console.log('✅ Assigned role to user:', {
+                  userId: newUser.userId,
+                  roleId: invitation.roleId,
+                  assignedBy: invitation.invitedBy
+                });
+              } catch (roleError) {
+                // If role assignment already exists, that's okay
+                if (roleError.code !== '23505') { // PostgreSQL unique constraint violation
+                  console.warn('⚠️ Failed to assign role:', roleError.message);
+                } else {
+                  console.log('ℹ️ Role already assigned, skipping duplicate');
+                }
+              }
+            } else {
+              console.log('ℹ️ Role assignment already exists, skipping duplicate');
+            }
+          }
 
           // Update user's primary organization
           await db
             .update(tenantUsers)
             .set({
-              primaryOrganizationId: invitation.primaryEntityId,
+              primaryOrganizationId: targetEntityId,
               updatedAt: new Date()
             })
             .where(eq(tenantUsers.userId, newUser.userId));
+          
+          console.log('✅ Set primary organization to:', targetEntityId);
+        } else {
+          console.warn('⚠️ No target entity found for single-entity invitation');
         }
       }
 

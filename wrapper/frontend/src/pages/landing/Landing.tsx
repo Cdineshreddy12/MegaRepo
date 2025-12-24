@@ -105,7 +105,18 @@ const Landing: React.FC = () => {
   const handleLogin = async () => {
     setIsLoading(true)
     try {
-      await login()
+      // Get Google connection ID from environment variable for custom auth
+      const googleConnectionId = import.meta.env.VITE_KINDE_GOOGLE_CONNECTION_ID
+      
+      if (!googleConnectionId) {
+        console.error('❌ VITE_KINDE_GOOGLE_CONNECTION_ID is not configured')
+        // Fallback to standard login if connection ID not configured
+        await login()
+      } else {
+        // Use Kinde custom auth with connection ID
+        console.log('🔄 Using custom auth with Google connection ID')
+        await login({ connectionId: googleConnectionId })
+      }
     } catch (error) {
       console.error('Login error:', error)
     } finally {

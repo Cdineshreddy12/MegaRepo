@@ -12,11 +12,39 @@ export function errorHandler(error, request, reply) {
     // Validation errors
     statusCode = 400;
     message = 'Validation Error';
-    details = error.validation.map(v => ({
+    
+    // Format validation errors with user-friendly messages
+    details = error.validation.map(v => {
+      const fieldName = v.instancePath?.replace('/', '') || v.params?.missingProperty || 'unknown';
+      let userMessage = v.message || 'Invalid value';
+      
+      // Make error messages more user-friendly
+      if (v.keyword === 'required') {
+        userMessage = `${fieldName} is required`;
+      } else if (v.keyword === 'minLength') {
+        userMessage = `${fieldName} must be at least ${v.params.limit} characters`;
+      } else if (v.keyword === 'maxLength') {
+        userMessage = `${fieldName} must not exceed ${v.params.limit} characters`;
+      } else if (v.keyword === 'format') {
+        if (v.params.format === 'email') {
+          userMessage = `${fieldName} must be a valid email address`;
+        } else {
+          userMessage = `${fieldName} format is invalid`;
+        }
+      } else if (v.keyword === 'enum') {
+        userMessage = `${fieldName} must be one of: ${v.params.allowedValues.join(', ')}`;
+      } else if (v.keyword === 'pattern') {
+        userMessage = `${fieldName} format is invalid`;
+      } else if (v.keyword === 'type') {
+        userMessage = `${fieldName} must be of type ${v.params.type}`;
+      }
+      
+      return {
       field: v.instancePath,
-      message: v.message,
+        message: userMessage,
       value: v.data,
-    }));
+      };
+    });
   } else if (error.statusCode) {
     // HTTP errors
     statusCode = error.statusCode;
@@ -39,13 +67,31 @@ export function errorHandler(error, request, reply) {
     details = process.env.NODE_ENV === 'development' ? error.message : null;
   }
 
-  // Send error response
-  reply.code(statusCode).send({
+  // Build response object
+  const response = {
     error: message,
     statusCode,
     timestamp: new Date().toISOString(),
     path: request.url,
-    ...(details && { details }),
-    ...(process.env.NODE_ENV === 'development' && { stack: error.stack }),
-  });
+  };
+
+  // Add details if present
+  if (details) {
+    response.details = details;
+    // For validation errors, also add a combined message
+    if (error.validation && Array.isArray(details) && details.length > 0) {
+      if (details.length === 1) {
+        response.message = details[0].message;
+      } else {
+        response.message = `Please fix the following errors: ${details.map((d) => d.message).join(', ')}`;
+      }
+    }
+  }
+
+  // Add stack trace in development
+  if (process.env.NODE_ENV === 'development' && error.stack) {
+    response.stack = error.stack;
+  }
+
+  reply.code(statusCode).send(response);
 } 

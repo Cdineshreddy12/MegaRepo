@@ -23,6 +23,7 @@ import statusManagementRoutes from './routes/status-management.js';
 import dataManagementRoutes from './routes/data-management.js';
 import subdomainManagementRoutes from './routes/subdomain-management.js';
 import adminManagementRoutes from './routes/admin-management.js';
+import verificationRoutes from './routes/verification-routes.js';
 
 export default async function onboardingRoutes(fastify, options) {
   console.log('🔧 Registering onboarding feature routes...');
@@ -30,6 +31,7 @@ export default async function onboardingRoutes(fastify, options) {
   // Register all onboarding sub-routes
   await subdomainManagementRoutes(fastify, options);
   await coreOnboardingRoutes(fastify, options);
+  await verificationRoutes(fastify, options);
   await statusManagementRoutes(fastify, options);
   await dataManagementRoutes(fastify, options);
   await adminManagementRoutes(fastify, options);

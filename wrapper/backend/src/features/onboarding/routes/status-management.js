@@ -1,7 +1,7 @@
 import { authenticateToken } from '../../../middleware/auth.js';
 import { db } from '../../../db/index.js';
-import { tenants, tenantUsers, customRoles } from '../../../db/schema/index.js';
-import { eq } from 'drizzle-orm';
+import { tenants, tenantUsers, customRoles, onboardingFormData } from '../../../db/schema/index.js';
+import { eq, and, desc } from 'drizzle-orm';
 import { TenantService } from '../../../services/tenant-service.js';
 import { kindeService } from '../../../features/auth/index.js';
 
@@ -371,16 +371,21 @@ export default async function statusManagementRoutes(fastify, options) {
 
 
       // Determine if user is invited (invited users have onboardingCompleted=true)
+      // CRITICAL: Invited users should NEVER be sent to onboarding
       const isInvitedUser = user.onboardingCompleted === true && 
                            (user.preferences?.userType === 'INVITED_USER' || 
-                            user.preferences?.isInvitedUser === true);
+                            user.preferences?.isInvitedUser === true ||
+                            user.invitedBy !== null || // User was invited if invitedBy is set
+                            user.invitedAt !== null); // User was invited if invitedAt is set
 
       // CRITICAL: Respect existing users' onboarding status
       // - If onboardingCompleted=true → isOnboarded=true, needsOnboarding=false → redirect to dashboard
       // - If onboardingCompleted=false → isOnboarded=false, needsOnboarding=true → show onboarding
       // This ensures existing users NEVER have to onboard again
+      // CRITICAL FIX: If onboardingCompleted=true, user should NEVER need onboarding (applies to invited users)
       const isOnboarded = user.onboardingCompleted === true;
-      const needsOnboarding = !user.onboardingCompleted;
+      // CRITICAL: If onboardingCompleted is true, needsOnboarding MUST be false (invited users always have this set to true)
+      const needsOnboarding = user.onboardingCompleted !== true;
 
       const result = {
         success: true,
@@ -440,51 +445,109 @@ export default async function statusManagementRoutes(fastify, options) {
   });
 
   // Get onboarding data by email (for non-authenticated users)
+  // Checks both onboarding_form_data table and user preferences
   fastify.post('/get-data', {
     schema: {
       body: {
         type: 'object',
         required: ['email'],
         properties: {
-          email: { type: 'string', format: 'email' }
+          email: { type: 'string', format: 'email' },
+          kindeUserId: { type: 'string' } // Optional Kinde user ID
         }
       }
     }
   }, async (request, reply) => {
     try {
-      const { email } = request.body;
+      const { email, kindeUserId } = request.body;
 
+      // First, try to get data from onboarding_form_data table (for users not yet created)
+      let formDataFromTable = null;
+      
+      if (kindeUserId) {
+        const [onboardingData] = await db
+          .select()
+          .from(onboardingFormData)
+          .where(
+            and(
+              eq(onboardingFormData.kindeUserId, kindeUserId),
+              eq(onboardingFormData.email, email)
+            )
+          )
+          .limit(1);
+        
+        if (onboardingData) {
+          formDataFromTable = onboardingData;
+        }
+      } else {
+        // Try by email only
+        const [onboardingData] = await db
+          .select()
+          .from(onboardingFormData)
+          .where(eq(onboardingFormData.email, email))
+          .orderBy(desc(onboardingFormData.lastSaved))
+          .limit(1);
+        
+        if (onboardingData) {
+          formDataFromTable = onboardingData;
+        }
+      }
+
+      // Also check if user exists in tenantUsers table
       const [user] = await db
         .select()
         .from(tenantUsers)
         .where(eq(tenantUsers.email, email))
         .limit(1);
 
-      if (!user) {
+      // If we have form data from the table, use it (takes precedence)
+      if (formDataFromTable) {
         return {
           success: true,
           data: {
             isOnboarded: false,
             needsOnboarding: true,
-            onboardingStep: null,
-            savedFormData: {},
-            message: 'No previous onboarding data found'
+            onboardingStep: formDataFromTable.currentStep,
+            savedFormData: formDataFromTable.formData || {},
+            onboardingData: {
+              currentStep: formDataFromTable.currentStep,
+              formData: formDataFromTable.formData,
+              stepData: formDataFromTable.stepData,
+              flowType: formDataFromTable.flowType,
+              lastSaved: formDataFromTable.lastSaved
+            },
+            source: 'onboarding_form_data_table'
           }
         };
       }
 
-      // Extract onboarding data from preferences
-      const onboardingData = user.preferences?.onboarding || {};
-      const formData = onboardingData.formData || {};
+      // Fallback to user preferences if user exists
+      if (user) {
+        const onboardingData = user.preferences?.onboarding || {};
+        const formData = onboardingData.formData || {};
 
+        return {
+          success: true,
+          data: {
+            isOnboarded: user.onboardingCompleted,
+            needsOnboarding: !user.onboardingCompleted,
+            onboardingStep: user.onboardingStep,
+            savedFormData: formData,
+            onboardingProgress: onboardingData,
+            source: 'user_preferences'
+          }
+        };
+      }
+
+      // No data found
       return {
         success: true,
         data: {
-          isOnboarded: user.onboardingCompleted,
-          needsOnboarding: !user.onboardingCompleted,
-          onboardingStep: user.onboardingStep,
-          savedFormData: formData,
-          onboardingProgress: onboardingData
+          isOnboarded: false,
+          needsOnboarding: true,
+          onboardingStep: null,
+          savedFormData: {},
+          message: 'No previous onboarding data found'
         }
       };
 

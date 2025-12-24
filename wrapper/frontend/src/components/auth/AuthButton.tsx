@@ -66,9 +66,25 @@ export const AuthButton: React.FC<AuthButtonProps> = ({
   const finalOrgCode = orgCode;
 
   const handleLogin = () => {
-    const loginOptions: any = {
-      connection_id: provider
-    };
+    const loginOptions: any = {};
+
+    // Use custom auth with connection ID for Google if configured
+    if (provider === 'google') {
+      const googleConnectionId = import.meta.env.VITE_KINDE_GOOGLE_CONNECTION_ID;
+      if (googleConnectionId) {
+        // Try both camelCase and snake_case for compatibility
+        loginOptions.connectionId = googleConnectionId;
+        loginOptions.connection_id = googleConnectionId;
+        console.log('🔐 AuthButton: Using custom auth with Google connection ID:', googleConnectionId);
+      } else {
+        // Fallback to connection_id if connection ID not configured
+        loginOptions.connection_id = provider;
+        console.log('🔐 AuthButton: Using standard auth with connection_id (custom auth not configured)');
+      }
+    } else {
+      // For other providers, use connection_id
+      loginOptions.connection_id = provider;
+    }
 
     // Add organization creation flag if specified
     if (isCreateOrg) {

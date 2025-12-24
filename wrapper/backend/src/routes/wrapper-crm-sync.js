@@ -37,7 +37,8 @@ async function authenticateServiceOrToken(request, reply) {
 import { EventTrackingService } from '../services/event-tracking-service.js';
 import { InterAppEventService } from '../services/inter-app-event-service.js';
 import { db } from '../db/index.js';
-import { tenants, tenantUsers, customRoles, userRoleAssignments, entities, credits, creditAllocations, creditConfigurations, organizationMemberships } from '../db/schema/index.js';
+import { tenants, tenantUsers, customRoles, userRoleAssignments, entities, credits, creditConfigurations, organizationMemberships } from '../db/schema/index.js';
+// REMOVED: creditAllocations - Table removed, applications manage their own credits
 import { eq, and, or, sql } from 'drizzle-orm';
 import ErrorResponses from '../utils/error-responses.js';
 import { getRedis } from '../utils/redis.js';
@@ -1108,65 +1109,50 @@ export default async function wrapperCrmSyncRoutes(fastify, options) {
       const { entityId, page = 1, limit = 50 } = request.query;
       const offset = (page - 1) * limit;
 
-      // Build query conditions
+      // REMOVED: creditAllocations table queries
+      // Applications now manage their own credit consumption
+      // Use credits table for organization-level credits instead
       const conditions = [
-        eq(creditAllocations.tenantId, tenantId),
-        eq(creditAllocations.isActive, true),
-        eq(creditAllocations.targetApplication, 'crm') // Only CRM application credits
+        eq(credits.tenantId, tenantId)
       ];
       if (entityId) {
-        conditions.push(eq(creditAllocations.sourceEntityId, entityId));
+        conditions.push(eq(credits.entityId, entityId));
       }
 
-      // Get credit allocations from database
-      const allocations = await db
+      const entityCreditsData = await db
         .select({
-          allocationId: creditAllocations.allocationId,
-          tenantId: creditAllocations.tenantId,
-          entityId: creditAllocations.sourceEntityId, // Map sourceEntityId to entityId for CRM
-          targetApplication: creditAllocations.targetApplication,
-          allocatedCredits: creditAllocations.allocatedCredits,
-          usedCredits: creditAllocations.usedCredits,
-          availableCredits: creditAllocations.availableCredits,
-          allocationType: creditAllocations.allocationType,
-          allocationPurpose: creditAllocations.allocationPurpose,
-          expiresAt: creditAllocations.expiresAt,
-          isActive: creditAllocations.isActive,
-          allocatedAt: creditAllocations.allocatedAt,
-          allocatedBy: creditAllocations.allocatedBy,
-          lastUpdatedAt: creditAllocations.lastUpdatedAt
+          tenantId: credits.tenantId,
+          entityId: credits.entityId,
+          availableCredits: credits.availableCredits,
+          isActive: credits.isActive
         })
-        .from(creditAllocations)
+        .from(credits)
         .where(and(...conditions))
-        .orderBy(creditAllocations.allocatedAt)
         .limit(limit)
         .offset(offset);
 
       // Transform to CRM format
-      const entityCredits = allocations.map(allocation => ({
-        tenantId: allocation.tenantId,
-        entityId: allocation.entityId,
-        allocatedCredits: parseFloat(allocation.allocatedCredits || 0),
-        targetApplication: allocation.targetApplication,
-        usedCredits: parseFloat(allocation.usedCredits || 0),
-        availableCredits: parseFloat(allocation.availableCredits || 0),
-        allocationType: allocation.allocationType || 'manual',
-        allocationPurpose: allocation.allocationPurpose || 'Entity credit allocation',
-        expiresAt: allocation.expiresAt,
-        isActive: allocation.isActive,
-        allocationSource: 'system', // Default for now
-        allocatedBy: allocation.allocatedBy || 'system',
-        allocatedAt: allocation.allocatedAt,
-        metadata: {
-          allocationId: allocation.allocationId,
-          lastUpdatedAt: allocation.lastUpdatedAt
-        }
+      const entityCredits = entityCreditsData.map(credit => ({
+        tenantId: credit.tenantId,
+        entityId: credit.entityId,
+        allocatedCredits: parseFloat(credit.availableCredits || 0),
+        targetApplication: 'crm',
+        usedCredits: 0,
+        availableCredits: parseFloat(credit.availableCredits || 0),
+        allocationType: 'organization',
+        allocationPurpose: 'Organization credit balance',
+        expiresAt: null,
+        isActive: credit.isActive,
+        allocationSource: 'system',
+        allocatedBy: 'system',
+        allocatedAt: new Date(),
+        metadata: {}
       }));
 
       // Get total count
       const [{ count }] = await db
         .select({ count: sql`count(*)` })
-        .from(creditAllocations)
+        .from(credits)
         .where(and(...conditions));
 
       return {

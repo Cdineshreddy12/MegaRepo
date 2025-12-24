@@ -593,35 +593,16 @@ export function OrganizationTreeManagement({
     };
   };
 
-  // Build proper tenant hierarchy: Tenant -> Parent Org -> Sub Orgs/Locations
+  // Build organization hierarchy: Primary Org -> Sub Orgs/Locations (NO TENANT)
   const buildTenantHierarchy = (orgHierarchy: Organization[], parentOrg: Organization | null, tenantId?: string): Entity[] => {
-    console.log('🏗️ Building tenant hierarchy with:', { 
+    console.log('🏗️ Building organization hierarchy (without tenant) with:', { 
       orgHierarchy: orgHierarchy.length, 
       parentOrg: parentOrg?.entityName,
       sampleOrg: orgHierarchy[0]
     });
     
-    // Get tenant name - use parent org name as base or default
-    const tenantName = parentOrg?.entityName 
-      ? `${parentOrg.entityName} (Tenant)` 
-      : `Company Organization (Tenant)`;
-    
-    // Create tenant root entity
-    const tenantEntity: Entity = {
-      entityId: `tenant-${tenantId || 'root'}`,
-      entityName: tenantName,
-      entityType: 'organization',
-      organizationType: 'tenant',
-      entityLevel: 0,
-      hierarchyPath: 'tenant',
-      fullHierarchyPath: tenantName,
-      isActive: true,
-      description: 'Root tenant organization containing all company entities',
-      children: []
-    };
-
     // Recursively transform organization hierarchy to entity hierarchy
-    const transformOrgToEntity = (org: Organization, level: number = 1): Entity => {
+    const transformOrgToEntity = (org: Organization, level: number = 0): Entity => {
       const entity = transformToEntity(org);
       entity.entityLevel = level;
       
@@ -639,17 +620,52 @@ export function OrganizationTreeManagement({
       return entity;
     };
 
-    // Use the processed hierarchy directly, which already includes proper nesting
-    tenantEntity.children = orgHierarchy.map(org => {
-      const transformedOrg = transformOrgToEntity(org, 1);
-      console.log(`🏗️ Transformed org: ${org.entityName} with ${transformedOrg.children.length} children`);
+    // Find primary organization (entityLevel 1 or the one without parentEntityId)
+    let primaryOrgs = orgHierarchy.filter(org => 
+      org.entityLevel === 1 || 
+      (!org.parentEntityId && org.entityType === 'organization')
+    );
+
+    // If no primary org found, use the first organization as primary
+    if (primaryOrgs.length === 0 && orgHierarchy.length > 0) {
+      primaryOrgs = [orgHierarchy[0]];
+    }
+
+    // If we have a parentOrg parameter, prioritize it
+    if (parentOrg) {
+      const parentInHierarchy = orgHierarchy.find(org => org.entityId === parentOrg.entityId);
+      if (parentInHierarchy) {
+        primaryOrgs = [parentInHierarchy];
+      }
+    }
+
+    // Transform primary organizations (starting at level 0, not 1)
+    const transformedHierarchy = primaryOrgs.map(org => {
+      const transformedOrg = transformOrgToEntity(org, 0);
+      console.log(`🏗️ Transformed primary org: ${org.entityName} with ${transformedOrg.children.length} children`);
       return transformedOrg;
     });
 
-    console.log('✅ Built tenant hierarchy:', tenantEntity);
-    console.log('🏗️ Tenant hierarchy children count:', tenantEntity.children.length);
-    console.log('🏗️ First few children:', tenantEntity.children.slice(0, 3));
-    return [tenantEntity];
+    // If we have other orgs that aren't children of primary orgs, add them
+    const primaryOrgIds = new Set(primaryOrgs.map(org => org.entityId));
+    const remainingOrgs = orgHierarchy.filter(org => 
+      !primaryOrgIds.has(org.entityId) && 
+      !primaryOrgs.some(primary => 
+        primary.children?.some((child: any) => child.entityId === org.entityId)
+      )
+    );
+
+    if (remainingOrgs.length > 0) {
+      console.log(`📋 Adding ${remainingOrgs.length} remaining organizations as top-level`);
+      remainingOrgs.forEach(org => {
+        const transformedOrg = transformOrgToEntity(org, 0);
+        transformedHierarchy.push(transformedOrg);
+      });
+    }
+
+    console.log('✅ Built organization hierarchy (without tenant):', transformedHierarchy.length, 'top-level orgs');
+    console.log('🏗️ First few orgs:', transformedHierarchy.slice(0, 3).map(org => org.entityName));
+    return transformedHierarchy;
   };
 
   // Process hierarchy to include locations as children

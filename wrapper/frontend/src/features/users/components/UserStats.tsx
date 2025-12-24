@@ -22,31 +22,31 @@ export function UserStats({ users, isLoading = false }: UserStatsProps) {
         color="blue"
         isLoading={isLoading}
       />
-      
+
       <MetricCard
         title="Active Users"
         value={activeUsers}
         icon={Activity}
         trend=""
-        color="green"
+        color="sky"
         isLoading={isLoading}
       />
-      
+
       <MetricCard
         title="Pending Invites"
         value={pendingInvites}
         icon={Clock}
         trend=""
-        color="yellow"
+        color="blue"
         isLoading={isLoading}
       />
-      
+
       <MetricCard
         title="Admins"
         value={admins}
         icon={Crown}
         trend=""
-        color="purple"
+        color="blue"
         isLoading={isLoading}
       />
     </div>

@@ -1,7 +1,7 @@
 import { authenticateToken } from '../../../middleware/auth.js';
 import { db } from '../../../db/index.js';
-import { tenants, tenantUsers } from '../../../db/schema/index.js';
-import { eq } from 'drizzle-orm';
+import { tenants, tenantUsers, onboardingFormData } from '../../../db/schema/index.js';
+import { eq, and, or } from 'drizzle-orm';
 import ErrorResponses from '../../../utils/error-responses.js';
 
 /**
@@ -139,32 +139,24 @@ export default async function dataManagementRoutes(fastify, options) {
   }, async (request, reply) => {
     try {
       const { step, data, formData, email } = request.body;
-      let userId = null;
+      let kindeUserId = null;
+      let userEmail = null;
 
-      // Try to get user ID from authenticated context first
+      // Get Kinde user ID and email from authenticated context
       if (request.userContext?.userId) {
-        userId = request.userContext.userId;
+        kindeUserId = request.userContext.userId;
+        userEmail = request.userContext.email || email;
       } else if (email) {
-        // If not authenticated, try to find user by email (for onboarding process)
-        const [user] = await db
+        userEmail = email;
+        // Try to get Kinde ID from existing onboarding data
+        const [existingData] = await db
           .select()
-          .from(tenantUsers)
-          .where(eq(tenantUsers.email, email))
+          .from(onboardingFormData)
+          .where(eq(onboardingFormData.email, email))
           .limit(1);
-
-        if (user) {
-          userId = user.userId;
-        } else {
-          // If user doesn't exist yet, we can't update step - this is fine during early onboarding
-          console.log('User not found for email during onboarding step update:', email);
-          return {
-            success: true,
-            message: 'Step tracking skipped - user not yet created',
-            data: {
-              step,
-              reason: 'user_not_created_yet'
-            }
-          };
+        
+        if (existingData) {
+          kindeUserId = existingData.kindeUserId;
         }
       } else {
         return reply.code(400).send({
@@ -172,68 +164,105 @@ export default async function dataManagementRoutes(fastify, options) {
         });
       }
 
-      // Get current user data to merge with existing preferences
-      const [currentUser] = await db
+      if (!kindeUserId || !userEmail) {
+        return reply.code(400).send({
+          error: 'Kinde user ID and email are required'
+        });
+      }
+
+      // Check if onboarding form data already exists
+      const [existingFormData] = await db
         .select()
-        .from(tenantUsers)
-        .where(eq(tenantUsers.userId, userId))
+        .from(onboardingFormData)
+        .where(
+          and(
+            eq(onboardingFormData.kindeUserId, kindeUserId),
+            eq(onboardingFormData.email, userEmail)
+          )
+        )
         .limit(1);
 
-      if (!currentUser) {
-        return ErrorResponses.notFound(reply, 'User', 'User not found');
-      }
+      // Prepare step data - FIXED: Only update if step doesn't exist or data is different
+      const stepDataUpdate = {
+        ...data,
+        completedAt: new Date().toISOString()
+      };
 
-      // Prepare onboarding data to store
-      const existingPreferences = currentUser.preferences || {};
-      const onboardingData = existingPreferences.onboarding || {};
+      // Prepare form data - merge with existing if present
+      const existingFormDataObj = existingFormData?.formData || {};
+      const mergedFormData = formData 
+        ? { ...existingFormDataObj, ...formData }
+        : existingFormDataObj;
 
-      // Update onboarding progress
-      const updatedOnboardingData = {
-        ...onboardingData,
-        currentStep: step,
-        lastUpdated: new Date().toISOString(),
-        stepData: {
-          ...onboardingData.stepData,
-          [step]: {
-            ...data,
-            completedAt: new Date().toISOString()
+      // FIXED: Prepare step data object - check if step already exists to prevent duplicates
+      const existingStepData = existingFormData?.stepData || {};
+      
+      // Only update step data if it's different or doesn't exist
+      const existingStepEntry = existingStepData[step];
+      const stepNeedsUpdate = !existingStepEntry || 
+        JSON.stringify(existingStepEntry) !== JSON.stringify(stepDataUpdate);
+      
+      const updatedStepData = stepNeedsUpdate
+        ? {
+            ...existingStepData,
+            [step]: stepDataUpdate
           }
-        }
-      };
+        : existingStepData; // Keep existing if no changes
 
-      // Store form data if provided (for pre-filling)
-      if (formData) {
-        updatedOnboardingData.formData = {
-          ...onboardingData.formData,
-          ...formData
-        };
+      if (existingFormData) {
+        // Update existing record
+        const [updated] = await db
+          .update(onboardingFormData)
+          .set({
+            currentStep: step,
+            formData: mergedFormData,
+            stepData: updatedStepData,
+            lastSaved: new Date(),
+            updatedAt: new Date()
+          })
+          .where(eq(onboardingFormData.id, existingFormData.id))
+          .returning();
+
+        return reply.code(200).send({
+          success: true,
+          message: 'Onboarding step updated successfully',
+          data: {
+            step,
+            kindeUserId,
+            email: userEmail,
+            formDataId: updated.id,
+            updatedAt: updated.updatedAt
+          }
+        });
+      } else {
+        // Create new record
+        const [created] = await db
+          .insert(onboardingFormData)
+          .values({
+            kindeUserId,
+            email: userEmail,
+            currentStep: step,
+            flowType: data?.flowType || 'newBusiness',
+            formData: mergedFormData,
+            stepData: updatedStepData,
+            lastSaved: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date()
+          })
+          .returning();
+
+        return reply.code(201).send({
+          success: true,
+          message: 'Onboarding form data created successfully',
+          data: {
+            step,
+            kindeUserId,
+            email: userEmail,
+            formDataId: created.id,
+            createdAt: created.createdAt
+          }
+        });
       }
-
-      // Update user record with new onboarding data
-      const updatedPreferences = {
-        ...existingPreferences,
-        onboarding: updatedOnboardingData
-      };
-
-      await db
-        .update(tenantUsers)
-        .set({
-          preferences: updatedPreferences,
-          onboardingStep: step,
-          updatedAt: new Date()
-        })
-        .where(eq(tenantUsers.userId, userId));
-
-      return {
-        success: true,
-        message: 'Onboarding step updated successfully',
-        data: {
-          step,
-          userId,
-          updatedAt: new Date().toISOString(),
-          onboardingData: updatedOnboardingData
-        }
-      };
 
     } catch (error) {
       request.log.error('Error updating onboarding step:', error);

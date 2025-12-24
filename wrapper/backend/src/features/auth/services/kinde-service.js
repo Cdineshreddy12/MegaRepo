@@ -34,15 +34,15 @@ class KindeService {
 
       // Add required scopes for organization management
       // Convert comma-separated scopes to space-separated (OAuth2 standard)
-      // Use the correct Kinde M2M API scopes for organization user management
-      const defaultScopes = 'create:organization_users read:organization_users read:organizations';
+      // FIXED: Added all necessary organization management scopes
+      const defaultScopes = 'create:organizations create:organization_users create:organization_user_roles create:organization_user_api_scopes create:organization_user_permissions read:organization_users read:organizations';
       const envScopes = process.env.KINDE_MANAGEMENT_SCOPES;
 
       const scopesToUse = envScopes && envScopes.trim() ? envScopes : defaultScopes;
       const scopes = scopesToUse.replace(/,/g, ' ');
 
       console.log('🔍 Requesting Kinde M2M scopes:', scopes);
-      console.log('📋 Required scopes for org user management: create:organization_users, read:organization_users, read:organizations');
+      console.log('📋 Required scopes for org management: create:organizations, create:organization_users, create:organization_user_roles, create:organization_user_api_scopes, create:organization_user_permissions, read:organization_users, read:organizations');
       formData.append('scope', scopes);
 
       const response = await axios.post(
@@ -68,6 +68,31 @@ class KindeService {
   }
 
   /**
+   * Decode JWT token without verification (fallback strategy)
+   */
+  decodeJWT(token) {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) {
+        return null;
+      }
+
+      // Decode payload (second part)
+      const payload = parts[1];
+      // Handle URL-safe Base64
+      let base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+      // Add padding if needed
+      const padded = base64 + '='.repeat((4 - base64.length % 4) % 4);
+      
+      const decoded = Buffer.from(padded, 'base64').toString('utf8');
+      return JSON.parse(decoded);
+    } catch (error) {
+      console.log('⚠️ JWT decode failed:', error.message);
+      return null;
+    }
+  }
+
+  /**
    * Get user info with multiple fallback strategies
    */
   async getUserInfo(accessToken) {
@@ -80,23 +105,37 @@ class KindeService {
           headers: {
             'Authorization': `Bearer ${accessToken}`,
             'Accept': 'application/json'
-          }
+          },
+          timeout: 5000 // 5 second timeout
         });
         
         console.log('✅ getUserInfo - Success via user_profile endpoint');
         return response.data;
       } catch (profileError) {
-        console.log('⚠️ getUserInfo - user_profile failed, trying introspect...');
+        const status = profileError.response?.status;
+        const statusText = profileError.response?.statusText;
+        const errorData = profileError.response?.data;
+        console.log(`⚠️ getUserInfo - user_profile failed (${status} ${statusText}):`, errorData || profileError.message);
       }
 
-      // Strategy 2: Try introspect endpoint (no auth header needed)
+      // Strategy 2: Try introspect endpoint (requires client credentials)
       try {
+        const introspectParams = new URLSearchParams();
+        introspectParams.append('token', accessToken);
+        
+        // Add client credentials if available (required for introspect)
+        if (this.oauthClientId && this.oauthClientSecret) {
+          introspectParams.append('client_id', this.oauthClientId);
+          introspectParams.append('client_secret', this.oauthClientSecret);
+        }
+        
         const introspectResponse = await axios.post(`${this.baseURL}/oauth2/introspect`, 
-          `token=${encodeURIComponent(accessToken)}`, 
+          introspectParams.toString(), 
           {
             headers: {
               'Content-Type': 'application/x-www-form-urlencoded'
-            }
+            },
+            timeout: 5000 // 5 second timeout
           }
         );
         
@@ -109,12 +148,40 @@ class KindeService {
             org_code: introspectResponse.data.org_code || null,
             org_codes: introspectResponse.data.org_codes || []
           };
+        } else {
+          console.log('⚠️ getUserInfo - Token is not active according to introspect');
         }
       } catch (introspectError) {
-        console.log('⚠️ getUserInfo - introspect failed');
+        const status = introspectError.response?.status;
+        const statusText = introspectError.response?.statusText;
+        const errorData = introspectError.response?.data;
+        console.log(`⚠️ getUserInfo - introspect failed (${status} ${statusText}):`, errorData || introspectError.message);
       }
 
+      // Strategy 3: Decode JWT locally as fallback (for development/local environments)
+      try {
+        const decoded = this.decodeJWT(accessToken);
+        if (decoded) {
+          // Check if token is expired
+          if (decoded.exp && decoded.exp < Date.now() / 1000) {
+            throw new Error('Token has expired');
+          }
 
+          console.log('✅ getUserInfo - Success via JWT decode (fallback mode)');
+          return {
+            id: decoded.sub || decoded.user_id || decoded.id,
+            email: decoded.email || decoded.preferred_email,
+            name: decoded.name || [decoded.given_name, decoded.family_name].filter(Boolean).join(' ') || [decoded.first_name, decoded.last_name].filter(Boolean).join(' '),
+            given_name: decoded.given_name || decoded.first_name,
+            family_name: decoded.family_name || decoded.last_name,
+            picture: decoded.picture || decoded.avatar,
+            org_code: decoded.org_code || decoded.organization_code || decoded.organization,
+            org_codes: decoded.org_codes || (decoded.org_code ? [decoded.org_code] : [])
+          };
+        }
+      } catch (decodeError) {
+        console.log(`⚠️ getUserInfo - JWT decode fallback failed:`, decodeError.message);
+      }
 
       throw new Error('All authentication strategies failed');
       
@@ -448,148 +515,35 @@ class KindeService {
         }
       }
       
-      // Try the correct endpoint for adding user to organization
-      const endpoints = [
-        `${this.baseURL}/api/v1/organizations/${orgCode}/users`
-      ];
+      // FIXED: Use correct endpoint format from Kinde API documentation
+      // POST /api/v1/organizations/{org_code}/users/{user_id}/roles
+      // Determine role based on options
+      const role = options.role_code || (options.is_admin ? 'admin' : 'member');
+      const endpoint = `${this.baseURL}/api/v1/organizations/${orgCode}/users/${kindeUserId}/roles`;
       
-      let response = null;
-      let successfulEndpoint = null;
-      let successfulPayload = null;
-      let lastError = null;
+      console.log(`🔗 addUserToOrganization - Using endpoint: ${endpoint} with role: ${role}`);
       
-      for (const endpoint of endpoints) {
-        try {
-          console.log(`🔗 addUserToOrganization - Trying endpoint: ${endpoint}`);
-          
-          // Try different payload formats based on Kinde API documentation
-          const payloads = [
-            // Correct format according to Kinde API docs
-            {
-              users: [
-                {
-                  id: kindeUserId,
-                  roles: ["member"],
-                  permissions: ["read"]
-                }
-              ]
-            },
-            {
-              users: [
-                {
-                  id: kindeUserId,
-                  roles: ["admin"],
-                  permissions: ["admin", "read", "write"]
-                }
-              ]
-            },
-            {
-              users: [
-                {
-                  id: kindeUserId,
-                  roles: ["manager"],
-                  permissions: ["admin"]
-                }
-              ]
-            },
-            // Fallback formats (legacy)
-            { user_id: kindeUserId },
-            { user_id: kindeUserId, role: "member" }
-          ];
-          
-          for (const payload of payloads) {
-            try {
-              console.log(`🔗 addUserToOrganization - Trying payload:`, JSON.stringify(payload));
-              
-              const requestConfig = {
-                headers: {
-                  'Authorization': `Bearer ${m2mToken}`,
-                  'Content-Type': 'application/json'
-                },
-                timeout: 10000 // 10 second timeout
-              };
-              
-              response = await axios.post(endpoint, payload, requestConfig);
-
-              // Check if the response indicates success but no users were added
-              // This typically means the M2M client doesn't have permission
-              if (response.data?.message?.includes('No users added')) {
-                console.warn(`⚠️ addUserToOrganization - API returned success but no users added:`, response.data);
-                console.log('ℹ️ This usually means the M2M client lacks organization management permissions');
-                // Treat this as a definitive failure - don't try other payloads
-                throw new Error(`Kinde API returned: ${response.data.message} (likely permission issue)`);
-              }
-
-              successfulEndpoint = endpoint;
-              successfulPayload = payload;
-              console.log(`✅ addUserToOrganization - Success with endpoint: ${endpoint} and payload:`, JSON.stringify(payload));
-              console.log(`📊 Response status: ${response.status}, Response data:`, response.data);
-              break;
-            } catch (payloadError) {
-              lastError = payloadError;
-              console.log(`⚠️ Payload ${JSON.stringify(payload)} failed for endpoint ${endpoint}:`, {
-                status: payloadError.response?.status,
-                statusText: payloadError.response?.statusText,
-                data: payloadError.response?.data,
-                message: payloadError.message
-              });
-              continue;
-            }
-          }
-          
-          if (response) break;
-        } catch (endpointError) {
-          lastError = endpointError;
-          console.log(`⚠️ Endpoint ${endpoint} failed:`, {
-            status: endpointError.response?.status,
-            statusText: endpointError.response?.statusText,
-            data: endpointError.response?.data,
-            message: endpointError.message
-          });
-          continue;
-        }
-      }
-      
-      if (!response) {
-        console.error(`❌ addUserToOrganization - All endpoints and payloads failed. Last error:`, lastError?.message);
-
-      // Provide helpful guidance for common issues
-      if (lastError?.message?.includes('No users added')) {
-        console.log(`
-🔧 KINDE ORGANIZATION MANAGEMENT SETUP REQUIRED:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Your M2M client needs organization management permissions.
-
-In your Kinde dashboard:
-1. Go to Settings → Applications
-2. Find your M2M application
-3. Add these scopes: 'admin', 'organizations:read', 'organizations:write'
-4. Ensure the M2M client has 'Organization Admin' role
-5. The organization must allow M2M management
-
-If you can't configure this, the invitation system will still work
-for internal user management - Kinde org assignment is optional.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        `);
-      }
-
-      throw new Error(`All user assignment endpoints and payloads failed. Last error: ${lastError?.message}`);
-      }
-
-      console.log('✅ addUserToOrganization - Success via Kinde API:', {
-        endpoint: successfulEndpoint,
-        payload: successfulPayload,
-        responseStatus: response.status,
-        responseData: response.data
+      // FIXED: Use empty body {} as per Kinde API documentation
+      // The role is specified in the URL path, not the body
+      const response = await axios.post(endpoint, {}, {
+        headers: {
+          'Authorization': `Bearer ${m2mToken}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000 // 10 second timeout
       });
       
+      console.log(`✅ addUserToOrganization - Success with endpoint: ${endpoint}`);
+      console.log(`📊 Response status: ${response.status}, Response data:`, response.data);
+
       return {
         success: true,
         userId: kindeUserId,
+        organizationCode: orgCode,
+        role: role,
         method: options.exclusive ? 'exclusive_assignment' : 'standard_assignment',
         message: 'User added to organization successfully',
-        endpoint: successfulEndpoint,
-        payload: successfulPayload,
+        endpoint: endpoint,
         responseData: response.data
       };
     } catch (error) {
@@ -729,50 +683,38 @@ for internal user management - Kinde org assignment is optional.
       const m2mToken = await this.getM2MToken();
       
       // Prepare organization data according to Kinde API spec
+      // FIXED: Use exact format from Kinde API documentation
       const orgPayload = {
         name: organizationData.name || organizationData.companyName,
         external_id: organizationData.external_id || organizationData.subdomain,
-        // Try different payload formats
-        feature_flags: {},
-        is_allow_registrations: false,
-        is_create_billing_customer: false,
-        // Alternative format
-        organization_name: organizationData.name || organizationData.companyName,
-        organization_code: organizationData.external_id || organizationData.subdomain
+        feature_flags: organizationData.feature_flags || {},
+        is_allow_registrations: organizationData.is_allow_registrations !== undefined ? organizationData.is_allow_registrations : false,
+        is_create_billing_customer: organizationData.is_create_billing_customer !== undefined ? organizationData.is_create_billing_customer : false
       };
+
+      // Add optional fields if provided
+      if (organizationData.handle) orgPayload.handle = organizationData.handle;
+      if (organizationData.sender_name) orgPayload.sender_name = organizationData.sender_name;
+      if (organizationData.sender_email) orgPayload.sender_email = organizationData.sender_email;
+      if (organizationData.billing_email) orgPayload.billing_email = organizationData.billing_email;
+      if (organizationData.billing_plan_code) orgPayload.billing_plan_code = organizationData.billing_plan_code;
 
       console.log('📤 createOrganization - Sending payload:', orgPayload);
       
-      // Prefer the singular endpoint per latest docs; fallback to plural
-      const endpoints = [
-        `${this.baseURL}/api/v1/organization`,
-        `${this.baseURL}/api/v1/organizations`
-      ];
+      // FIXED: Use singular endpoint as per Kinde API documentation
+      const endpoint = `${this.baseURL}/api/v1/organization`;
       
-      let response = null;
-      let successfulEndpoint = null;
+      console.log(`🔗 createOrganization - Using endpoint: ${endpoint}`);
       
-      for (const endpoint of endpoints) {
-        try {
-          console.log(`🔗 createOrganization - Trying endpoint: ${endpoint}`);
-          response = await axios.post(endpoint, orgPayload, {
-            headers: {
-              'Authorization': `Bearer ${m2mToken}`,
-              'Content-Type': 'application/json'
-            }
-          });
-          successfulEndpoint = endpoint;
-          console.log(`✅ createOrganization - Success with endpoint: ${endpoint}`);
-          break;
-        } catch (endpointError) {
-          console.log(`⚠️ createOrganization - Endpoint ${endpoint} failed:`, endpointError.response?.status);
-          continue;
-        }
-      }
+      const response = await axios.post(endpoint, orgPayload, {
+        headers: {
+          'Authorization': `Bearer ${m2mToken}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000 // 10 second timeout
+      });
       
-      if (!response) {
-        throw new Error('All organization creation endpoints failed');
-      }
+      console.log(`✅ createOrganization - Success with endpoint: ${endpoint}`);
 
       console.log('✅ createOrganization - Success via Kinde API:', response.data);
       

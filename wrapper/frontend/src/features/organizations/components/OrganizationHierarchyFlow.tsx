@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useEffect } from 'react';
+import { useCallback, useMemo, useEffect, useState } from 'react';
 import ReactFlow, {
   Background,
   useReactFlow,
@@ -20,6 +20,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { OrganizationNode } from './OrganizationNode';
 import type { OrganizationHierarchy } from '@/types/organization';
+import { CreditAllocationModal } from '@/components/common/CreditAllocationModal';
 
 // Define nodeTypes
 const nodeTypes: NodeTypes = {
@@ -49,7 +50,8 @@ function convertHierarchyToFlow(
   onEditOrganization?: (orgId: string) => void,
   onDeleteOrganization?: (orgId: string) => void,
   onAddSubOrganization?: (parentId: string) => void,
-  onAddLocation?: (parentId: string) => void
+  onAddLocation?: (parentId: string) => void,
+  onAllocateCredits?: (entityId: string) => void
 ) {
   const nodes: any[] = [];
   const edges: Edge[] = [];
@@ -64,38 +66,8 @@ function convertHierarchyToFlow(
   const MIN_SIBLING_DISTANCE = 80; // Compact spacing between sibling nodes (padding between nodes)
   const MIN_SUBTREE_SPACING = 50; // Minimum spacing between subtrees
 
-  // If no hierarchy, return empty or just tenant node
+  // If no hierarchy, return empty
   if (!hierarchy || !hierarchy.hierarchy || hierarchy.hierarchy.length === 0) {
-    // Still show tenant node if available
-    if (tenantId && tenantName) {
-      const tenantNode = {
-        id: `tenant-${tenantId}`,
-        type: 'organizationNode',
-        position: { x: 0, y: ROOT_Y },
-        data: {
-          id: `tenant-${tenantId}`,
-          name: tenantName,
-          entityType: 'organization',
-          organizationType: 'tenant',
-          isActive: true,
-          description: 'Root tenant organization',
-          availableCredits: 0,
-          reservedCredits: 0,
-          entityLevel: 0,
-          onNodeClick,
-          onEditOrganization,
-          onDeleteOrganization,
-          onAddSubOrganization,
-          onAddLocation,
-        },
-        style: {
-          width: NODE_WIDTH,
-          height: NODE_HEIGHT,
-        },
-        draggable: true,
-      };
-      nodes.push(tenantNode);
-    }
     return { nodes, edges };
   }
 
@@ -134,13 +106,13 @@ function convertHierarchyToFlow(
 
     // Calculate layout for all children
     const childLayouts = children.map((child: any) => calculateSubtreeLayout(child, level + 1));
-    
+
     // Calculate total width needed for children
     let totalChildrenWidth = 0;
     childLayouts.forEach((layout) => {
       totalChildrenWidth += layout.width;
     });
-    
+
     // Add compact spacing between children (not full subtree width)
     // Use MIN_SIBLING_DISTANCE as padding between nodes, not between subtree boundaries
     const spacing = children.length > 1 ? (children.length - 1) * MIN_SIBLING_DISTANCE : 0;
@@ -173,19 +145,19 @@ function convertHierarchyToFlow(
     } else {
       // Calculate starting position for children
       let currentX = parentX - layout.subtreeWidth / 2;
-      
+
       // Position children first with compact spacing
       children.forEach((child: any, index: number) => {
         const childLayout = layouts.get(child.entityId || child.organizationId)!;
         const childSubtreeWidth = childLayout.subtreeWidth;
-        
+
         // Position child at the center of its allocated space
         const childX = currentX + childSubtreeWidth / 2;
         childLayout.x = childX;
-        
+
         // Recursively position child's descendants
         assignPositions(child, childX, level + 1);
-        
+
         // Move to next child position with compact spacing
         currentX += childSubtreeWidth;
         if (index < children.length - 1) {
@@ -201,39 +173,17 @@ function convertHierarchyToFlow(
     }
   }
 
-  // Create tenant node at the top if tenant info is available
-  let tenantNodeId: string | null = null;
-  if (tenantId && tenantName) {
-    tenantNodeId = `tenant-${tenantId}`;
-    // Calculate total width needed for all root organizations
-    let totalRootWidth = 0;
-    hierarchy.hierarchy.forEach((org: any) => {
-      const layout = calculateSubtreeLayout(org, 1); // Level 1 (under tenant)
-      totalRootWidth += layout.width;
-    });
-    const rootSpacing = hierarchy.hierarchy.length > 1 ? (hierarchy.hierarchy.length - 1) * HORIZONTAL_SPACING : 0;
-    const totalWidth = Math.max(NODE_WIDTH, totalRootWidth + rootSpacing);
-    
-    layouts.set(tenantNodeId, {
-      x: 0, // Will be centered later
-      y: ROOT_Y,
-      subtreeWidth: totalWidth,
-      subtreeLeft: -totalWidth / 2,
-      subtreeRight: totalWidth / 2,
-    });
-  }
-
-  // Calculate layouts for all root nodes (now at level 1, under tenant)
-  let rootXOffset = tenantNodeId ? -layouts.get(tenantNodeId)!.subtreeWidth / 2 : 0;
+  // Calculate layouts for all root nodes (starting from primary organizations)
+  let rootXOffset = 0;
   hierarchy.hierarchy.forEach((org: any, index: number) => {
-    const layout = calculateSubtreeLayout(org, 1); // Level 1 (under tenant)
+    const layout = calculateSubtreeLayout(org, 0); // Level 0 (root level)
     const nodeId = org.entityId || org.organizationId;
     const nodeLayout = layouts.get(nodeId)!;
-    
+
     // Position root node at the center of its subtree
     nodeLayout.x = rootXOffset + layout.width / 2;
-    assignPositions(org, nodeLayout.x, 1); // Level 1
-    
+    assignPositions(org, nodeLayout.x, 0); // Level 0
+
     // Move to next root position with appropriate spacing
     rootXOffset += layout.width;
     if (index < hierarchy.hierarchy.length - 1) {
@@ -241,51 +191,10 @@ function convertHierarchyToFlow(
     }
   });
 
-  // Center tenant node above all root organizations
-  if (tenantNodeId) {
-    const tenantLayout = layouts.get(tenantNodeId)!;
-    if (hierarchy.hierarchy.length > 0) {
-      const firstRootLayout = layouts.get(hierarchy.hierarchy[0].entityId || hierarchy.hierarchy[0].organizationId)!;
-      const lastRootLayout = layouts.get(hierarchy.hierarchy[hierarchy.hierarchy.length - 1].entityId || hierarchy.hierarchy[hierarchy.hierarchy.length - 1].organizationId)!;
-      tenantLayout.x = (firstRootLayout.x + lastRootLayout.x) / 2;
-    }
-  }
-
-  // Create tenant node if available
-  if (tenantNodeId && tenantName) {
-    const tenantLayout = layouts.get(tenantNodeId)!;
-    const tenantNode = {
-      id: tenantNodeId,
-      type: 'organizationNode',
-      position: { x: tenantLayout.x, y: tenantLayout.y },
-      data: {
-        id: tenantNodeId,
-        name: tenantName,
-        entityType: 'organization',
-        organizationType: 'tenant',
-        isActive: true,
-        description: 'Root tenant organization',
-        availableCredits: 0,
-        reservedCredits: 0,
-        entityLevel: 0,
-        onNodeClick,
-        onEditOrganization,
-        onDeleteOrganization,
-        onAddSubOrganization,
-        onAddLocation,
-      },
-      style: {
-        width: NODE_WIDTH,
-        height: NODE_HEIGHT,
-      },
-      draggable: true,
-    };
-    nodes.push(tenantNode);
-    nodeMap.set(tenantNodeId, tenantNode);
-  }
+  // No tenant node created - start from primary organizations
 
   // Create nodes and edges
-  function createNodesAndEdges(org: any, parentId: string | null): void {
+  function createNodesAndEdges(org: any, parentId: string | null, onAllocateCredits?: (entityId: string) => void): void {
     const nodeId = org.entityId || org.organizationId;
     const nodeName = org.entityName || org.organizationName;
     const entityType = org.entityType || 'organization';
@@ -317,6 +226,7 @@ function convertHierarchyToFlow(
         onDeleteOrganization,
         onAddSubOrganization,
         onAddLocation,
+        onAllocateCredits,
       },
       style: {
         width: NODE_WIDTH,
@@ -350,13 +260,13 @@ function convertHierarchyToFlow(
     // Process children
     const children = org.children || [];
     children.forEach((child: any) => {
-      createNodesAndEdges(child, nodeId);
+      createNodesAndEdges(child, nodeId, onAllocateCredits);
     });
   }
 
-  // Create all nodes and edges, connecting root orgs to tenant
+  // Create all nodes and edges, starting from primary organizations
   hierarchy.hierarchy.forEach((org: any) => {
-    createNodesAndEdges(org, tenantNodeId); // Connect to tenant instead of null
+    createNodesAndEdges(org, null, onAllocateCredits); // No parent connection
   });
 
   // Center all nodes horizontally
@@ -388,14 +298,48 @@ function OrganizationHierarchyFlowInner({
   onAddSubOrganization,
   onAddLocation,
 }: OrganizationHierarchyFlowProps) {
+  const [showCreditAllocationModal, setShowCreditAllocationModal] = useState(false);
+  const [selectedEntityForAllocation, setSelectedEntityForAllocation] = useState<{
+    id: string;
+    name: string;
+    type: 'organization' | 'location';
+    availableCredits: number;
+  } | null>(null);
   console.log('🎨 OrganizationHierarchyFlowInner rendered:', {
     hasHierarchy: !!hierarchy,
     hierarchyLength: hierarchy?.hierarchy?.length || 0,
     loading,
     hierarchyData: hierarchy
   });
-  
+
   const { fitView, zoomIn, zoomOut } = useReactFlow();
+
+  const handleAllocateCredits = useCallback((entityId: string) => {
+    // Find the entity in the hierarchy to get its details
+    const findEntity = (entities: any[]): any => {
+      for (const entity of entities) {
+        if (entity.entityId === entityId || entity.organizationId === entityId) {
+          return entity;
+        }
+        if (entity.children) {
+          const found = findEntity(entity.children);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    const entity = hierarchy?.hierarchy ? findEntity(hierarchy.hierarchy) : null;
+    if (entity) {
+      setSelectedEntityForAllocation({
+        id: entityId,
+        name: entity.entityName || entity.organizationName,
+        type: entity.entityType || 'organization',
+        availableCredits: entity.availableCredits || 0
+      });
+      setShowCreditAllocationModal(true);
+    }
+  }, [hierarchy]);
 
   // Convert hierarchy to React Flow format
   const { nodes, edges } = useMemo(() => {
@@ -408,11 +352,12 @@ function OrganizationHierarchyFlowInner({
       onEditOrganization,
       onDeleteOrganization,
       onAddSubOrganization,
-      onAddLocation
+      onAddLocation,
+      handleAllocateCredits
     );
     console.log('✅ Converted to flow:', result.nodes.length, 'nodes', result.edges.length, 'edges');
     return result;
-  }, [hierarchy, tenantId, tenantName, onNodeClick, onEditOrganization, onDeleteOrganization, onAddSubOrganization, onAddLocation]);
+  }, [hierarchy, tenantId, tenantName, onNodeClick, onEditOrganization, onDeleteOrganization, onAddSubOrganization, onAddLocation, handleAllocateCredits]);
 
   // Fit view when nodes change
   useEffect(() => {
@@ -482,12 +427,12 @@ function OrganizationHierarchyFlowInner({
           }}
           maskColor="rgba(0, 0, 0, 0.1)"
         />
-        <Panel position="top-left" className="bg-white border border-gray-200 rounded-lg shadow-sm p-3">
+        <Panel position="top-left" className="rounded-2xl border border-sky-100 bg-gradient-to-r from-sky-50/50 to-white shadow-sm p-3">
           <div className="flex items-center gap-2">
-            <Building className="w-5 h-5 text-blue-600" />
+            <Building className="w-5 h-5 text-sky-600" />
             <div>
-              <h3 className="font-semibold text-sm">Organization Hierarchy</h3>
-              <p className="text-xs text-gray-600">
+              <h3 className="font-black text-sm text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-sky-400">Organization Hierarchy</h3>
+              <p className="text-xs text-muted-foreground">
                 {hierarchy.totalOrganizations} {hierarchy.totalOrganizations === 1 ? 'organization' : 'organizations'}
               </p>
             </div>
@@ -499,39 +444,54 @@ function OrganizationHierarchyFlowInner({
               variant="outline"
               size="sm"
               onClick={onRefresh}
-              className="bg-white border border-gray-200 shadow-sm"
+              className="bg-white border border-sky-200 shadow-sm hover:bg-sky-50"
             >
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Refresh
+              <RefreshCw className="w-4 h-4 mr-2 text-sky-600" />
+              <span className="text-sky-700 font-medium">Refresh</span>
             </Button>
           )}
           <Button
             variant="outline"
             size="sm"
             onClick={handleFitView}
-            className="bg-white border border-gray-200 shadow-sm"
+            className="bg-white border border-blue-200 shadow-sm hover:bg-blue-50"
           >
-            <Maximize2 className="w-4 h-4 mr-2" />
-            Fit View
+            <Maximize2 className="w-4 h-4 mr-2 text-blue-600" />
+            <span className="text-blue-700 font-medium">Fit View</span>
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={() => zoomIn({ duration: 300 })}
-            className="bg-white border border-gray-200 shadow-sm"
+            className="bg-white border border-sky-200 shadow-sm hover:bg-sky-50"
           >
-            <ZoomIn className="w-4 h-4" />
+            <ZoomIn className="w-4 h-4 text-sky-600" />
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={() => zoomOut({ duration: 300 })}
-            className="bg-white border border-gray-200 shadow-sm"
+            className="bg-white border border-sky-200 shadow-sm hover:bg-sky-50"
           >
-            <ZoomOut className="w-4 h-4" />
+            <ZoomOut className="w-4 h-4 text-sky-600" />
           </Button>
         </Panel>
       </ReactFlow>
+
+      {/* Credit Allocation Modal */}
+      {selectedEntityForAllocation && (
+        <CreditAllocationModal
+          isOpen={showCreditAllocationModal}
+          onClose={() => {
+            setShowCreditAllocationModal(false);
+            setSelectedEntityForAllocation(null);
+          }}
+          entityId={selectedEntityForAllocation.id}
+          entityName={selectedEntityForAllocation.name}
+          entityType={selectedEntityForAllocation.type}
+          availableCredits={selectedEntityForAllocation.availableCredits}
+        />
+      )}
     </div>
   );
 }
@@ -544,7 +504,7 @@ export function OrganizationHierarchyFlow(props: OrganizationHierarchyFlowProps)
     loading: props.loading,
     totalOrganizations: props.hierarchy?.totalOrganizations || 0
   });
-  
+
   return (
     <ReactFlowProvider>
       <OrganizationHierarchyFlowInner {...props} />

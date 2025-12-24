@@ -391,19 +391,67 @@ export class TenantService {
         invitationScope = 'tenant';
       }
 
+      // Generate invitation URL with proper environment detection
+      let baseUrl = process.env.INVITATION_BASE_URL || process.env.FRONTEND_URL;
+      
+      // In development, default to localhost:3001 if no URL is set
+      if (!baseUrl || baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
+        if (process.env.NODE_ENV === 'production') {
+          // In production, use zopkit.com as fallback if no env var is set
+          baseUrl = process.env.BASE_URL || 'https://zopkit.com';
+        } else {
+          // In development, use localhost
+          baseUrl = 'http://localhost:3001';
+        }
+      }
+      
+      const invitationUrl = `${baseUrl}/invite/accept?token=${invitationToken}`;
+      
+      // Ensure we always have a valid URL
+      if (!invitationUrl || !invitationUrl.startsWith('http')) {
+        throw new Error(`Invalid invitation URL generated: ${invitationUrl}`);
+      }
+      
+      console.log('🔗 Generated invitation URL in TenantService:', {
+        invitationUrl,
+        baseUrl,
+        env: {
+          INVITATION_BASE_URL: process.env.INVITATION_BASE_URL,
+          FRONTEND_URL: process.env.FRONTEND_URL,
+          BASE_URL: process.env.BASE_URL,
+          NODE_ENV: process.env.NODE_ENV
+        }
+      });
+
       // Create invitation
+      console.log('💾 Saving invitation to database with URL:', {
+        email: data.email,
+        invitationToken: invitationToken.substring(0, 8) + '...',
+        invitationUrl,
+        invitationScope,
+        hasUrl: !!invitationUrl
+      });
+      
       const [invitation] = await db.insert(tenantInvitations).values({
         tenantId: data.tenantId,
         email: data.email,
         roleId: data.roleId,
         invitedBy: data.invitedBy,
         invitationToken,
+        invitationUrl, // Ensure this is always set
         expiresAt,
         invitationScope,
         primaryEntityId,
         targetEntities,
         updatedAt: new Date()
       }).returning();
+      
+      console.log('✅ Invitation saved to database:', {
+        invitationId: invitation.invitationId,
+        email: invitation.email,
+        storedUrl: invitation.invitationUrl,
+        hasStoredUrl: !!invitation.invitationUrl
+      });
 
       // Get tenant and role details for email
       const tenant = await this.getTenantDetails(data.tenantId);
@@ -423,9 +471,7 @@ export class TenantService {
       // Send invitation email
       console.log(`📧 Preparing to send invitation email to ${data.email}`);
       try {
-        const roleName = Array.isArray(targetEntities) && targetEntities.length > 0
-          ? 'Multi-entity Member'
-          : role?.roleName || 'Team Member';
+        const roleName = role?.roleName || 'Member';
 
         // Get organization and location names for the email
         let organizations = [];
@@ -984,6 +1030,28 @@ export class TenantService {
       const roleMap = new Map((roles || []).filter(r => r && r.roleId).map(r => [r.roleId, r]));
       const userRoleMap = new Map((userRoleData || []).filter(ur => ur && ur.userId && ur.roleId).map(ur => [ur.userId, ur.roleId]));
 
+      // Get accepted invitations for active users (to show invitationUrl if available)
+      const acceptedInvitations = await db
+        .select({
+          invitationId: tenantInvitations.invitationId,
+          email: tenantInvitations.email,
+          invitationUrl: tenantInvitations.invitationUrl,
+          status: tenantInvitations.status,
+          acceptedAt: tenantInvitations.acceptedAt
+        })
+        .from(tenantInvitations)
+        .where(and(
+          eq(tenantInvitations.tenantId, tenantId),
+          eq(tenantInvitations.status, 'accepted')
+        ));
+
+      // Create a map of email to accepted invitation for quick lookup
+      const acceptedInvitationMap = new Map(
+        acceptedInvitations
+          .filter(inv => inv && inv.email)
+          .map(inv => [inv.email.toLowerCase(), inv])
+      );
+
       // Format active users
       const formattedUsers = activeUsers.map(user => {
         if (!user || !user.userId || !user.email) {
@@ -992,6 +1060,11 @@ export class TenantService {
 
         const userRoleId = userRoleMap.get(user.userId);
         const role = userRoleId ? roleMap.get(userRoleId) : null;
+        
+        // Check if user has an accepted invitation
+        const acceptedInvitation = acceptedInvitationMap.get(user.email.toLowerCase());
+        const hasAcceptedInvitation = !!acceptedInvitation;
+        
         return {
           id: user.userId,
           email: user.email,
@@ -999,11 +1072,13 @@ export class TenantService {
           lastName: user.name?.split(' ').slice(1).join(' ') || '',
           role: role?.roleName || 'No role assigned',
           isActive: user.isActive !== false, // Default to true if undefined
-          invitationStatus: 'active',
+          invitationStatus: hasAcceptedInvitation ? 'accepted' : 'active',
           invitedAt: user.invitedAt || user.createdAt,
           expiresAt: null,
           lastActiveAt: user.lastActiveAt,
-          invitationId: null,
+          invitationId: acceptedInvitation?.invitationId || null,
+          invitationUrl: acceptedInvitation?.invitationUrl || null, // Include invitationUrl if available
+          invitationAcceptedAt: acceptedInvitation?.acceptedAt || null,
           status: 'active',
           userType: 'active',
           originalData: {
@@ -1027,7 +1102,9 @@ export class TenantService {
               onboardingCompleted: user.onboardingCompleted,
               onboardingStep: user.onboardingStep,
               createdAt: user.createdAt,
-              updatedAt: user.updatedAt
+              updatedAt: user.updatedAt,
+              invitationUrl: acceptedInvitation?.invitationUrl || null, // Include in originalData too
+              invitationAcceptedAt: acceptedInvitation?.acceptedAt || null
             },
             role: role
           }
@@ -1542,12 +1619,19 @@ export class TenantService {
 
       // Start transaction
       const result = await db.transaction(async (tx) => {
-        // 1. Remove user role assignments
+        // 1. Remove organization memberships
+        const deletedMemberships = await tx
+          .delete(organizationMemberships)
+          .where(eq(organizationMemberships.userId, userId))
+          .returning();
+        console.log(`✅ Removed ${deletedMemberships.length} organization memberships for user`);
+
+        // 2. Remove user role assignments
         await tx
           .delete(userRoleAssignments)
           .where(eq(userRoleAssignments.userId, userId));
 
-        // 2. Remove responsible person assignments (where user is the responsible person)
+        // 3. Remove responsible person assignments (where user is the responsible person)
         try {
           const { responsiblePersons } = await import('../db/schema/responsible_persons.js');
           const deletedAssignments = await tx
@@ -1560,7 +1644,7 @@ export class TenantService {
           // Continue even if this fails - might not exist
         }
 
-        // 3. Handle responsible person assignments where user is the assigner (assignedBy)
+        // 4. Handle responsible person assignments where user is the assigner (assignedBy)
         // Set assignedBy to another admin user if possible, otherwise delete the assignments
         try {
           const { responsiblePersons, responsibilityHistory } = await import('../db/schema/responsible_persons.js');
@@ -1611,7 +1695,7 @@ export class TenantService {
           // Continue even if this fails
         }
 
-        // 4. Cancel any pending invitations for this user
+        // 5. Cancel any pending invitations for this user
         await tx
           .update(tenantInvitations)
           .set({
@@ -1625,7 +1709,7 @@ export class TenantService {
             eq(tenantInvitations.status, 'pending')
           ));
 
-        // 5. Publish user deletion event to Redis streams before deletion
+        // 6. Publish user deletion event to Redis streams before deletion
         try {
           // Split name into firstName and lastName for CRM requirements
           const nameParts = (user.name || '').split(' ');
@@ -1648,7 +1732,7 @@ export class TenantService {
           // Continue with user deletion even if stream publishing fails
         }
 
-        // 6. Remove the user from tenant_users
+        // 7. Remove the user from tenant_users
         await tx
           .delete(tenantUsers)
           .where(and(

@@ -6,7 +6,6 @@
 
 // Pages
 export { default as OnboardingPage } from './pages/Onboarding';
-export { default as SimpleOnboarding } from './pages/SimpleOnboarding';
 
 // Components
 export { OnboardingForm } from './components/OnboardingForm';

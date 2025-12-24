@@ -34,8 +34,7 @@ import {
   creditTransactions,
   creditPurchases,
   creditUsage,
-  creditAllocations,
-  creditAllocationTransactions,
+  // REMOVED: creditAllocations, creditAllocationTransactions - Application-specific allocations removed
   creditConfigurations,
   
   // Responsible persons
@@ -194,20 +193,21 @@ async function deleteTenantData(tenantId) {
         console.log('🔄 [1.4] No membership invitations to delete');
       }
 
-      // 1.5 Delete credit allocation transactions (references creditAllocations)
-      console.log('🔄 [1.5] Deleting credit allocation transactions...');
-      const creditAllocTxResult = await tx
-        .delete(creditAllocationTransactions)
-        .where(eq(creditAllocationTransactions.tenantId, tenantId))
-        .returning({ id: creditAllocationTransactions.transactionId });
-      deletionResults.deletedRecords.creditAllocationTransactions = creditAllocTxResult.length;
-      console.log(`   ✅ Deleted ${creditAllocTxResult.length} credit allocation transactions`);
+      // REMOVED: 1.5 Delete credit allocation transactions - Table removed
+      deletionResults.deletedRecords.creditAllocationTransactions = 0;
 
-      // 1.6 Delete credit transactions (references credits)
+      // 1.6 Delete credit transactions (references credits and users via initiated_by)
       console.log('🔄 [1.6] Deleting credit transactions...');
       const creditTxResult = await tx
         .delete(creditTransactions)
-        .where(eq(creditTransactions.tenantId, tenantId))
+        .where(
+          userIds.length > 0
+            ? or(
+                eq(creditTransactions.tenantId, tenantId),
+                inArray(creditTransactions.initiatedBy, userIds)
+              )
+            : eq(creditTransactions.tenantId, tenantId)
+        )
         .returning({ id: creditTransactions.transactionId });
       deletionResults.deletedRecords.creditTransactions = creditTxResult.length;
       console.log(`   ✅ Deleted ${creditTxResult.length} credit transactions`);
@@ -273,23 +273,8 @@ async function deleteTenantData(tenantId) {
       // STEP 3: Delete records that reference entities
       // ========================================================================
 
-      // 3.1 Delete credit allocations (references entities)
-      if (entityIds.length > 0) {
-        console.log('🔄 [3.1] Deleting credit allocations...');
-        const result = await tx
-          .delete(creditAllocations)
-          .where(
-            or(
-              eq(creditAllocations.tenantId, tenantId),
-              inArray(creditAllocations.sourceEntityId, entityIds)
-            )
-          )
-          .returning({ id: creditAllocations.allocationId });
-        deletionResults.deletedRecords.creditAllocations = result.length;
-        console.log(`   ✅ Deleted ${result.length} credit allocations`);
-      } else {
-        deletionResults.deletedRecords.creditAllocations = 0;
-      }
+      // REMOVED: 3.1 Delete credit allocations - Table removed
+      deletionResults.deletedRecords.creditAllocations = 0;
 
       // 3.2 Delete credits (references entities)
       if (entityIds.length > 0) {
@@ -309,11 +294,18 @@ async function deleteTenantData(tenantId) {
         deletionResults.deletedRecords.credits = 0;
       }
 
-      // 3.3 Delete credit purchases (references entities)
+      // 3.3 Delete credit purchases (references entities and users via requested_by)
       console.log('🔄 [3.3] Deleting credit purchases...');
       const creditPurchasesResult = await tx
         .delete(creditPurchases)
-        .where(eq(creditPurchases.tenantId, tenantId))
+        .where(
+          userIds.length > 0
+            ? or(
+                eq(creditPurchases.tenantId, tenantId),
+                inArray(creditPurchases.requestedBy, userIds)
+              )
+            : eq(creditPurchases.tenantId, tenantId)
+        )
         .returning({ id: creditPurchases.purchaseId });
       deletionResults.deletedRecords.creditPurchases = creditPurchasesResult.length;
       console.log(`   ✅ Deleted ${creditPurchasesResult.length} credit purchases`);
@@ -406,14 +398,38 @@ async function deleteTenantData(tenantId) {
       deletionResults.deletedRecords.organizationApplications = orgAppsResult.length;
       console.log(`   ✅ Deleted ${orgAppsResult.length} organization applications`);
 
-      // 4.8 Delete credit configurations
+      // 4.8 Delete credit configurations (references users via created_by and updated_by)
       console.log('🔄 [4.8] Deleting credit configurations...');
       const creditConfigsResult = await tx
         .delete(creditConfigurations)
-        .where(eq(creditConfigurations.tenantId, tenantId))
+        .where(
+          userIds.length > 0
+            ? or(
+                eq(creditConfigurations.tenantId, tenantId),
+                inArray(creditConfigurations.createdBy, userIds),
+                inArray(creditConfigurations.updatedBy, userIds)
+              )
+            : eq(creditConfigurations.tenantId, tenantId)
+        )
         .returning({ id: creditConfigurations.configId });
       deletionResults.deletedRecords.creditConfigurations = creditConfigsResult.length;
       console.log(`   ✅ Deleted ${creditConfigsResult.length} credit configurations`);
+
+      // 4.9 Nullify primary_organization_id references in tenant_users before deleting entities
+      // This prevents FK constraint violations when deleting entities
+      console.log('🔄 [4.9] Nullifying primary_organization_id references in tenant_users...');
+      if (userIds.length > 0) {
+        const nullifyResult = await tx
+          .update(tenantUsers)
+          .set({ primaryOrganizationId: null })
+          .where(eq(tenantUsers.tenantId, tenantId))
+          .returning({ id: tenantUsers.userId });
+        deletionResults.deletedRecords.nullifiedPrimaryOrgRefs = nullifyResult.length;
+        console.log(`   ✅ Nullified ${nullifyResult.length} primary_organization_id references`);
+      } else {
+        deletionResults.deletedRecords.nullifiedPrimaryOrgRefs = 0;
+        console.log('   ✅ No tenant users to update');
+      }
 
       // ========================================================================
       // STEP 5: Delete entities (must be before users due to FK constraints)
@@ -440,11 +456,19 @@ async function deleteTenantData(tenantId) {
       // STEP 6: Delete roles and users
       // ========================================================================
 
-      // 6.1 Delete custom roles
+      // 6.1 Delete custom roles (references users via created_by and last_modified_by)
       console.log('🔄 [6.1] Deleting custom roles...');
       const customRolesResult = await tx
         .delete(customRoles)
-        .where(eq(customRoles.tenantId, tenantId))
+        .where(
+          userIds.length > 0
+            ? or(
+                eq(customRoles.tenantId, tenantId),
+                inArray(customRoles.createdBy, userIds),
+                inArray(customRoles.lastModifiedBy, userIds)
+              )
+            : eq(customRoles.tenantId, tenantId)
+        )
         .returning({ id: customRoles.roleId });
       deletionResults.deletedRecords.customRoles = customRolesResult.length;
       console.log(`   ✅ Deleted ${customRolesResult.length} custom roles`);

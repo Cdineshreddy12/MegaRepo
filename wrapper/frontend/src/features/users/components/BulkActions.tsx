@@ -1,4 +1,4 @@
-import { Button } from '@/components/ui/button';
+import { PearlButton } from '@/components/ui/pearl-button';
 import { Card, CardContent } from '@/components/ui/card';
 
 interface BulkActionsProps {
@@ -18,18 +18,18 @@ export function BulkActions({ selectedCount, onClearSelection }: BulkActionsProp
               {selectedCount} user{selectedCount !== 1 ? 's' : ''} selected
             </span>
           </div>
-          
+
           <div className="flex gap-2">
-            <Button size="sm">
+            <PearlButton size="sm">
               Bulk Actions
-            </Button>
-            <Button
+            </PearlButton>
+            <PearlButton
               variant="outline"
               size="sm"
               onClick={onClearSelection}
             >
               Clear
-            </Button>
+            </PearlButton>
           </div>
         </div>
       </CardContent>

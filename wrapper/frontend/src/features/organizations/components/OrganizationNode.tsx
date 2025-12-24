@@ -5,7 +5,7 @@ import { Handle, Position } from 'reactflow';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Building, MapPin, Edit, Trash2, Plus, MoreVertical } from 'lucide-react';
+import { Building, MapPin, Edit, Trash2, Plus, MoreVertical, CreditCard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
@@ -31,6 +31,7 @@ interface OrganizationNodeData {
   onDeleteOrganization?: (orgId: string) => void;
   onAddSubOrganization?: (parentId: string) => void;
   onAddLocation?: (parentId: string) => void;
+  onAllocateCredits?: (entityId: string) => void;
 }
 
 export function OrganizationNode({ id, data, selected }: NodeProps<OrganizationNodeData>) {
@@ -49,6 +50,7 @@ export function OrganizationNode({ id, data, selected }: NodeProps<OrganizationN
     onDeleteOrganization,
     onAddSubOrganization,
     onAddLocation,
+    onAllocateCredits,
   } = data;
 
   const isLocation = entityType === 'location';
@@ -85,6 +87,13 @@ export function OrganizationNode({ id, data, selected }: NodeProps<OrganizationN
     e.stopPropagation();
     if (onAddLocation) {
       onAddLocation(id);
+    }
+  };
+
+  const handleAllocateCredits = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onAllocateCredits) {
+      onAllocateCredits(id);
     }
   };
 
@@ -147,6 +156,13 @@ export function OrganizationNode({ id, data, selected }: NodeProps<OrganizationN
                 <DropdownMenuItem onClick={handleAddLoc}>
                   <MapPin className="w-4 h-4 mr-2" />
                   Add Location
+                </DropdownMenuItem>
+              )}
+              {/* Credit Allocation - only for organizations and locations */}
+              {(entityType === 'organization' || entityType === 'location') && onAllocateCredits && (
+                <DropdownMenuItem onClick={handleAllocateCredits}>
+                  <CreditCard className="w-4 h-4 mr-2" />
+                  Allocate Credits
                 </DropdownMenuItem>
               )}
               <DropdownMenuSeparator />

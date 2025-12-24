@@ -37,27 +37,23 @@ export const StepRenderer = memo(({
     );
   }
 
-  // Wrapper for consistent animation across all steps - removed animation to prevent re-animation on field changes
-  const StepWrapper = ({ children }: { children: React.ReactNode }) => (
-    <div>
-      {children}
-    </div>
-  );
-
-  const renderStepContent = () => {
-    switch (currentStepConfig.id) {
-      case 'businessDetails':
-        return <BusinessDetailsStep form={form} userClassification={userClassification} />;
-      case 'taxDetails':
-        return <TaxDetailsStep form={form} userClassification={userClassification} />;
-      case 'adminDetails':
-        return <AdminDetailsStep form={form} userClassification={userClassification} />;
-      case 'review':
-        return <ReviewStep form={form} onEditStep={onEditStep} userClassification={userClassification} />;
-      default:
-        return <div>Unknown step: {currentStepConfig.id}</div>;
-    }
-  };
-
-  return <StepWrapper>{renderStepContent()}</StepWrapper>;
+  // Render step content directly without wrapper to prevent unnecessary re-renders
+  switch (currentStepConfig.id) {
+    case 'businessDetails':
+      return <BusinessDetailsStep form={form} userClassification={userClassification} />;
+    case 'taxDetails':
+      return <TaxDetailsStep form={form} userClassification={userClassification} />;
+    case 'adminDetails':
+      return <AdminDetailsStep form={form} userClassification={userClassification} />;
+    case 'review':
+      return <ReviewStep form={form} onEditStep={onEditStep} userClassification={userClassification} />;
+    default:
+      return <div>Unknown step: {currentStepConfig.id}</div>;
+  }
+}, (prevProps, nextProps) => {
+  // Only re-render if currentStep, userClassification, or form control changes
+  return prevProps.currentStep === nextProps.currentStep &&
+         prevProps.userClassification === nextProps.userClassification &&
+         prevProps.form.control === nextProps.form.control &&
+         prevProps.stepsConfig === nextProps.stepsConfig;
 });

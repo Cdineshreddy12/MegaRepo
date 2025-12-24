@@ -157,7 +157,7 @@ const PaymentSuccess: React.FC = () => {
       const currentPlan = subscriptionData?.data?.plan || 'free';
 
       // Logic to determine previous plan based on current plan
-      const planHierarchy = ['free', 'trial', 'starter', 'professional', 'enterprise'];
+      const planHierarchy = ['free', 'starter', 'professional', 'enterprise'];
       const currentIndex = planHierarchy.indexOf(currentPlan);
       if (currentIndex > 0) {
         previousPlan = planHierarchy[currentIndex - 1];
@@ -587,7 +587,6 @@ const PaymentSuccess: React.FC = () => {
                               {(() => {
                                 const prevPlanApps = {
                                   free: ['crm'],
-                                  trial: ['crm'],
                                   starter: ['crm', 'hr'],
                                   professional: ['crm', 'hr'],
                                   enterprise: ['crm', 'hr', 'affiliateConnect']
@@ -646,7 +645,6 @@ const PaymentSuccess: React.FC = () => {
                               {(() => {
                                 const currPlanApps = {
                                   free: ['crm'],
-                                  trial: ['crm'],
                                   starter: ['crm', 'hr'],
                                   professional: ['crm', 'hr'],
                                   enterprise: ['crm', 'hr', 'affiliateConnect']

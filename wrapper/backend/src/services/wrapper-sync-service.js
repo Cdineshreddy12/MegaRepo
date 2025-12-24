@@ -1,5 +1,6 @@
 import { db } from '../db/index.js';
-import { tenants, tenantUsers, customRoles, userRoleAssignments, entities, credits, creditAllocations } from '../db/schema/index.js';
+import { tenants, tenantUsers, customRoles, userRoleAssignments, entities, credits } from '../db/schema/index.js';
+// REMOVED: creditAllocations - Table removed, applications manage their own credits
 import { eq, and, sql, desc } from 'drizzle-orm';
 
 /**
@@ -428,26 +429,20 @@ export class WrapperSyncService {
    * @returns {Object} Sync result
    */
   static async syncEntityCredits(tenantId) {
+    // REMOVED: creditAllocations table queries
+    // Applications now manage their own credit consumption
+    // Use credits table instead for organization-level credits
     try {
+      const { creditTransactions } = await import('../db/schema/index.js');
       const entityCredits = await db
         .select({
-          tenantId: creditAllocations.tenantId,
-          entityId: creditAllocations.entityId,
-          allocatedCredits: creditAllocations.allocatedCredits,
-          targetApplication: creditAllocations.targetApplication,
-          usedCredits: creditAllocations.usedCredits,
-          availableCredits: sql`${creditAllocations.allocatedCredits} - ${creditAllocations.usedCredits}`,
-          allocationType: creditAllocations.allocationType,
-          allocationPurpose: creditAllocations.allocationPurpose,
-          expiresAt: creditAllocations.expiresAt,
-          isActive: creditAllocations.isActive,
-          allocationSource: creditAllocations.allocationSource,
-          allocatedBy: creditAllocations.allocatedBy,
-          allocatedAt: creditAllocations.allocatedAt,
-          metadata: creditAllocations.metadata
+          tenantId: credits.tenantId,
+          entityId: credits.entityId,
+          availableCredits: credits.availableCredits,
+          isActive: credits.isActive
         })
-        .from(creditAllocations)
-        .where(eq(creditAllocations.tenantId, tenantId));
+        .from(credits)
+        .where(eq(credits.tenantId, tenantId));
 
       return { success: true, count: entityCredits.length, data: entityCredits };
     } catch (error) {
@@ -555,10 +550,12 @@ export class WrapperSyncService {
         .from(entities)
         .where(and(eq(entities.tenantId, tenantId), eq(entities.isActive, true)));
 
+      // REMOVED: creditAllocations table query
+      // Use credits table instead
       const [creditConfigCount] = await db
         .select({ count: sql`count(*)` })
-        .from(creditAllocations)
-        .where(eq(creditAllocations.tenantId, tenantId));
+        .from(credits)
+        .where(eq(credits.tenantId, tenantId));
 
       return {
         lastSync: new Date(), // Would be stored in a sync log table

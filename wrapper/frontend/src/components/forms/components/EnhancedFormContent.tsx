@@ -22,7 +22,7 @@ interface EnhancedFormContentProps {
  */
 export const EnhancedFormContent: React.FC<EnhancedFormContentProps> = ({
   children,
-  animations = true,
+  animations = false, // Disabled by default to prevent lag
   accessibility = true,
   persistence = {},
   debug = false,

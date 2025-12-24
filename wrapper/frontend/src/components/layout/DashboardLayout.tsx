@@ -1,8 +1,7 @@
-import { AppSidebar } from "@/components/app-sidebar"
+import { ModernSidebar } from "@/components/layout/ModernSidebar"
 import { RouteBreadcrumb } from "@/components/route-breadcrumb"
 import { Separator } from "@/components/ui/separator"
 import { ThemeToggle } from "@/components/theme/ThemeToggle"
-import { Footer } from "@/components/layout/Footer"
 import {
   SidebarInset,
   SidebarProvider,
@@ -13,7 +12,7 @@ import { BillingStatusNavbar } from "@/components/common/BillingStatusNavbar"
 import { NotificationManager } from "@/components/notifications"
 import { SeasonalCreditsCongratulatoryModal } from "@/components/notifications/SeasonalCreditsCongratulatoryModal"
 import { useSeasonalCreditsCongratulatory } from "@/hooks/useSeasonalCreditsCongratulatory"
-import { Home, BarChart3, Building2, Users, Crown, Shield, Activity, CreditCard, Clock, X, Zap, ChevronRight, Settings } from "lucide-react"
+import { Home, Building2, Users, Crown, Shield, Activity, CreditCard, Clock, X, Zap, ChevronRight, Settings } from "lucide-react"
 import { useState, useEffect, useRef } from "react"
 import { useNavigate, useLocation, useSearchParams, useParams, Outlet, Link } from "react-router-dom"
 import { useMemo } from "react"
@@ -46,7 +45,6 @@ const getDashboardNavigation = (): NavItem[] => [
     href: '/dashboard',
     icon: Home,
     children: [
-      { name: 'Overview', href: '/dashboard/overview', icon: BarChart3 },
       { name: 'Applications', href: '/dashboard/applications', icon: Building2 },
       { name: 'Team', href: '/dashboard/users', icon: Users },
       { name: 'Roles', href: '/dashboard/roles', icon: Crown },
@@ -67,7 +65,6 @@ const getOrganizationNavigation = (orgCode: string): NavItem[] => [
     href: `/org/${orgCode}`,
     icon: Home,
     children: [
-      { name: 'Overview', href: `/org/${orgCode}`, icon: BarChart3 },
       { name: 'Analytics', href: `/org/${orgCode}/analytics`, icon: Activity },
       { name: 'Users', href: `/org/${orgCode}/users`, icon: Users },
       { name: 'Roles', href: `/org/${orgCode}/permissions`, icon: Crown },
@@ -144,11 +141,6 @@ const getOrganizationSidebarData = (
       },
     ],
     navMain: [
-      {
-        title: "Overview",
-        url: `/org/${orgCode}`,
-        icon: BarChart3,
-      },
       {
         title: "Organization Hierarchy",
         url: `/org/${orgCode}`,
@@ -233,6 +225,44 @@ const getFloatingDockNavigation = (isOrganizationRoute: boolean, orgCode?: strin
 
   return flattenedItems
 }
+
+const defaultSidebarData = {
+  navMain: [
+    {
+      title: "Applications",
+      url: "/dashboard/applications",
+      icon: Building2,
+    },
+    {
+      title: "Team",
+      url: "/dashboard/users",
+      icon: Users,
+    },
+    {
+      title: "Organization",
+      url: "/dashboard/organization",
+      icon: Building2,
+    },
+    {
+      title: "Roles",
+      url: "/dashboard/roles",
+      icon: Crown,
+    },
+  ],
+  bottomNav: [
+    {
+      name: "Billing",
+      url: "/dashboard/billing",
+      icon: CreditCard,
+    },
+    {
+      name: "Settings",
+      url: "/dashboard/settings",
+      icon: Settings,
+    },
+  ]
+};
+
 export function DashboardLayout() {
   const { actualTheme } = useTheme()
   const [expandedItems, setExpandedItems] = useState<string[]>(['Dashboard'])
@@ -549,139 +579,36 @@ export function DashboardLayout() {
   // Determine sidebar navigation data based on current route
   const sidebarNavData = isOrganizationRoute && orgCode
     ? getOrganizationSidebarData(orgCode, orgHierarchy || [], userData, tenantData)
-    : undefined; // Use default data from AppSidebar
+    : defaultSidebarData;
 
   return (
-    <SidebarProvider>
-      <AppSidebar
-        variant="inset"
+    <SidebarProvider className="bg-[#2563EB]">
+      <ModernSidebar
         navData={sidebarNavData}
         userData={userData}
         tenantData={tenantData}
         isTenantAdmin={user?.isTenantAdmin || false}
         onOrganizationSwitch={handleOrganizationSwitch}
       />
-      <SidebarInset className="md:peer-data-[variant=inset]:m-0 md:peer-data-[variant=inset]:rounded-none md:peer-data-[variant=inset]:shadow-none bg-transparent flex flex-col h-screen overflow-hidden">
-        <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
-          <div className="flex items-center gap-2 px-4">
-            <SidebarTrigger className="-ml-1 dark:text-white dark:bg-slate-800" />
+      <SidebarInset className="md:peer-data-[variant=inset]:m-0 md:peer-data-[variant=inset]:rounded-none md:peer-data-[variant=inset]:shadow-none bg-white dark:bg-slate-950 rounded-tl-[30px] rounded-bl-[30px] flex flex-col h-screen overflow-hidden">
+        <header className="flex h-16 shrink-0 items-center gap-2 px-4 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 bg-transparent">
+          <div className="flex items-center gap-2">
+            <SidebarTrigger className="-ml-1 text-slate-600 hover:bg-slate-200" />
             <Separator
               orientation="vertical"
-              className="mr-2 data-[orientation=vertical]:h-4"
+              className="mr-2 h-4 bg-slate-300"
             />
-            <RouteBreadcrumb className="mt-3" />
+            <RouteBreadcrumb className="mt-0" />
           </div>
-          <div className="ml-auto px-4 flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2">
             <NotificationManager />
             <BillingStatusNavbar />
             <ThemeToggle />
           </div>
         </header>
-        <main className={`flex-1 relative overflow-y-auto ${glassmorphismEnabled ? 'backdrop-blur-sm' : ''} bg-transparent`}>
-          {/* Background */}
-          <div className={`absolute inset-0 ${glassmorphismEnabled ? 'bg-gradient-to-br from-violet-50/30 via-purple-50/15 to-indigo-50/8 dark:from-slate-950/40 dark:via-slate-900/25 dark:to-slate-950/40 backdrop-blur-3xl' : 'bg-white dark:bg-black'}`}></div>
-
-          {/* Purple gradient glassy effect */}
-          {glassmorphismEnabled && (
-            <div className="absolute inset-0 bg-gradient-to-br from-purple-200/15 via-violet-200/10 to-indigo-200/12 dark:from-purple-500/12 dark:via-violet-500/8 dark:to-indigo-500/10 backdrop-blur-3xl"></div>
-          )}
-
-          {/* Dark mode pattern background */}
-          <div className="absolute inset-0 dark:block hidden opacity-15">
-            <Pattern />
-          </div>
-
-          {/* Floating decorative elements */}
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            <div className={`absolute top-20 left-10 w-40 h-40 rounded-full blur-2xl animate-pulse ${glassmorphismEnabled ? 'bg-gradient-to-r from-purple-200/25 to-violet-200/25 dark:from-purple-400/15 dark:to-violet-400/15 backdrop-blur-3xl border border-purple-300/35 dark:border-purple-600/35' : 'hidden'}`}></div>
-            <div className={`absolute top-40 right-20 w-32 h-32 rounded-full blur-2xl animate-pulse ${glassmorphismEnabled ? 'bg-gradient-to-r from-violet-200/25 to-indigo-200/25 dark:from-violet-400/12 dark:to-indigo-400/12 backdrop-blur-3xl border border-violet-300/35 dark:border-violet-600/35' : 'hidden'}`} style={{ animationDelay: '1s' }}></div>
-            <div className={`absolute bottom-32 left-1/3 w-28 h-28 rounded-full blur-2xl animate-pulse ${glassmorphismEnabled ? 'bg-gradient-to-r from-indigo-200/25 to-purple-200/25 dark:from-indigo-400/10 dark:to-purple-400/10 backdrop-blur-3xl border border-indigo-300/35 dark:border-indigo-600/35' : 'hidden'}`} style={{ animationDelay: '2s' }}></div>
-            <div className={`absolute top-1/4 right-1/4 w-24 h-24 rounded-full blur-xl animate-pulse ${glassmorphismEnabled ? 'bg-gradient-to-r from-pink-200/20 to-purple-200/20 dark:from-pink-400/8 dark:to-purple-400/8 backdrop-blur-2xl border border-pink-300/35 dark:border-pink-600/35' : 'hidden'}`} style={{ animationDelay: '3.5s' }}></div>
-
-            {/* Additional ultra-glassy floating elements */}
-            {glassmorphismEnabled && (
-              <>
-                <div className="absolute top-1/3 left-1/4 w-28 h-28 rounded-full blur-xl animate-pulse bg-gradient-to-r from-purple-200/15 to-violet-200/10 dark:from-purple-400/8 dark:to-violet-400/5 backdrop-blur-3xl border border-purple-300/45 dark:border-purple-600/30" style={{ animationDelay: '4s' }}></div>
-                <div className="absolute bottom-1/4 right-1/4 w-20 h-20 rounded-full blur-lg animate-pulse bg-gradient-to-r from-violet-200/12 to-indigo-200/8 dark:from-violet-400/6 dark:to-indigo-400/4 backdrop-blur-3xl border border-violet-300/40 dark:border-violet-600/25" style={{ animationDelay: '5.5s' }}></div>
-                <div className="absolute top-2/3 left-1/2 w-16 h-16 rounded-full blur-md animate-pulse bg-gradient-to-r from-indigo-200/10 to-purple-200/8 dark:from-indigo-400/5 dark:to-purple-400/4 backdrop-blur-3xl border border-indigo-300/35 dark:border-indigo-600/20" style={{ animationDelay: '7s' }}></div>
-              </>
-            )}
-          </div>
-
-          {/* Content container with enhanced glassmorphism effect */}
-          <div className="relative z-10">
-            {/* Trial Banner */}
-            {showTrialBanner && trialInfo && (
-              <div className={`${glassmorphismEnabled ? 'backdrop-blur-3xl bg-purple-100/5 dark:bg-purple-900/8 border-b border-purple-300/60 dark:border-purple-600/40 shadow-2xl ring-1 ring-purple-300/25 dark:ring-purple-600/15' : 'bg-white dark:bg-black border-b border-gray-200 dark:border-gray-700 shadow-lg'}`}>
-                <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
-                      <div className="flex-shrink-0">
-                        <div className="p-2 bg-gradient-to-r from-violet-500 to-purple-500 dark:from-violet-600 dark:to-purple-600 rounded-lg shadow-md">
-                          <Zap className="h-5 w-5 text-white" />
-                        </div>
-                      </div>
-                      <div>
-                        <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                          Free Trial Active
-                        </h3>
-                        <p className="text-sm text-slate-600 dark:text-slate-300">
-                          {trialInfo.daysRemaining > 0 ? (
-                            <>
-                              <Clock className="inline h-4 w-4 mr-1 text-emerald-500 dark:text-emerald-400" />
-                              {trialInfo.daysRemaining} days remaining on your {trialInfo.plan} trial
-                            </>
-                          ) : (
-                            <span className="text-orange-600 dark:text-orange-400 font-medium">
-                              Trial expired - upgrade to continue using all features
-                            </span>
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <PearlButton onClick={handleUpgradeNow}>
-                        {trialInfo.daysRemaining > 0 ? 'Setup Payment' : 'Upgrade Now'}
-                      </PearlButton>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={dismissTrialBanner}
-                        className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Main content area with enhanced styling */}
-            <div className="mx-auto  p-4 relative">
-              {/* Subtle pattern overlay */}
-              <div className="absolute inset-0 opacity-5">
-                <div className="absolute inset-0" style={{
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%239C92AC' fill-opacity='0.1'%3E%3Ccircle cx='30' cy='30' r='2'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-                }}></div>
-              </div>
-
-              {/* Content with enhanced glassmorphism card effect */}
-              <div className="relative z-10">
-                {/* Purple gradient glassy effect */}
-                {glassmorphismEnabled && (
-                  <div className="absolute inset-0 backdrop-blur-3xl bg-gradient-to-br from-purple-200/10 via-violet-200/6 to-indigo-200/8 dark:from-purple-500/8 dark:via-violet-500/4 dark:to-indigo-500/6 rounded-2xl"></div>
-                )}
-                <div className={`${glassmorphismEnabled ? 'backdrop-blur-3xl bg-purple-100/5 dark:bg-purple-900/7 border border-purple-300/55 dark:border-purple-600/45 rounded-3xl shadow-2xl ring-1 ring-purple-300/30 dark:ring-purple-600/20' : 'bg-white dark:bg-black border border-gray-200 dark:border-gray-700 rounded-2xl shadow-lg'}`}>
-                  <div className="p-4 overflow-y-auto">
-                    <Outlet key={location.pathname + location.search} />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+        <main className="flex-1 relative overflow-y-auto bg-transparent p-6">
+          <Outlet key={location.pathname + location.search} />
         </main>
-        <Footer />
       </SidebarInset>
 
       {/* Seasonal Credits Congratulatory Modal */}
@@ -694,4 +621,3 @@ export function DashboardLayout() {
     </SidebarProvider>
   )
 }
-

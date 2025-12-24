@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StepIndicator } from './StepIndicator';
 import { NavigationButtons } from './NavigationButtons';
 import { StepRenderer } from './StepRenderer';
@@ -18,7 +18,6 @@ import {
   ChevronDown,
   ArrowRight
 } from 'lucide-react';
-import { OnboardingTour } from './OnboardingTour';
 
 interface OnboardingLayoutProps {
   form: UseFormReturn<newBusinessData | existingBusinessData>;
@@ -35,7 +34,7 @@ interface OnboardingLayoutProps {
   userClassification?: UserClassification;
 }
 
-export const OnboardingLayout = ({
+export const OnboardingLayout = React.memo(({
   form,
   stepsConfig = [],
   currentStep,
@@ -50,13 +49,12 @@ export const OnboardingLayout = ({
   userClassification
 }: OnboardingLayoutProps) => {
   const [showSupport, setShowSupport] = useState(false);
-  const [showTour, setShowTour] = useState(true);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // Scroll to top when step changes
+  // Scroll to top when step changes (without smooth behavior to prevent lag)
   useEffect(() => {
     if (contentRef.current) {
-      contentRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      contentRef.current.scrollTo({ top: 0, behavior: 'auto' });
     }
   }, [currentStep]);
 
@@ -318,15 +316,13 @@ export const OnboardingLayout = ({
         {/* Scrollable Content */}
         <div ref={contentRef} className="flex-1 overflow-y-auto scroll-smooth relative z-10 custom-scrollbar [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           <div className="max-w-5xl mx-auto w-full px-6 py-10 lg:px-8 lg:py-12">
-            <div key={currentStep}>
-              <StepRenderer
-                currentStep={currentStep}
-                stepsConfig={stepsConfig}
-                form={form}
-                onEditStep={onEditStep}
-                userClassification={userClassification}
-              />
-            </div>
+            <StepRenderer
+              currentStep={currentStep}
+              stepsConfig={stepsConfig}
+              form={form}
+              onEditStep={onEditStep}
+              userClassification={userClassification}
+            />
           </div>
         </div>
 
@@ -346,13 +342,6 @@ export const OnboardingLayout = ({
         </div>
       </main>
 
-      {/* Onboarding Tour */}
-      {showTour && (
-        <OnboardingTour
-          onComplete={() => setShowTour(false)}
-          onSkip={() => setShowTour(false)}
-        />
-      )}
     </div>
   );
-};
+});

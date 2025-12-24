@@ -1,17 +1,17 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import toast from 'react-hot-toast';
-import { 
-  Users, 
-  Plus, 
+import {
+  Users,
+  Plus,
   Edit,
   Trash2,
   Eye,
   Crown,
   Activity,
   Clock,
-  Send,
-  Mail
+  Send
 } from 'lucide-react';
+import { motion } from 'framer-motion';
 import api from '@/lib/api';
 import { DataTable, DataTableColumn, DataTableAction } from '@/components/ui/data-table';
 import { StatCard } from '@/components/ui/stat-card';
@@ -45,7 +45,7 @@ export function ModernUserDashboard() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
-  
+
   // Modal states
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showUserModal, setShowUserModal] = useState(false);
@@ -89,15 +89,15 @@ export function ModernUserDashboard() {
     try {
       setLoading(true);
       const response = await api.get('/admin/users');
-      
+
       if (response.data?.success && response.data?.data) {
-        const transformedUsers = response.data.data.map((user: any) => {
+        const transformedUsers = response.data.data.map((user: User) => {
           return {
-            userId: user.userId || user.id,
+            userId: user.userId || (user as any).id,
             email: user.email,
-            name: user.name || user.firstName + ' ' + user.lastName || user.email,
+            name: user.name || (user as any).firstName + ' ' + (user as any).lastName || user.email,
             isActive: user.isActive !== false,
-            isTenantAdmin: user.isTenantAdmin || user.role === 'admin',
+            isTenantAdmin: user.isTenantAdmin || (user as any).role === 'admin',
             onboardingCompleted: user.onboardingCompleted !== false,
             department: user.department,
             title: user.title,
@@ -105,8 +105,8 @@ export function ModernUserDashboard() {
             avatar: user.avatar
           };
         });
-        
-        setUsers(transformedUsers.filter(user => 
+
+        setUsers(transformedUsers.filter((user: User) =>
           user && typeof user === 'object' && user.userId && typeof user.email === 'string'
         ));
       }
@@ -116,7 +116,7 @@ export function ModernUserDashboard() {
         console.log('🚫 Trial expired error in ModernUserDashboard - handled gracefully');
         return;
       }
-      
+
       // Only show error toasts if not in trial expiry state
       const trialExpired = localStorage.getItem('trialExpired');
       if (!trialExpired) {
@@ -188,7 +188,7 @@ export function ModernUserDashboard() {
       key: 'status',
       label: 'Status',
       render: (user) => (
-        <UserStatusBadge 
+        <UserStatusBadge
           isActive={user.isActive}
           onboardingCompleted={user.onboardingCompleted}
         />
@@ -216,7 +216,7 @@ export function ModernUserDashboard() {
     {
       key: 'lastLogin',
       label: 'Last Login',
-      render: (user) => user.lastLoginAt 
+      render: (user) => user.lastLoginAt
         ? new Date(user.lastLoginAt).toLocaleDateString()
         : 'Never'
     }
@@ -318,12 +318,19 @@ export function ModernUserDashboard() {
         fallbackTitle="User Management Unavailable"
         fallbackMessage="User management features require an active subscription."
         showRetry={false}
-      />
+      >
+        <div />
+      </GracefulErrorBoundary>
     );
   }
 
   return (
-    <div className="space-y-8">
+    <motion.div
+      initial={{ opacity: 0, y: -20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: "easeOut" }}
+      className="space-y-8"
+    >
       {/* Page Header */}
       <PageHeader
         title="User Management"
@@ -440,7 +447,7 @@ export function ModernUserDashboard() {
                 <h3 className="text-xl font-semibold">{currentUser.name}</h3>
                 <p className="text-muted-foreground">{currentUser.email}</p>
                 <div className="flex items-center space-x-2 mt-2">
-                  <UserStatusBadge 
+                  <UserStatusBadge
                     isActive={currentUser.isActive}
                     onboardingCompleted={currentUser.onboardingCompleted}
                   />
@@ -470,7 +477,7 @@ export function ModernUserDashboard() {
               <div>
                 <Label className="text-sm font-medium">Last Login</Label>
                 <p className="text-sm text-muted-foreground">
-                  {currentUser.lastLoginAt 
+                  {currentUser.lastLoginAt
                     ? new Date(currentUser.lastLoginAt).toLocaleString()
                     : 'Never'
                   }
@@ -538,19 +545,19 @@ export function ModernUserDashboard() {
           </div>
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
-                             <Checkbox
-                 id="edit-active"
-                 checked={editForm.isActive}
-                 onCheckedChange={(checked: boolean) => setEditForm(prev => ({ ...prev, isActive: checked }))}
-               />
+              <Checkbox
+                id="edit-active"
+                checked={editForm.isActive}
+                onCheckedChange={(checked: boolean) => setEditForm(prev => ({ ...prev, isActive: checked }))}
+              />
               <Label htmlFor="edit-active">Active</Label>
             </div>
             <div className="flex items-center space-x-2">
-                             <Checkbox
-                 id="edit-admin"
-                 checked={editForm.isTenantAdmin}
-                 onCheckedChange={(checked: boolean) => setEditForm(prev => ({ ...prev, isTenantAdmin: checked }))}
-               />
+              <Checkbox
+                id="edit-admin"
+                checked={editForm.isTenantAdmin}
+                onCheckedChange={(checked: boolean) => setEditForm(prev => ({ ...prev, isTenantAdmin: checked }))}
+              />
               <Label htmlFor="edit-admin">Admin</Label>
             </div>
           </div>
@@ -567,6 +574,6 @@ export function ModernUserDashboard() {
         confirmText="Delete User"
         confirmVariant="destructive"
       />
-    </div>
+    </motion.div>
   );
 } 

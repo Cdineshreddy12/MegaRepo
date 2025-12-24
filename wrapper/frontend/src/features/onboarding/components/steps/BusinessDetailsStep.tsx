@@ -9,7 +9,7 @@ import { UserClassification } from '../FlowSelector';
 import { Building2, Globe, Users2, FileText, CheckCircle2, Briefcase, Settings2, ChevronDown, ChevronUp, DollarSign, Clock, Calendar, Info } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { autoPopulateLocalization } from '../../config/countryConfig';
-import React, { useEffect, useState, memo } from 'react';
+import React, { useEffect, useState, memo, useMemo, useRef } from 'react';
 import { useWatch } from 'react-hook-form';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -24,20 +24,20 @@ export const BusinessDetailsStep: React.FC<BusinessDetailsStepProps> = memo(({ f
     switch (userClassification) {
       case 'aspiringFounder':
         return {
-          title: 'Startup Vision',
-          description: 'Define your company\'s identity and core operations.',
+          title: 'Company Details',
+          description: 'Define your company\'s identity and core operations. Provide accurate information for compliance and account setup.',
           placeholder: 'E.g. Building an AI-first CRM for small businesses...'
         };
       case 'enterprise':
         return {
-          title: 'Enterprise Profile',
-          description: 'Configure your organization\'s operational details.',
+          title: 'Company Details',
+          description: 'Configure your organization\'s operational details. Ensure all mandatory fields are completed for enterprise-level compliance.',
           placeholder: 'E.g. Multinational logistics and supply chain management...'
         };
       default:
         return {
-          title: 'Business Details',
-          description: 'Tell us about your organization to setup your workspace.',
+          title: 'Company Details',
+          description: 'Tell us about your organization to setup your workspace. Complete all mandatory fields marked with an asterisk (*).',
           placeholder: 'Describe your primary business activities...'
         };
     }
@@ -46,49 +46,69 @@ export const BusinessDetailsStep: React.FC<BusinessDetailsStepProps> = memo(({ f
   const showGSTField = userClassification === 'withGST';
   const [isRegionalSettingsOpen, setIsRegionalSettingsOpen] = useState(true);
   
-  // Use useWatch hook to prevent unnecessary re-renders
+  // Use useWatch to reactively get country without causing re-renders on other field changes
   const businessDetailsCountry = useWatch({ control: form.control, name: 'businessDetails.country' as any });
   const rootCountry = useWatch({ control: form.control, name: 'country' });
   const selectedCountry = businessDetailsCountry || rootCountry || 'IN';
   
-  // Auto-populate localization when country changes or on mount
-  useEffect(() => {
+  // Auto-populate localization when country changes - use useMemo to prevent re-renders
+  const localizationConfig = useMemo(() => {
     const countryCode = selectedCountry?.toUpperCase();
     if (countryCode && countryCode !== 'OTHER' && countryCode !== '') {
       try {
-        const localization = autoPopulateLocalization(countryCode);
-      
-      // Always auto-populate regional settings based on country
-      // This ensures they're set immediately when country is selected or defaults to IN
-        if (localization.currency) {
-      form.setValue('defaultCurrency', localization.currency, { shouldValidate: false, shouldDirty: false, shouldTouch: false });
-        }
-        if (localization.language) {
-      form.setValue('defaultLanguage', localization.language, { shouldValidate: false, shouldDirty: false, shouldTouch: false });
-        }
-        if (localization.locale) {
-      form.setValue('defaultLocale', localization.locale, { shouldValidate: false, shouldDirty: false, shouldTouch: false });
-        }
-        if (localization.timezone) {
-      form.setValue('defaultTimeZone', localization.timezone, { shouldValidate: false, shouldDirty: false, shouldTouch: false });
-        }
-      
-      // Also ensure country is set in both places
-      const currentBusinessCountry = form.getValues('businessDetails.country' as any);
-      const currentRootCountry = form.getValues('country' as any);
-      
-      if (!currentBusinessCountry) {
-          form.setValue('businessDetails.country' as any, countryCode, { shouldValidate: false, shouldDirty: false, shouldTouch: false });
-      }
-      if (!currentRootCountry) {
-          form.setValue('country' as any, countryCode, { shouldValidate: false, shouldDirty: false, shouldTouch: false });
-        }
+        return autoPopulateLocalization(countryCode);
       } catch (error) {
         console.warn('Error populating localization for country:', countryCode, error);
+        return null;
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return null;
   }, [selectedCountry]);
+
+  // Apply localization only when country actually changes, not on every render
+  // Use ref to track previous country and prevent unnecessary updates
+  const previousCountryRef = React.useRef<string | null>(null);
+  
+  useEffect(() => {
+    if (!localizationConfig) return;
+    
+    const countryCode = selectedCountry?.toUpperCase();
+    
+    // Only update if country actually changed
+    if (countryCode && countryCode !== 'OTHER' && countryCode !== '' && countryCode !== previousCountryRef.current) {
+      previousCountryRef.current = countryCode;
+      
+      // Use requestAnimationFrame to batch updates and prevent re-renders during typing
+      const rafId = requestAnimationFrame(() => {
+        // Batch all setValue calls together
+        const updates: Array<{ field: any; value: any }> = [];
+        
+        if (localizationConfig.currency) {
+          updates.push({ field: 'defaultCurrency', value: localizationConfig.currency });
+        }
+        if (localizationConfig.language) {
+          updates.push({ field: 'defaultLanguage', value: localizationConfig.language });
+        }
+        if (localizationConfig.locale) {
+          updates.push({ field: 'defaultLocale', value: localizationConfig.locale });
+        }
+        if (localizationConfig.timezone) {
+          updates.push({ field: 'defaultTimeZone', value: localizationConfig.timezone });
+        }
+        
+        // Apply all updates in a single batch
+        updates.forEach(({ field, value }) => {
+          form.setValue(field as any, value, { 
+            shouldValidate: false, 
+            shouldDirty: false, 
+            shouldTouch: false 
+          });
+        });
+      });
+      
+      return () => cancelAnimationFrame(rafId);
+    }
+  }, [localizationConfig, selectedCountry, form]);
 
   // Enhanced "Stripe-like" Enterprise Theme Styles
   const cardClasses = "glass-card p-10 rounded-xl bg-white/60 backdrop-blur-xl border border-white/50 shadow-[0_8px_30px_rgb(0,0,0,0.04)] ring-1 ring-slate-900/5";
@@ -122,6 +142,87 @@ export const BusinessDetailsStep: React.FC<BusinessDetailsStepProps> = memo(({ f
           
           <div className="space-y-8 relative z-10">
             
+            {/* Country Field - MOVED TO TOP */}
+            <FormField
+              control={form.control}
+              name={"businessDetails.country" as any}
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className={`${labelClasses} flex items-center gap-2`}>
+                    Registration Country <span className="text-red-500">*</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="w-4 h-4 text-slate-400 hover:text-slate-600 cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs bg-slate-900 text-white">
+                        <p className="font-semibold mb-1">Mandatory Field</p>
+                        <p>The country where your business is legally registered. This determines tax rules, compliance requirements, currency defaults, regional settings, and available tax ID fields. Selecting a country automatically configures regional settings.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </FormLabel>
+                  <Select onValueChange={(value) => {
+                    const countryCode = value?.toUpperCase();
+                    field.onChange(countryCode);
+                    // Also set root country field for easier access
+                    form.setValue('country' as any, countryCode, { shouldValidate: false });
+                    // Auto-populate regional settings immediately
+                    if (countryCode && countryCode !== 'OTHER' && countryCode !== '') {
+                      try {
+                        const localization = autoPopulateLocalization(countryCode);
+                        if (localization.currency) {
+                      form.setValue('defaultCurrency', localization.currency, { shouldValidate: false });
+                        }
+                        if (localization.language) {
+                      form.setValue('defaultLanguage', localization.language, { shouldValidate: false });
+                        }
+                        if (localization.locale) {
+                      form.setValue('defaultLocale', localization.locale, { shouldValidate: false });
+                        }
+                        if (localization.timezone) {
+                      form.setValue('defaultTimeZone', localization.timezone, { shouldValidate: false });
+                        }
+                        // Open regional settings to show auto-populated values
+                        setIsRegionalSettingsOpen(true);
+                      } catch (error) {
+                        console.warn('Error populating localization for country:', countryCode, error);
+                      }
+                    }
+                  }} value={field.value || 'IN'}>
+                    <FormControl>
+                      <SelectTrigger className={`${inputClasses} hover:border-indigo-300 focus:border-indigo-500 focus:ring-indigo-500/10`}>
+                         <div className="flex items-center gap-2">
+                             <Globe className="w-4 h-4 text-slate-400" />
+                             <SelectValue placeholder="Select country" />
+                          </div>
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent className="rounded-lg border-slate-200 shadow-xl bg-white/95 backdrop-blur-xl">
+                      {COUNTRIES.map((country) => (
+                        <SelectItem 
+                          key={country.id} 
+                          value={country.id} 
+                          className={`py-2.5 cursor-pointer focus:bg-slate-50 hover:bg-slate-50  ${
+                            country.id === 'IN' ? 'font-medium bg-slate-50/50' : ''
+                          }`}
+                        >
+                          {country.name} {country.id === 'IN' && '🇮🇳'}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                  {selectedCountry && selectedCountry !== 'OTHER' && (
+                    <div className="mt-2 p-2.5 rounded-lg bg-indigo-50/50 border border-indigo-100/50">
+                      <p className="text-xs text-indigo-700 flex items-center gap-2 font-medium">
+                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                        <span>Regional settings configured for {COUNTRIES.find(c => c.id === selectedCountry)?.name}</span>
+                      </p>
+                    </div>
+                  )}
+                </FormItem>
+              )}
+            />
+
             {/* Company Name */}
             <FormField
               control={form.control}
@@ -136,19 +237,20 @@ export const BusinessDetailsStep: React.FC<BusinessDetailsStepProps> = memo(({ f
                       </TooltipTrigger>
                       <TooltipContent className="max-w-xs bg-slate-900 text-white">
                         <p className="font-semibold mb-1">Mandatory Field</p>
-                        <p>The legal or trading name of your business. This is used for official documents, invoices, and account identification. Must match your business registration documents.</p>
+                        <p>The legal or trading name of your business as registered with the authorities. This name appears on official documents, invoices, tax filings, and legal contracts. Must exactly match your business registration certificate or incorporation documents.</p>
                       </TooltipContent>
                     </Tooltip>
                   </FormLabel>
                   <div className={inputContainerClasses}>
                     <Building2 className={iconClasses} />
-                    <FormControl>
-                      <Input 
-                        {...field} 
-                        className={`${inputClasses} pl-11`} 
-                        placeholder="e.g. Acme Innovations"
-                      />
-                    </FormControl>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          value={field.value ?? ''}
+                          className={`${inputClasses} pl-11`}
+                          placeholder="e.g. Acme Innovations Private Limited"
+                        />
+                      </FormControl>
                   </div>
                   <FormMessage />
                 </FormItem>
@@ -307,85 +409,6 @@ export const BusinessDetailsStep: React.FC<BusinessDetailsStepProps> = memo(({ f
             )}
           />
 
-          <FormField
-            control={form.control}
-            name={"businessDetails.country" as any}
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel className={`${labelClasses} flex items-center gap-2`}>
-                  Registration Country <span className="text-red-500">*</span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Info className="w-4 h-4 text-slate-400 hover:text-slate-600 cursor-help" />
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-xs bg-slate-900 text-white">
-                      <p className="font-semibold mb-1">Mandatory Field</p>
-                      <p>The country where your business is legally registered. Determines tax rules, compliance requirements, currency defaults, and regional settings.</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </FormLabel>
-                <Select onValueChange={(value) => {
-                  const countryCode = value?.toUpperCase();
-                  field.onChange(countryCode);
-                  // Also set root country field for easier access
-                  form.setValue('country' as any, countryCode, { shouldValidate: false });
-                  // Auto-populate regional settings immediately
-                  if (countryCode && countryCode !== 'OTHER' && countryCode !== '') {
-                    try {
-                      const localization = autoPopulateLocalization(countryCode);
-                      if (localization.currency) {
-                    form.setValue('defaultCurrency', localization.currency, { shouldValidate: false });
-                      }
-                      if (localization.language) {
-                    form.setValue('defaultLanguage', localization.language, { shouldValidate: false });
-                      }
-                      if (localization.locale) {
-                    form.setValue('defaultLocale', localization.locale, { shouldValidate: false });
-                      }
-                      if (localization.timezone) {
-                    form.setValue('defaultTimeZone', localization.timezone, { shouldValidate: false });
-                      }
-                      // Open regional settings to show auto-populated values
-                      setIsRegionalSettingsOpen(true);
-                    } catch (error) {
-                      console.warn('Error populating localization for country:', countryCode, error);
-                    }
-                  }
-                }} value={field.value || 'IN'}>
-                  <FormControl>
-                    <SelectTrigger className={`${inputClasses} hover:border-indigo-300 focus:border-indigo-500 focus:ring-indigo-500/10`}>
-                       <div className="flex items-center gap-2">
-                           <Globe className="w-4 h-4 text-slate-400" />
-                           <SelectValue placeholder="Select country" />
-                        </div>
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent className="rounded-lg border-slate-200 shadow-xl bg-white/95 backdrop-blur-xl">
-                    {COUNTRIES.map((country) => (
-                      <SelectItem 
-                        key={country.id} 
-                        value={country.id} 
-                        className={`py-2.5 cursor-pointer focus:bg-slate-50 hover:bg-slate-50  ${
-                          country.id === 'IN' ? 'font-medium bg-slate-50/50' : ''
-                        }`}
-                      >
-                        {country.name} {country.id === 'IN' && '🇮🇳'}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-                {selectedCountry && selectedCountry !== 'OTHER' && (
-                  <div className="mt-2 p-2.5 rounded-lg bg-indigo-50/50 border border-indigo-100/50">
-                    <p className="text-xs text-indigo-700 flex items-center gap-2 font-medium">
-                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
-                      <span>Regional settings configured for {COUNTRIES.find(c => c.id === selectedCountry)?.name}</span>
-                    </p>
-                  </div>
-                )}
-              </FormItem>
-            )}
-          />
 
           <FormField
             control={form.control}
@@ -407,14 +430,10 @@ export const BusinessDetailsStep: React.FC<BusinessDetailsStepProps> = memo(({ f
                 <FormControl>
                   <Textarea
                     {...field}
-                    key="business-description-textarea"
+                    value={field.value || ''}
                     rows={4}
                     className={`${inputClasses} h-auto min-h-[120px] pt-3 resize-none bg-white`}
                     placeholder={content.placeholder}
-                    onChange={(e) => {
-                      field.onChange(e);
-                    }}
-                    onBlur={field.onBlur}
                   />
                 </FormControl>
                 <FormMessage />
@@ -658,6 +677,7 @@ export const BusinessDetailsStep: React.FC<BusinessDetailsStepProps> = memo(({ f
                       <FormControl>
                         <Input
                           {...field}
+                          value={field.value || ''}
                           className={`${inputClasses} bg-white font-mono uppercase tracking-wide border-slate-300 focus:border-slate-500`}
                           placeholder="22AAAAA0000A1Z5"
                         />
@@ -679,7 +699,7 @@ export const BusinessDetailsStep: React.FC<BusinessDetailsStepProps> = memo(({ f
     </TooltipProvider>
   );
 }, (prevProps, nextProps) => {
-  // Only re-render if form control changes or userClassification changes
-  return prevProps.userClassification === nextProps.userClassification && 
+  // Only re-render if userClassification changes or form control changes
+  return prevProps.userClassification === nextProps.userClassification &&
          prevProps.form.control === nextProps.form.control;
 });

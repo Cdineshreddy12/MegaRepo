@@ -18,38 +18,10 @@ export default async function seasonalCreditsPublicRoutes(fastify, options) {
         return reply.code(401).send({ success: false, error: 'Unauthorized' });
       }
 
-      // Get recent allocations for this tenant (defensive against missing seasonal columns)
-      let recentAllocations = [];
-      try {
-        recentAllocations = await db
-          .select({
-            campaignId: sql`${creditAllocations.campaignId}`,
-            campaignName: sql`${creditAllocations.campaignName}`,
-            creditType: creditAllocations.creditType,
-            allocatedCredits: sql`SUM(${creditAllocations.allocatedCredits})`,
-            expiresAt: sql`MIN(${creditAllocations.expiresAt})`,
-            allocatedAt: sql`MAX(${creditAllocations.allocatedAt})`,
-            applications: sql`ARRAY_AGG(DISTINCT ${creditAllocations.targetApplication})`
-          })
-          .from(creditAllocations)
-          .where(and(
-            eq(creditAllocations.tenantId, tenantId),
-            eq(creditAllocations.isActive, true),
-            inArray(creditAllocations.creditType, ['seasonal', 'bonus', 'promotional', 'event', 'partnership', 'trial_extension']),
-            sql`${creditAllocations.allocatedAt} >= NOW() - INTERVAL '${days} days'`,
-            sql`${creditAllocations.campaignId} IS NOT NULL`
-          ))
-          .groupBy(
-            sql`${creditAllocations.campaignId}`,
-            sql`${creditAllocations.campaignName}`,
-            creditAllocations.creditType
-          )
-          .orderBy(desc(sql`MAX(${creditAllocations.allocatedAt})`))
-          .limit(parseInt(limit));
-      } catch (dbError) {
-        console.warn('Seasonal credit columns not available for recent allocations:', dbError.message);
-        recentAllocations = [];
-      }
+      // REMOVED: creditAllocations table queries
+      // Applications now manage their own credit consumption
+      // Return empty array - seasonal credits are managed by applications
+      const recentAllocations = [];
 
       // Format the response
       const formattedAllocations = recentAllocations.map(allocation => ({

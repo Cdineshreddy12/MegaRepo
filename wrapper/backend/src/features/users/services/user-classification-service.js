@@ -231,7 +231,7 @@ export class UserClassificationService {
    * @returns {Array} Available applications for the tier
    */
   static getAppsForSubscriptionTier(tier) {
-    const tierAccess = PLAN_ACCESS_MATRIX[tier] || PLAN_ACCESS_MATRIX.trial;
+    const tierAccess = PLAN_ACCESS_MATRIX[tier] || PLAN_ACCESS_MATRIX.free;
     return tierAccess.applications || ['crm'];
   }
 

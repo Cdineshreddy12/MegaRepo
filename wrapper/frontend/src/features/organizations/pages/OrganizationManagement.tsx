@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Plus
 } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { OrganizationTreeManagement, OrganizationUserManagement } from '@/components/organization';
 import LocationManagement from '@/components/LocationManagement';
 import { useOrganizationAuth } from '@/hooks/useOrganizationAuth';
@@ -171,17 +172,22 @@ export function OrganizationManagementPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200">
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: "easeOut" }}
+        className="bg-white border-b border-gray-200"
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center">
               <Building className="w-8 h-8 text-blue-600 mr-3" />
-              <div>
-                <h1 className="text-xl font-semibold text-gray-900">
+              <div className="space-y-1">
+                <h1 className="text-4xl  font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-sky-400">
                   Organization Management
                 </h1>
                 {tenantInfo && (
-                  <p className="text-sm text-gray-600">
+                  <p className="text-muted-foreground text-sm">
                     {tenantInfo.companyName} ({tenantInfo.subdomain})
                   </p>
                 )}
@@ -201,17 +207,17 @@ export function OrganizationManagementPage() {
             </div>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Quick Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <Card>
+          <Card className="rounded-2xl border border-sky-100 bg-gradient-to-br from-sky-50/50 to-white">
             <CardContent className="p-6">
               <div className="flex items-center">
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <Building className="w-6 h-6 text-blue-600" />
+                <div className="p-2 bg-sky-100 rounded-lg">
+                  <Building className="w-6 h-6 text-sky-600" />
                 </div>
                 <div className="ml-4">
                   <p className="text-sm font-medium text-gray-600">Organizations</p>
@@ -221,11 +227,11 @@ export function OrganizationManagementPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50/50 to-white">
             <CardContent className="p-6">
               <div className="flex items-center">
-                <div className="p-2 bg-green-100 rounded-lg">
-                  <Users className="w-6 h-6 text-green-600" />
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <Users className="w-6 h-6 text-blue-600" />
                 </div>
                 <div className="ml-4">
                   <p className="text-sm font-medium text-gray-600">Team Members</p>
@@ -235,11 +241,11 @@ export function OrganizationManagementPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="rounded-2xl border border-sky-100 bg-gradient-to-br from-sky-50/50 to-white">
             <CardContent className="p-6">
               <div className="flex items-center">
-                <div className="p-2 bg-purple-100 rounded-lg">
-                  <MapPin className="w-6 h-6 text-purple-600" />
+                <div className="p-2 bg-sky-100 rounded-lg">
+                  <MapPin className="w-6 h-6 text-sky-600" />
                 </div>
                 <div className="ml-4">
                   <p className="text-sm font-medium text-gray-600">Locations</p>
@@ -249,11 +255,11 @@ export function OrganizationManagementPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50/50 to-white">
             <CardContent className="p-6">
               <div className="flex items-center">
-                <div className="p-2 bg-orange-100 rounded-lg">
-                  <Settings className="w-6 h-6 text-orange-600" />
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <Settings className="w-6 h-6 text-blue-600" />
                 </div>
                 <div className="ml-4">
                   <p className="text-sm font-medium text-gray-600">Applications</p>

@@ -1,5 +1,5 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+import { PearlButton } from '@/components/ui/pearl-button';
 import { User } from '@/types/user-management';
 
 interface DeleteUserModalProps {
@@ -24,7 +24,7 @@ export function DeleteUserModal({
             Are you sure you want to delete {user?.name || user?.email}? This action cannot be undone.
           </DialogDescription>
         </DialogHeader>
-        
+
         <div className="text-center py-4">
           <p className="text-muted-foreground">
             The user will be permanently removed from the system.
@@ -32,12 +32,12 @@ export function DeleteUserModal({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <PearlButton variant="outline" onClick={onClose}>
             Cancel
-          </Button>
-          <Button variant="destructive" onClick={onDelete}>
+          </PearlButton>
+          <PearlButton onClick={onDelete}>
             Delete
-          </Button>
+          </PearlButton>
         </DialogFooter>
       </DialogContent>
     </Dialog>

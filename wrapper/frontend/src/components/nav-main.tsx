@@ -1,6 +1,5 @@
 import { ChevronRight, type LucideIcon } from "lucide-react"
-import { Link } from "react-router-dom"
-import { cn } from "@/lib/utils"
+import { Link, useLocation } from "react-router-dom"
 
 import {
   Collapsible,
@@ -19,7 +18,6 @@ import {
 
 export function NavMain({
   items,
-  glassmorphismEnabled = false,
 }: {
   items: {
     title: string
@@ -32,69 +30,76 @@ export function NavMain({
       icon?: LucideIcon
     }[]
   }[]
-  glassmorphismEnabled?: boolean
 }) {
+  const location = useLocation();
+
   return (
     <SidebarGroup>
       <SidebarMenu>
-        {items.map((item) => (
-          <Collapsible
-            key={item.title}
-            asChild
-            defaultOpen={item.isActive}
-            className="group/collapsible"
-          >
-            <SidebarMenuItem>
-              {item.items && item.items.length > 0 ? (
-                <>
-                  <CollapsibleTrigger asChild>
-                    <SidebarMenuButton
-                      tooltip={item.title}
-                      className={cn(
-                        glassmorphismEnabled && "hover:bg-white/10 dark:hover:bg-white/5 data-[active=true]:bg-white/20 dark:data-[active=true]:bg-white/10 backdrop-blur-sm"
-                      )}
-                    >
+        {items.map((item) => {
+          // Check for exact match or sub-path match for active state
+          const isActive = location.pathname === item.url ||
+            item.items?.some(sub => location.pathname === sub.url);
+
+          return (
+            <Collapsible
+              key={item.title}
+              asChild
+              defaultOpen={isActive}
+              className="group/collapsible"
+            >
+              <SidebarMenuItem>
+                {item.items && item.items.length > 0 ? (
+                  <>
+                    <CollapsibleTrigger asChild>
+                      <SidebarMenuButton
+                        tooltip={item.title}
+                        isActive={isActive}
+                        variant="curved"
+                      >
+                        {item.icon ? <item.icon /> : null}
+                        <span>{item.title}</span>
+                        <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                      </SidebarMenuButton>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <SidebarMenuSub>
+                        {item.items.map((subItem) => {
+                          const isSubActive = location.pathname === subItem.url;
+                          return (
+                            <SidebarMenuSubItem key={subItem.title}>
+                              <SidebarMenuSubButton
+                                asChild
+                                isActive={isSubActive}
+                                className="text-white/70 hover:text-white hover:bg-white/10"
+                              >
+                                <Link to={subItem.url}>
+                                  <span className="flex items-center gap-2">{subItem.icon ? <subItem.icon size='16' /> : null}{subItem.title}</span>
+                                </Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          )
+                        })}
+                      </SidebarMenuSub>
+                    </CollapsibleContent>
+                  </>
+                ) : (
+                  <SidebarMenuButton
+                    tooltip={item.title}
+                    asChild
+                    isActive={isActive}
+                    variant="curved"
+                  >
+                    <Link to={item.url}>
                       {item.icon ? <item.icon /> : null}
                       <span>{item.title}</span>
-                      <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-                    </SidebarMenuButton>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <SidebarMenuSub>
-                      {item.items.map((subItem) => (
-                        <SidebarMenuSubItem key={subItem.title}>
-                          <SidebarMenuSubButton
-                            asChild
-                            className={cn(
-                              glassmorphismEnabled && "hover:bg-white/10 dark:hover:bg-white/5 backdrop-blur-sm"
-                            )}
-                          >
-                            <Link to={subItem.url}>
-                              <span className="flex items-center gap-2">{subItem.icon ? <subItem.icon size='16'/> : null}{subItem.title}</span>
-                            </Link>
-                          </SidebarMenuSubButton>
-                        </SidebarMenuSubItem>
-                      ))}
-                    </SidebarMenuSub>
-                  </CollapsibleContent>
-                </>
-              ) : (
-                <SidebarMenuButton
-                  tooltip={item.title}
-                  asChild
-                  className={cn(
-                    glassmorphismEnabled && "hover:bg-white/10 dark:hover:bg-white/5 data-[active=true]:bg-white/20 dark:data-[active=true]:bg-white/10 backdrop-blur-sm"
-                  )}
-                >
-                  <Link to={item.url}>
-                    {item.icon ? <item.icon /> : null}
-                    <span>{item.title}</span>
-                  </Link>
-                </SidebarMenuButton>
-              )}
-            </SidebarMenuItem>
-          </Collapsible>
-        ))}
+                    </Link>
+                  </SidebarMenuButton>
+                )}
+              </SidebarMenuItem>
+            </Collapsible>
+          )
+        })}
       </SidebarMenu>
     </SidebarGroup>
   )

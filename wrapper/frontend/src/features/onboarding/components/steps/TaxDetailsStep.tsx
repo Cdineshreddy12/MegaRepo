@@ -10,9 +10,11 @@ import { Switch } from '@/components/ui/switch';
 import { UserClassification } from '../FlowSelector';
 import { getStateFieldConfig, getCountryConfig } from '../../config/countryConfig';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Info } from 'lucide-react';
+import { Info, CheckCircle2, XCircle, Loader2, ShieldCheck } from 'lucide-react';
 import { useWatch } from 'react-hook-form';
-import { memo } from 'react';
+import { memo, useState } from 'react';
+import { onboardingAPI } from '@/lib/api';
+import { useToast } from '../Toast';
 
 interface TaxDetailsStepProps {
   form: UseFormReturn<newBusinessData | existingBusinessData>;
@@ -26,12 +28,180 @@ export const TaxDetailsStep = memo(({ form, userClassification }: TaxDetailsStep
   const businessDetailsCountry = useWatch({ control: form.control, name: 'businessDetails.country' as any });
   const rootCountry = useWatch({ control: form.control, name: 'country' });
   const mailingAddressSame = useWatch({ control: form.control, name: 'mailingAddressSameAsRegistered' });
+  const panNumber = useWatch({ control: form.control, name: 'panNumber' });
+  const gstin = useWatch({ control: form.control, name: 'gstin' });
+  const companyName = useWatch({ control: form.control, name: 'businessDetails.companyName' as any });
   
   const country = businessDetailsCountry || rootCountry || 'IN';
   
   // Get country config and state field config
   const countryConfig = getCountryConfig(country);
   const stateFieldConfig = getStateFieldConfig(country);
+
+  // Verification states
+  const [panVerificationStatus, setPanVerificationStatus] = useState<'idle' | 'verifying' | 'verified' | 'error'>('idle');
+  const [panVerificationMessage, setPanVerificationMessage] = useState<string>('');
+  const [gstinVerificationStatus, setGstinVerificationStatus] = useState<'idle' | 'verifying' | 'verified' | 'error'>('idle');
+  const [gstinVerificationMessage, setGstinVerificationMessage] = useState<string>('');
+
+  const { addToast } = useToast();
+
+  // PAN Verification Handler
+  const handleVerifyPAN = async () => {
+    if (!panNumber || panNumber.length !== 10) {
+      addToast('Please enter a valid PAN number (10 characters)', { type: 'error', duration: 3000 });
+      return;
+    }
+
+    setPanVerificationStatus('verifying');
+    setPanVerificationMessage('');
+
+    try {
+      const response = await onboardingAPI.verifyPAN(panNumber.toUpperCase(), companyName || undefined);
+      
+      if (response.data.verified) {
+        setPanVerificationStatus('verified');
+        setPanVerificationMessage('PAN verified successfully');
+        addToast('PAN verified successfully', { type: 'success', duration: 3000 });
+        // Store verification status in form
+        form.setValue('panVerified' as any, true, { shouldValidate: false });
+      } else {
+        setPanVerificationStatus('error');
+        setPanVerificationMessage(response.data.message || 'PAN verification failed');
+        addToast(response.data.message || 'PAN verification failed', { type: 'error', duration: 5000 });
+        form.setValue('panVerified' as any, false, { shouldValidate: false });
+      }
+    } catch (error: any) {
+      setPanVerificationStatus('error');
+      const errorMessage = error.response?.data?.message || 'Failed to verify PAN. Please try again.';
+      setPanVerificationMessage(errorMessage);
+      addToast(errorMessage, { type: 'error', duration: 5000 });
+      form.setValue('panVerified' as any, false, { shouldValidate: false });
+    }
+  };
+
+  // Helper function to map GSTIN constitution to company type
+  const mapConstitutionToCompanyType = (constitution: string): string | undefined => {
+    const constitutionLower = constitution.toLowerCase();
+    if (constitutionLower.includes('public limited')) return 'public-limited';
+    if (constitutionLower.includes('private limited')) return 'private-limited';
+    if (constitutionLower.includes('llp') || constitutionLower.includes('limited liability partnership')) return 'llp';
+    if (constitutionLower.includes('partnership')) return 'partnership';
+    if (constitutionLower.includes('sole proprietorship') || constitutionLower.includes('proprietorship')) return 'sole-proprietorship';
+    if (constitutionLower.includes('one person') || constitutionLower.includes('opc')) return 'one-person-company';
+    if (constitutionLower.includes('section 8') || constitutionLower.includes('non-profit')) return 'section-8';
+    return undefined;
+  };
+
+  // Helper function to build address string from GSTIN address object
+  const buildAddressString = (address: any): string => {
+    if (!address) return '';
+    const parts = [];
+    if (address.flno) parts.push(address.flno);
+    if (address.bno) parts.push(address.bno);
+    if (address.st) parts.push(address.st);
+    if (address.loc) parts.push(address.loc);
+    if (address.bnm) parts.push(address.bnm);
+    return parts.filter(Boolean).join(', ');
+  };
+
+  // GSTIN Verification Handler
+  const handleVerifyGSTIN = async () => {
+    if (!gstin || gstin.length !== 15) {
+      addToast('Please enter a valid GSTIN (15 characters)', { type: 'error', duration: 3000 });
+      return;
+    }
+
+    setGstinVerificationStatus('verifying');
+    setGstinVerificationMessage('');
+
+    try {
+      const response = await onboardingAPI.verifyGSTIN(gstin.toUpperCase(), companyName || undefined);
+      
+      if (response.data.verified && response.data.details) {
+        const details = response.data.details;
+        
+        // Auto-fill form fields with GSTIN verification data
+        // Company Name (Legal Name)
+        if (details.legalName && !form.getValues('businessDetails.companyName' as any)) {
+          form.setValue('businessDetails.companyName' as any, details.legalName, { shouldValidate: false });
+        }
+
+        // Company Type (from constitution)
+        if (details.constitution) {
+          const companyType = mapConstitutionToCompanyType(details.constitution);
+          if (companyType && !form.getValues('companyType')) {
+            form.setValue('companyType', companyType, { shouldValidate: false });
+          }
+        }
+
+        // Address fields
+        if (details.address) {
+          const addr = details.address;
+          
+          // Build street address
+          const streetAddress = buildAddressString(addr);
+          if (streetAddress) {
+            // Set both billingStreet and billingAddress for compatibility
+            if (!form.getValues('billingStreet')) {
+              form.setValue('billingStreet', streetAddress, { shouldValidate: false });
+            }
+            if (!form.getValues('billingAddress')) {
+              form.setValue('billingAddress', streetAddress, { shouldValidate: false });
+            }
+          }
+          
+          // City
+          if (addr.loc && !form.getValues('billingCity')) {
+            form.setValue('billingCity', addr.loc, { shouldValidate: false });
+          } else if (addr.dst && !form.getValues('billingCity')) {
+            form.setValue('billingCity', addr.dst, { shouldValidate: false });
+          }
+          
+          // State
+          if (addr.stcd && !form.getValues('billingState')) {
+            form.setValue('billingState', addr.stcd, { shouldValidate: false });
+          }
+          
+          // ZIP/Postal Code
+          if (addr.pncd && !form.getValues('billingZip')) {
+            form.setValue('billingZip', addr.pncd, { shouldValidate: false });
+          }
+          
+          // Country (default to India if GSTIN is verified)
+          if (!form.getValues('billingCountry') && !form.getValues('country')) {
+            form.setValue('billingCountry', 'IN', { shouldValidate: false });
+            form.setValue('country', 'IN', { shouldValidate: false });
+          }
+        }
+
+        // Set tax registration flags
+        if (!form.getValues('taxRegistered')) {
+          form.setValue('taxRegistered', true, { shouldValidate: false });
+        }
+        if (!form.getValues('vatGstRegistered')) {
+          form.setValue('vatGstRegistered', true, { shouldValidate: false });
+        }
+
+        setGstinVerificationStatus('verified');
+        setGstinVerificationMessage('GSTIN verified successfully - Form fields auto-filled');
+        addToast('GSTIN verified successfully. Form fields have been auto-filled.', { type: 'success', duration: 5000 });
+        // Store verification status in form
+        form.setValue('gstinVerified' as any, true, { shouldValidate: false });
+      } else {
+        setGstinVerificationStatus('error');
+        setGstinVerificationMessage(response.data.message || 'GSTIN verification failed');
+        addToast(response.data.message || 'GSTIN verification failed', { type: 'error', duration: 5000 });
+        form.setValue('gstinVerified' as any, false, { shouldValidate: false });
+      }
+    } catch (error: any) {
+      setGstinVerificationStatus('error');
+      const errorMessage = error.response?.data?.message || 'Failed to verify GSTIN. Please try again.';
+      setGstinVerificationMessage(errorMessage);
+      addToast(errorMessage, { type: 'error', duration: 5000 });
+      form.setValue('gstinVerified' as any, false, { shouldValidate: false });
+    }
+  };
 
   // Helper to determine tax labels based on country
   const labels = {
@@ -82,10 +252,10 @@ export const TaxDetailsStep = memo(({ form, userClassification }: TaxDetailsStep
                         <TooltipTrigger asChild>
                           <Info className="w-4 h-4 text-slate-400 hover:text-slate-600 cursor-help" />
                         </TooltipTrigger>
-                        <TooltipContent className="max-w-xs bg-slate-900 text-white">
-                          <p className="font-semibold mb-1">Optional Field</p>
-                          <p>Indicates if your organization is registered for tax purposes in your country. Required for tax-compliant invoicing and reporting.</p>
-                        </TooltipContent>
+                      <TooltipContent className="max-w-xs bg-slate-900 text-white">
+                        <p className="font-semibold mb-1">Optional Field</p>
+                        <p>Indicates if your organization is registered for tax purposes in your country. When enabled, the corresponding tax identification number (PAN for India, EIN for US) becomes mandatory for tax-compliant invoicing, regulatory reporting, and compliance with local tax authorities.</p>
+                      </TooltipContent>
                       </Tooltip>
                     </FormLabel>
                   <FormDescription className="text-sm text-slate-500">
@@ -95,7 +265,20 @@ export const TaxDetailsStep = memo(({ form, userClassification }: TaxDetailsStep
                 <FormControl>
                   <Switch
                     checked={field.value}
-                    onCheckedChange={field.onChange}
+                    onCheckedChange={(checked) => {
+                      field.onChange(checked);
+                      // Trigger validation when toggle changes to enforce GST/PAN requirements
+                      if (checked) {
+                        setTimeout(() => {
+                          const country = form.getValues('businessDetails.country' as any) || form.getValues('country') || 'IN';
+                          if (country === 'IN') {
+                            form.trigger('panNumber' as any);
+                          } else if (country === 'US') {
+                            form.trigger('einNumber' as any);
+                          }
+                        }, 100);
+                      }
+                    }}
                   />
                 </FormControl>
               </FormItem>
@@ -116,18 +299,31 @@ export const TaxDetailsStep = memo(({ form, userClassification }: TaxDetailsStep
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs bg-slate-900 text-white">
                           <p className="font-semibold mb-1">Optional Field</p>
-                          <p>Indicates if you have a VAT (Value Added Tax), GST (Goods & Services Tax), or Sales Tax registration number. Enables tax-compliant invoicing.</p>
+                          <p>Indicates if you have a VAT (Value Added Tax), GST (Goods & Services Tax), or Sales Tax registration number. When enabled, the corresponding tax ID field becomes mandatory for compliance and tax-compliant invoicing.</p>
                         </TooltipContent>
                       </Tooltip>
                     </FormLabel>
                   <FormDescription className="text-sm text-slate-500">
-                    Do you have a VAT, GST, or Sales Tax registration?
+                    Do you have a VAT, GST, or Sales Tax registration? {vatGstRegistered && <span className="text-amber-600 font-medium">Note: Tax ID will be required.</span>}
                   </FormDescription>
                 </div>
                 <FormControl>
                   <Switch
                     checked={field.value}
-                    onCheckedChange={field.onChange}
+                    onCheckedChange={(checked) => {
+                      field.onChange(checked);
+                      // Trigger validation when toggle changes to enforce GST/PAN requirements
+                      if (checked) {
+                        setTimeout(() => {
+                          const country = form.getValues('businessDetails.country' as any) || form.getValues('country') || 'IN';
+                          if (country === 'IN') {
+                            form.trigger('gstin' as any);
+                          } else {
+                            form.trigger('vatNumber' as any);
+                          }
+                        }, 100);
+                      }
+                    }}
                   />
                 </FormControl>
               </FormItem>
@@ -150,28 +346,74 @@ export const TaxDetailsStep = memo(({ form, userClassification }: TaxDetailsStep
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel className="flex items-center gap-2">
-                            {labels.taxId} <span className="text-slate-400 font-normal">(Optional)</span>
+                            {labels.taxId} {taxRegistered ? <span className="text-red-500">*</span> : <span className="text-slate-400 font-normal">(Optional)</span>}
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Info className="w-4 h-4 text-slate-400 hover:text-slate-600 cursor-help" />
                               </TooltipTrigger>
                               <TooltipContent className="max-w-xs bg-slate-900 text-white">
-                                <p className="font-semibold mb-1">Optional Field</p>
-                                <p>Permanent Account Number (PAN) is a 10-character alphanumeric identifier issued by the Income Tax Department of India. Required for tax compliance and financial transactions.</p>
+                                <p className="font-semibold mb-1">{taxRegistered ? 'Mandatory Field' : 'Optional Field'}</p>
+                                <p>Permanent Account Number (PAN) is a 10-character alphanumeric identifier issued by the Income Tax Department of India. {taxRegistered ? 'Required when Tax Registered toggle is enabled. ' : ''}Used for tax compliance, financial transactions, and regulatory reporting.</p>
                               </TooltipContent>
                             </Tooltip>
                           </FormLabel>
-                          <FormControl>
-                            <Input 
-                              {...field} 
-                              key={`pan-${country}`}
-                              placeholder={`Enter ${labels.taxId}`}
-                              onChange={(e) => {
-                                field.onChange(e);
-                              }}
-                              onBlur={field.onBlur}
-                            />
-                          </FormControl>
+                          <div className="space-y-2">
+                            <div className="flex gap-2">
+                              <FormControl>
+                                <Input 
+                                  {...field}
+                                  value={field.value || ''}
+                                  placeholder={`Enter ${labels.taxId}`}
+                                  className="uppercase"
+                                  onChange={(e) => {
+                                    field.onChange(e.target.value.toUpperCase());
+                                    // Reset verification status when PAN changes
+                                    if (panVerificationStatus !== 'idle') {
+                                      setPanVerificationStatus('idle');
+                                      setPanVerificationMessage('');
+                                    }
+                                  }}
+                                />
+                              </FormControl>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={handleVerifyPAN}
+                                disabled={panVerificationStatus === 'verifying' || !panNumber || panNumber.length !== 10}
+                                className="shrink-0"
+                              >
+                                {panVerificationStatus === 'verifying' ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    Verifying...
+                                  </>
+                                ) : panVerificationStatus === 'verified' ? (
+                                  <>
+                                    <CheckCircle2 className="w-4 h-4 mr-2 text-green-600" />
+                                    Verified
+                                  </>
+                                ) : (
+                                  <>
+                                    <ShieldCheck className="w-4 h-4 mr-2" />
+                                    Verify
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                            {panVerificationStatus === 'verified' && (
+                              <div className="flex items-center gap-2 text-sm text-green-600">
+                                <CheckCircle2 className="w-4 h-4" />
+                                <span>{panVerificationMessage}</span>
+                              </div>
+                            )}
+                            {panVerificationStatus === 'error' && (
+                              <div className="flex items-center gap-2 text-sm text-red-600">
+                                <XCircle className="w-4 h-4" />
+                                <span>{panVerificationMessage}</span>
+                              </div>
+                            )}
+                          </div>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -197,13 +439,9 @@ export const TaxDetailsStep = memo(({ form, userClassification }: TaxDetailsStep
                           </FormLabel>
                           <FormControl>
                             <Input 
-                              {...field} 
-                              key={`ein-${country}`}
+                              {...field}
+                              value={field.value || ''}
                               placeholder={`Enter ${labels.taxId}`}
-                              onChange={(e) => {
-                                field.onChange(e);
-                              }}
-                              onBlur={field.onBlur}
                             />
                           </FormControl>
                           <FormMessage />
@@ -223,29 +461,74 @@ export const TaxDetailsStep = memo(({ form, userClassification }: TaxDetailsStep
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel className="flex items-center gap-2">
-                            {labels.vatId} <span className="text-slate-400 font-normal">(Optional)</span>
+                            {labels.vatId} {vatGstRegistered ? <span className="text-red-500">*</span> : <span className="text-slate-400 font-normal">(Optional)</span>}
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Info className="w-4 h-4 text-slate-400 hover:text-slate-600 cursor-help" />
                               </TooltipTrigger>
                               <TooltipContent className="max-w-xs bg-slate-900 text-white">
-                                <p className="font-semibold mb-1">Optional Field</p>
-                                <p>GST Identification Number (GSTIN) is a 15-character alphanumeric code for businesses registered under GST in India. Required for GST-compliant invoicing and tax filing.</p>
+                                <p className="font-semibold mb-1">{vatGstRegistered ? 'Mandatory Field' : 'Optional Field'}</p>
+                                <p>GST Identification Number (GSTIN) is a 15-character alphanumeric code for businesses registered under GST in India. {vatGstRegistered ? 'Required when VAT/GST Registered toggle is enabled. ' : ''}Used for GST-compliant invoicing, tax filing, and inter-state transactions.</p>
                               </TooltipContent>
                             </Tooltip>
                           </FormLabel>
-                          <FormControl>
-                            <Input 
-                              {...field} 
-                              key="gstin-input"
-                              placeholder={`Enter ${labels.vatId}`} 
-                              className="font-mono uppercase"
-                              onBlur={field.onBlur}
-                              onChange={(e) => {
-                                field.onChange(e);
-                              }}
-                            />
-                          </FormControl>
+                          <div className="space-y-2">
+                            <div className="flex gap-2">
+                              <FormControl>
+                                <Input 
+                                  {...field}
+                                  value={field.value || ''}
+                                  placeholder={`Enter ${labels.vatId}`} 
+                                  className="font-mono uppercase"
+                                  onChange={(e) => {
+                                    field.onChange(e.target.value.toUpperCase());
+                                    // Reset verification status when GSTIN changes
+                                    if (gstinVerificationStatus !== 'idle') {
+                                      setGstinVerificationStatus('idle');
+                                      setGstinVerificationMessage('');
+                                    }
+                                  }}
+                                />
+                              </FormControl>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={handleVerifyGSTIN}
+                                disabled={gstinVerificationStatus === 'verifying' || !gstin || gstin.length !== 15}
+                                className="shrink-0"
+                              >
+                                {gstinVerificationStatus === 'verifying' ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    Verifying...
+                                  </>
+                                ) : gstinVerificationStatus === 'verified' ? (
+                                  <>
+                                    <CheckCircle2 className="w-4 h-4 mr-2 text-green-600" />
+                                    Verified
+                                  </>
+                                ) : (
+                                  <>
+                                    <ShieldCheck className="w-4 h-4 mr-2" />
+                                    Verify
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                            {gstinVerificationStatus === 'verified' && (
+                              <div className="flex items-center gap-2 text-sm text-green-600">
+                                <CheckCircle2 className="w-4 h-4" />
+                                <span>{gstinVerificationMessage}</span>
+                              </div>
+                            )}
+                            {gstinVerificationStatus === 'error' && (
+                              <div className="flex items-center gap-2 text-sm text-red-600">
+                                <XCircle className="w-4 h-4" />
+                                <span>{gstinVerificationMessage}</span>
+                              </div>
+                            )}
+                          </div>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -271,13 +554,9 @@ export const TaxDetailsStep = memo(({ form, userClassification }: TaxDetailsStep
                           </FormLabel>
                           <FormControl>
                             <Input 
-                              {...field} 
-                              key={`vat-${country}`}
+                              {...field}
+                              value={field.value || ''}
                               placeholder={`Enter ${labels.vatId}`}
-                              onChange={(e) => {
-                                field.onChange(e);
-                              }}
-                              onBlur={field.onBlur}
                             />
                           </FormControl>
                           <FormMessage />
@@ -321,11 +600,10 @@ export const TaxDetailsStep = memo(({ form, userClassification }: TaxDetailsStep
                     rows={3}
                     value={field.value || ''}
                     onChange={(e) => {
-                      field.onChange(e);
+                      field.onChange(e.target.value);
                       // Also sync to billingStreet for compatibility
                       form.setValue('billingStreet' as any, e.target.value, { shouldValidate: false });
                     }}
-                    onBlur={field.onBlur}
                   />
                 </FormControl>
                 <FormMessage />
@@ -353,13 +631,9 @@ export const TaxDetailsStep = memo(({ form, userClassification }: TaxDetailsStep
                   </FormLabel>
                   <FormControl>
                     <Input 
-                      {...field} 
-                      key="billing-city-input"
+                      {...field}
+                      value={field.value || ''}
                       placeholder="City"
-                      onChange={(e) => {
-                        field.onChange(e);
-                      }}
-                      onBlur={field.onBlur}
                     />
                   </FormControl>
                   <FormMessage />
@@ -385,13 +659,9 @@ export const TaxDetailsStep = memo(({ form, userClassification }: TaxDetailsStep
                   </FormLabel>
                   <FormControl>
                     <Input 
-                      {...field} 
-                      key="billing-zip-input"
+                      {...field}
+                      value={field.value || ''}
                       placeholder="ZIP/Postal Code"
-                      onChange={(e) => {
-                        field.onChange(e);
-                      }}
-                      onBlur={field.onBlur}
                     />
                   </FormControl>
                   <FormMessage />

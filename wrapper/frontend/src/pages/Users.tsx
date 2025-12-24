@@ -695,17 +695,17 @@ export function Users() {
       });
       
       // Priority order for finding invitation token:
-      // 1. Check originalData.invitationToken (direct case - this is the actual token from database)
-      if (user.originalData?.invitationToken) {
-        invitationToken = user.originalData.invitationToken;
-        tokenSource = 'originalData.invitationToken';
-        console.log('🔑 Using originalData.invitationToken:', invitationToken);
-      }
-      // 2. Check originalData.user.invitationToken (nested case)
-      else if (user.originalData?.user?.invitationToken) {
+      // 1. Check originalData.user.invitationToken (this is where it's stored from getTenantUsers)
+      if (user.originalData?.user?.invitationToken) {
         invitationToken = user.originalData.user.invitationToken;
         tokenSource = 'originalData.user.invitationToken';
         console.log('🔑 Using originalData.user.invitationToken:', invitationToken);
+      }
+      // 2. Check originalData.invitationToken (direct case)
+      else if (user.originalData?.invitationToken) {
+        invitationToken = user.originalData.invitationToken;
+        tokenSource = 'originalData.invitationToken';
+        console.log('🔑 Using originalData.invitationToken:', invitationToken);
       }
       // 3. Check user.invitationId field (if it's actually a token)
       else if (user.invitationId && user.invitationId.length > 20) {
@@ -771,6 +771,9 @@ export function Users() {
   const getStatusBadge = (user: UnifiedUser) => {
     if (user.invitationStatus === 'pending') {
       return <Badge variant="secondary">Pending</Badge>
+    }
+    if (user.invitationStatus === 'accepted') {
+      return <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">Invitation Accepted</Badge>
     }
     if (user.isActive) {
       return <Badge variant="default">Active</Badge>
@@ -1030,6 +1033,35 @@ export function Users() {
                   {/* Invited Column */}
                   <div className="col-span-2 text-sm text-gray-600">
                     {getInvitedInfo(user)}
+                    {/* Show invitation status */}
+                    {user.invitationStatus === 'accepted' && (
+                      <div className="mt-1">
+                        <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                          ✓ Invitation Accepted
+                        </Badge>
+                      </div>
+                    )}
+                    {/* Show invitation URL only if present and pending */}
+                    {user.invitationStatus === 'pending' && (() => {
+                      const invitationUrl = generateInvitationUrl(user);
+                      if (invitationUrl) {
+                        return (
+                          <div className="mt-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => copyInvitationUrl(invitationUrl)}
+                              className="text-xs h-6 px-2 text-blue-600 hover:text-blue-700"
+                              title="Copy Invitation URL"
+                            >
+                              <Copy className="h-3 w-3 mr-1" />
+                              Copy URL
+                            </Button>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
 
                   {/* Actions Column */}
@@ -1075,31 +1107,34 @@ export function Users() {
                     )}
 
                     {/* Show actions for pending invitations */}
-                    {user.invitationStatus === 'pending' && (
-                      <>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleRemoveUser(user.id)}
-                          className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
-                          title="Cancel Invitation"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
+                    {user.invitationStatus === 'pending' && (() => {
+                      const invitationUrl = generateInvitationUrl(user);
+                      return (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleRemoveUser(user.id)}
+                            className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                            title="Cancel Invitation"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
 
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            const url = generateInvitationUrl(user);
-                            if (url) copyInvitationUrl(url);
-                          }}
-                          title="Copy Invitation URL"
-                        >
-                          <Copy className="h-4 w-4" />
-                        </Button>
-                      </>
-                    )}
+                          {/* Only show copy URL button if URL is available */}
+                          {invitationUrl && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => copyInvitationUrl(invitationUrl)}
+                              title="Copy Invitation URL"
+                            >
+                              <Copy className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               ))}
@@ -1204,6 +1239,7 @@ export function Users() {
                     </div>
                     
                     <div className="flex items-center gap-2">
+                      {/* Only show invitation URL actions if URL is present */}
                       {invitationUrl && urlValidation.isValid ? (
                         <>
                           <Button
@@ -1222,37 +1258,40 @@ export function Users() {
                             <ExternalLink className="h-4 w-4 mr-2" />
                             Open
                           </Button>
+                          {/* Add test button for backend validation */}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => testInvitationUrl(user)}
+                            className="text-purple-600 hover:text-purple-700"
+                          >
+                            🧪 Test API
+                          </Button>
                         </>
-                      ) : (
+                      ) : invitationUrl ? (
                         <div className="text-red-600 text-sm">
                           <p>❌ {urlValidation.error}</p>
                           <p className="text-xs">Check console for debug info</p>
                         </div>
+                      ) : (
+                        <div className="text-gray-500 text-sm">
+                          <p>No invitation URL available</p>
+                        </div>
                       )}
                       
-                      {/* Add refresh button for debugging */}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => regenerateInvitationUrl(user)}
-                        className="text-blue-600 hover:text-blue-700"
-                      >
-                        🔄 Refresh
-                      </Button>
-                      
-                      {/* Add test button for backend validation */}
-                      {invitationUrl && urlValidation.isValid && (
+                      {/* Add refresh button for debugging - only if URL exists */}
+                      {invitationUrl && (
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => testInvitationUrl(user)}
-                          className="text-purple-600 hover:text-purple-700"
+                          onClick={() => regenerateInvitationUrl(user)}
+                          className="text-blue-600 hover:text-blue-700"
                         >
-                          🧪 Test API
+                          🔄 Refresh
                         </Button>
                       )}
                       
-                      {/* Add fix button for broken URLs */}
+                      {/* Add fix button for broken URLs - only if URL doesn't exist or is invalid */}
                       {(!invitationUrl || !urlValidation.isValid) && (
                         <Button
                           variant="outline"
@@ -1581,6 +1620,7 @@ export function Users() {
                       </div>
                       
                       <div className="flex items-center gap-2">
+                        {/* Only show invitation URL buttons if URL is present */}
                         {invitationUrl && urlValidation.isValid ? (
                           <>
                             <Button
@@ -1600,24 +1640,30 @@ export function Users() {
                               Open
                             </Button>
                           </>
-                        ) : (
+                        ) : invitationUrl ? (
                           <div className="text-red-600 text-sm">
                             <p>❌ {urlValidation.error}</p>
                             <p className="text-xs">Check console for debug info</p>
                           </div>
+                        ) : (
+                          <div className="text-gray-500 text-sm">
+                            <p>No invitation URL available</p>
+                          </div>
                         )}
                         
-                        {/* Add refresh button for debugging */}
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => regenerateInvitationUrl(user)}
-                          className="text-blue-600 hover:text-blue-700"
-                        >
-                          🔄 Refresh
-                        </Button>
+                        {/* Add refresh button for debugging - only if URL exists */}
+                        {invitationUrl && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => regenerateInvitationUrl(user)}
+                            className="text-blue-600 hover:text-blue-700"
+                          >
+                            🔄 Refresh
+                          </Button>
+                        )}
                         
-                        {/* Add test button for backend validation */}
+                        {/* Add test button for backend validation - only if URL is valid */}
                         {invitationUrl && urlValidation.isValid && (
                           <Button
                             variant="outline"
@@ -1629,7 +1675,7 @@ export function Users() {
                           </Button>
                         )}
                         
-                        {/* Add fix button for broken URLs */}
+                        {/* Add fix button for broken URLs - only if URL doesn't exist or is invalid */}
                         {(!invitationUrl || !urlValidation.isValid) && (
                           <Button
                             variant="outline"

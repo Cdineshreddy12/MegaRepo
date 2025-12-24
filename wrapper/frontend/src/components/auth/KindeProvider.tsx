@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { KindeProvider as OriginalKindeProvider, useKindeAuth } from '@kinde-oss/kinde-auth-react';
 import useSilentAuth from '@/hooks/useSilentAuth';
 import { setKindeTokenGetter } from '@/lib/api';
@@ -10,8 +10,15 @@ interface KindeProviderProps {
 // Component to set up the token getter and silent auth after Kinde is initialized
 function TokenSetupComponent() {
   const { getToken, isAuthenticated, user } = useKindeAuth();
+  const tokenGetterSetupRef = useRef(false);
 
   useEffect(() => {
+    // Prevent React StrictMode from setting up token getter multiple times
+    if (tokenGetterSetupRef.current) {
+      return;
+    }
+    tokenGetterSetupRef.current = true;
+
     // Enhanced token getter with backup storage
     setKindeTokenGetter(async () => {
       try {
@@ -33,8 +40,29 @@ function TokenSetupComponent() {
           }
           return null;
         }
-      } catch (error) {
-        console.error('❌ TokenGetter: Error getting token, trying backup...', error);
+      } catch (error: any) {
+        // Handle invalid_grant errors gracefully
+        const isInvalidGrant = error?.message?.includes('invalid_grant') || 
+                              error?.message?.includes('refresh token') ||
+                              error?.error === 'invalid_grant';
+        
+        if (isInvalidGrant) {
+          console.log('⚠️ TokenGetter: invalid_grant error - trying backup token');
+          // Clear potentially corrupted refresh tokens
+          try {
+            const storageKeys = Object.keys(localStorage);
+            storageKeys.forEach(key => {
+              if (key.includes('refresh') || key.includes('kinde_refresh')) {
+                localStorage.removeItem(key);
+              }
+            });
+          } catch (e) {
+            // Ignore errors when clearing
+          }
+        } else {
+          console.error('❌ TokenGetter: Error getting token, trying backup...', error);
+        }
+        
         const backupToken = localStorage.getItem('kinde_backup_token');
         if (backupToken) {
           console.log('🔄 TokenGetter: Using backup token after error');
@@ -116,8 +144,10 @@ export const KindeProvider: React.FC<KindeProviderProps> = ({
   // CRITICAL: Set a consistent redirect URI to prevent OAuth 400 errors
   // The redirect URI must match between authorization and token requests
   // Default to the standard callback path if not explicitly configured
-  const redirectUri = import.meta.env.VITE_KINDE_REDIRECT_URI || `${window.location.origin}/auth/callback`;
-  const logoutUri = import.meta.env.VITE_KINDE_LOGOUT_URI || window.location.origin;
+  // Normalize the redirect URI (remove trailing slashes, ensure exact match)
+  const baseRedirectUri = import.meta.env.VITE_KINDE_REDIRECT_URI || `${window.location.origin}/auth/callback`;
+  const redirectUri = baseRedirectUri.replace(/\/$/, ''); // Remove trailing slash
+  const logoutUri = (import.meta.env.VITE_KINDE_LOGOUT_URI || window.location.origin).replace(/\/$/, '');
 
   if (!domain || !clientId) {
     console.error('Kinde configuration missing. Please check environment variables.');
@@ -139,6 +169,7 @@ export const KindeProvider: React.FC<KindeProviderProps> = ({
             <ul className="list-disc list-inside mt-2">
               <li>VITE_KINDE_DOMAIN</li>
               <li>VITE_KINDE_CLIENT_ID</li>
+              <li>VITE_KINDE_GOOGLE_CONNECTION_ID (for custom auth)</li>
             </ul>
           </div>
         </div>

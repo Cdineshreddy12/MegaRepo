@@ -51,3 +51,48 @@ export const generateDashboardInsight = async (product: Product): Promise<string
     return fallbacks[Math.floor(Math.random() * fallbacks.length)];
   }
 };
+export const getSmartSuggestions = async (query: string, applications: any[]): Promise<string[]> => {
+  const client = getAiClient();
+
+  const appData = applications.map(app => ({
+    id: app.appId,
+    name: app.appName,
+    code: app.appCode,
+    desc: app.description
+  }));
+
+  const prompt = `
+    You are Zopkit AI, a smart workspace orchestrator.
+    User Query: "${query}"
+    Available Applications: ${JSON.stringify(appData)}
+
+    Task: Identify which applications are most relevant to the user's query.
+    Return ONLY a JSON array of strings containing the 'id' of the matching applications.
+    If no apps are relevant, return an empty array [].
+    
+    Example Output: ["app-123", "app-456"]
+  `;
+
+  try {
+    const model = client.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text().trim();
+
+    // Attempt to parse the array from the response
+    const match = text.match(/\[.*\]/s);
+    if (match) {
+      return JSON.parse(match[0]);
+    }
+    return [];
+  } catch (error) {
+    console.error("Gemini Smart Suggestions Error:", error);
+    // Simple local fallback search if AI fails
+    return applications
+      .filter(app =>
+        app.appName.toLowerCase().includes(query.toLowerCase()) ||
+        (app.description || '').toLowerCase().includes(query.toLowerCase())
+      )
+      .map(app => app.appId);
+  }
+};

@@ -5,6 +5,7 @@ import { useLocation } from "react-router-dom";
 import { ModeToggle } from "./mode-toggler";
 import { OrgSwitcher } from "./common/OrgSwitcher";
 import { CreditBalance } from "./CreditBalance";
+import { CreditExpiryDisplay } from "./CreditExpiryDisplay";
 import { cn } from "@/lib/utils";
 
 export function SiteHeader({ title }: { title?: string }) {
@@ -39,6 +40,10 @@ export function SiteHeader({ title }: { title?: string }) {
         <div className="ml-auto flex items-center gap-3 sm:gap-4">
           <div className="hidden md:block">
             <CreditBalance />
+          </div>
+          
+          <div className="hidden md:block">
+            <CreditExpiryDisplay />
           </div>
           
           <div className="h-5 w-[1px] bg-border/60 hidden sm:block" />

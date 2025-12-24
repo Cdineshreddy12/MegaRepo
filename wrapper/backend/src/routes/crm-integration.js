@@ -13,7 +13,7 @@ import {
   userRoleAssignments,
   organizationMemberships,
   creditConfigurations,
-  creditAllocations
+  // REMOVED: creditAllocations - Table removed, applications manage their own credits
 } from '../db/schema/index.js';
 
 export default async function crmIntegrationRoutes(fastify, options) {
@@ -346,17 +346,21 @@ export default async function crmIntegrationRoutes(fastify, options) {
 
       console.log('📊 Fetching entity credits for tenant:', tenantId);
 
+      // REMOVED: creditAllocations table queries
+      // Applications now manage their own credit consumption
+      // Use credits table for organization-level credits instead
+      const { credits } = await import('../db/schema/index.js');
       const creditsData = await db
         .select({
-          entityId: creditAllocations.entityId,
-          allocatedCredits: creditAllocations.allocatedCredits,
-          usedCredits: creditAllocations.usedCredits,
-          isActive: creditAllocations.isActive,
-          createdAt: creditAllocations.allocatedAt
+          entityId: credits.entityId,
+          allocatedCredits: credits.availableCredits,
+          usedCredits: sql`0`,
+          isActive: credits.isActive,
+          createdAt: credits.createdAt
         })
-        .from(creditAllocations)
-        .where(eq(creditAllocations.tenantId, tenantId))
-        .orderBy(desc(creditAllocations.allocatedAt));
+        .from(credits)
+        .where(eq(credits.tenantId, tenantId))
+        .orderBy(desc(credits.createdAt));
 
       const formattedData = creditsData.map(credit => ({
         entityId: credit.entityId,

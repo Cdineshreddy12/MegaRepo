@@ -44,6 +44,11 @@ const PUBLIC_ROUTES = [
   // User tenant verification for CRM (public endpoint)
   '/api/user/tenant',
   '/api/user/test',
+  // Onboarding routes (public - no auth required during onboarding)
+  '/api/onboarding/verify-pan',
+  '/api/onboarding/verify-gstin',
+  '/api/onboarding/check-subdomain',
+  '/api/onboarding/onboard-frontend',
 ];
 
 // Helper functions
@@ -142,6 +147,20 @@ function determineOnboardingStatus(userRecord, tenantId) {
 
   const isTenantAdmin = userRecord.isTenantAdmin === true;
   const onboardingCompleted = userRecord.onboardingCompleted === true;
+  
+  // CRITICAL: Invited users should NEVER be sent to onboarding
+  // Check if user is invited (has invitation markers)
+  const isInvitedUser = onboardingCompleted === true && (
+    userRecord.preferences?.userType === 'INVITED_USER' ||
+    userRecord.preferences?.isInvitedUser === true ||
+    userRecord.invitedBy !== null ||
+    userRecord.invitedAt !== null
+  );
+
+  // Invited users always skip onboarding
+  if (isInvitedUser) {
+    return { needsOnboarding: false, reason: 'invited_user_skips_onboarding' };
+  }
 
   if (isTenantAdmin && !onboardingCompleted) {
     return { needsOnboarding: true, reason: 'tenant_admin_incomplete_onboarding' };

@@ -10,9 +10,16 @@ const OnboardingPage: React.FC = () => {
     const { isLoading: isKindeLoading } = useKindeAuth();
     const { theme, setTheme } = useTheme();
 
-    // Force light theme for onboarding page
+    // Force light theme for onboarding page - use ref to prevent infinite loops
+    const originalThemeRef = React.useRef<string | null>(null);
+    
     useEffect(() => {
-        const originalTheme = theme;
+        // Store original theme only once
+        if (originalThemeRef.current === null) {
+            originalThemeRef.current = theme;
+        }
+        
+        // Only set theme if it's not already light
         if (theme !== 'light') {
             console.log('🔅 Forcing light theme for onboarding page');
             setTheme('light');
@@ -20,12 +27,13 @@ const OnboardingPage: React.FC = () => {
 
         // Restore original theme when component unmounts
         return () => {
-            if (originalTheme !== 'light') {
+            const originalTheme = originalThemeRef.current;
+            if (originalTheme && originalTheme !== 'light') {
                 console.log('🔄 Restoring original theme:', originalTheme);
                 setTheme(originalTheme);
             }
         };
-    }, [theme, setTheme]);
+    }, []); // Only run on mount/unmount - remove theme dependency to prevent loops
 
     // Show loading while determining authentication status
     if (isKindeLoading) {

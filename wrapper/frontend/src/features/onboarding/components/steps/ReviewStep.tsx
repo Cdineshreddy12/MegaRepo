@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { UseFormReturn } from 'react-hook-form';
+import { UseFormReturn, useWatch } from 'react-hook-form';
 import { motion, Variants } from 'framer-motion';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -101,7 +101,8 @@ const SectionCard = ({ title, icon: Icon, children, stepNumber, index, onEditSte
 // const FloatingParticle = ...
 
 export const ReviewStep: React.FC<ReviewStepProps> = ({ form, onEditStep, userClassification }) => {
-  const values = form.getValues();
+  // FIXED: Use useWatch to reactively get form values so data updates when restored
+  const values = useWatch({ control: form.control }) || form.getValues();
   const [hasBlastedConfetti, setHasBlastedConfetti] = useState(false);
 
   // Fire confetti 3 times with different colors when entering the last step
@@ -338,8 +339,11 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({ form, onEditStep, userCl
                   } 
                   icon={FileText} 
                 />
-                {values.gstin && <DetailRow label="GSTIN" value={values.gstin} icon={CreditCard} />}
-                {values.panNumber && <DetailRow label="PAN Number" value={values.panNumber} icon={CreditCard} />}
+                {values.vatGstRegistered && values.gstin && <DetailRow label="GSTIN" value={values.gstin} icon={CreditCard} />}
+                {values.taxRegistered && values.panNumber && <DetailRow label="PAN Number" value={values.panNumber} icon={CreditCard} />}
+                {values.vatGstRegistered && !values.gstin && (
+                  <DetailRow label="GST Status" value="GST Registered (GSTIN pending)" icon={ShieldCheck} />
+                )}
                 
                 <div className="sm:col-span-2 pt-4 border-t border-slate-100">
                   <div className="flex items-center gap-2 mb-3">
@@ -347,11 +351,11 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({ form, onEditStep, userCl
                     <span className="text-sm font-semibold text-slate-900">Billing Address</span>
                   </div>
                   <p className="text-sm text-slate-600 pl-6 leading-relaxed">
-                    {values.billingAddress || values.billingStreet}
+                    {values.billingStreet || values.billingAddress || 'N/A'}
                     <br />
-                    {[values.billingCity, values.billingState, values.billingZip].filter(Boolean).join(', ')}
+                    {[values.billingCity, values.billingState || values.state, values.billingZip].filter(Boolean).join(', ')}
                     <br />
-                    {getCountryName(values.billingCountry)}
+                    {getCountryName(values.billingCountry || values.businessDetails?.country || values.country)}
                   </p>
                 </div>
               </div>

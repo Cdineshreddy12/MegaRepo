@@ -70,9 +70,23 @@ export const SocialLogin: React.FC<SocialLoginProps> = ({
     try {
       setLoadingProvider(provider);
       
-      const loginOptions: any = {
-        connection_id: provider
-      };
+      // Get connection ID from environment variable for custom auth
+      const googleConnectionId = import.meta.env.VITE_KINDE_GOOGLE_CONNECTION_ID;
+      
+      // Build login options for custom auth
+      const loginOptions: any = {};
+      
+      // Use connection ID for Google (custom auth)
+      if (provider === 'google' && googleConnectionId) {
+        // Try both camelCase and snake_case for compatibility
+        loginOptions.connectionId = googleConnectionId;
+        loginOptions.connection_id = googleConnectionId;
+        console.log('🔐 SocialLogin: Using custom auth with Google connection ID:', googleConnectionId);
+      } else {
+        // Fallback to connection_id for other providers or if connection ID not configured
+        loginOptions.connection_id = provider;
+        console.log('🔐 SocialLogin: Using standard auth with connection_id');
+      }
 
       // Add organization context if available
       if (finalOrgCode) {

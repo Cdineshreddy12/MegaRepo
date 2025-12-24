@@ -17,8 +17,7 @@
 import { db } from '../db/index.js';
 import { eq, and, gte, desc, sql } from 'drizzle-orm';
 import { 
-  creditAllocations, 
-  creditAllocationTransactions,
+  // REMOVED: creditAllocations, creditAllocationTransactions - Tables removed
   entities,
   organizationMemberships
 } from '../db/schema/index.js';
@@ -130,22 +129,10 @@ class HistoricalSyncService {
     const { dryRun = false, sinceDate = null } = options;
 
     try {
-      // Get all active credit allocations for this tenant and application
-      const whereConditions = [
-        eq(creditAllocations.tenantId, tenantId),
-        eq(creditAllocations.targetApplication, appCode),
-        eq(creditAllocations.isActive, true)
-      ];
-
-      if (sinceDate) {
-        whereConditions.push(gte(creditAllocations.allocatedAt, sinceDate));
-      }
-
-      const allocations = await db
-        .select()
-        .from(creditAllocations)
-        .where(and(...whereConditions))
-        .orderBy(desc(creditAllocations.allocatedAt));
+      // REMOVED: creditAllocations table queries
+      // Applications now manage their own credit consumption
+      // Return empty array - applications handle their own credit sync
+      const allocations = [];
 
       console.log(`📊 Found ${allocations.length} historical credit allocations for ${appCode}`);
 
@@ -462,15 +449,9 @@ class HistoricalSyncService {
    */
   async getSyncStatus(tenantId, appCode) {
     try {
-      // Get current credit allocations count
-      const allocationCount = await db
-        .select({ count: sql`count(*)` })
-        .from(creditAllocations)
-        .where(and(
-          eq(creditAllocations.tenantId, tenantId),
-          eq(creditAllocations.targetApplication, appCode),
-          eq(creditAllocations.isActive, true)
-        ));
+      // REMOVED: creditAllocations table query
+      // Applications now manage their own credit consumption
+      const allocationCount = [{ count: 0 }];
 
       // Get organization count
       const orgCount = await db

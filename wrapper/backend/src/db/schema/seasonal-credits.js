@@ -1,0 +1,91 @@
+import { pgTable, uuid, varchar, timestamp, jsonb, boolean, integer, decimal, text } from 'drizzle-orm/pg-core';
+import { tenants } from './tenants.js';
+import { tenantUsers } from './users.js';
+import { entities } from './unified-entities.js';
+
+/**
+ * Seasonal Credit Campaigns Table
+ * Stores campaign metadata for distributing free credits to tenants
+ */
+export const seasonalCreditCampaigns = pgTable('seasonal_credit_campaigns', {
+  campaignId: uuid('campaign_id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').references(() => tenants.tenantId).notNull(),
+  
+  // Campaign Metadata
+  campaignName: varchar('campaign_name', { length: 255 }).notNull(),
+  creditType: varchar('credit_type', { length: 50 }).notNull(), // 'free_distribution', 'promotional', 'holiday', etc.
+  description: text('description'),
+  
+  // Credit Distribution Settings
+  totalCredits: decimal('total_credits', { precision: 15, scale: 4 }).notNull(),
+  creditsPerTenant: decimal('credits_per_tenant', { precision: 15, scale: 4 }),
+  distributionMethod: varchar('distribution_method', { length: 50 }).default('equal'), // 'equal', 'proportional', 'custom'
+  
+  // Targeting
+  targetAllTenants: boolean('target_all_tenants').default(false),
+  targetTenantIds: uuid('target_tenant_ids').array(), // Specific tenants if not all
+  targetApplications: jsonb('target_applications').default(['crm', 'hr', 'affiliate', 'system']),
+  
+  // Distribution Status
+  distributionStatus: varchar('distribution_status', { length: 50 }).default('pending'), // 'pending', 'processing', 'completed', 'failed', 'partial_success'
+  distributedCount: integer('distributed_count').default(0),
+  failedCount: integer('failed_count').default(0),
+  
+  // Timing
+  startsAt: timestamp('starts_at').defaultNow(),
+  expiresAt: timestamp('expires_at').notNull(),
+  distributedAt: timestamp('distributed_at'),
+  
+  // Status
+  isActive: boolean('is_active').default(true),
+  
+  // Audit
+  createdBy: uuid('created_by').references(() => tenantUsers.userId),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+  
+  // Additional Configuration
+  metadata: jsonb('metadata'),
+  sendNotifications: boolean('send_notifications').default(true),
+  notificationTemplate: text('notification_template'),
+});
+
+/**
+ * Seasonal Credit Allocations Table
+ * Tracks individual credit allocations to tenants' primary organizations
+ * Supports both organization-wide and application-specific allocations
+ */
+export const seasonalCreditAllocations = pgTable('seasonal_credit_allocations', {
+  allocationId: uuid('allocation_id').primaryKey().defaultRandom(),
+  campaignId: uuid('campaign_id').references(() => seasonalCreditCampaigns.campaignId).notNull(),
+  tenantId: uuid('tenant_id').references(() => tenants.tenantId).notNull(),
+  
+  // Organization Context (Primary Organization)
+  entityId: uuid('entity_id').references(() => entities.entityId).notNull(),
+  entityType: varchar('entity_type', { length: 50 }).default('organization'),
+  
+  // Application Targeting
+  // NULL = allocated to primary org (all applications can use)
+  // Specific app code (e.g., 'crm', 'hr') = allocated only to that application
+  targetApplication: varchar('target_application', { length: 50 }),
+  
+  // Credit Details
+  allocatedCredits: decimal('allocated_credits', { precision: 15, scale: 4 }).notNull(),
+  usedCredits: decimal('used_credits', { precision: 15, scale: 4 }).default('0'),
+  
+  // Distribution Status
+  distributionStatus: varchar('distribution_status', { length: 50 }).default('pending'), // 'pending', 'completed', 'failed'
+  distributionError: text('distribution_error'),
+  
+  // Status
+  isActive: boolean('is_active').default(true),
+  isExpired: boolean('is_expired').default(false),
+  
+  // Timing
+  allocatedAt: timestamp('allocated_at').defaultNow(),
+  expiresAt: timestamp('expires_at').notNull(),
+  
+  // Audit
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});

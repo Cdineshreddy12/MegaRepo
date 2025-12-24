@@ -1,10 +1,13 @@
 import { db, systemDbConnection } from '../../../db/index.js';
 import { credits, creditTransactions, creditPurchases, creditConfigurations, applications as applicationsTable, applicationModules } from '../../../db/schema/index.js';
-import { eq, and, desc, gte, lte, sql, or, isNull, inArray } from 'drizzle-orm';
-import CreditAllocationService from './credit-allocation-service.js';
+import { eq, and, desc, gte, lte, sql, or, isNull, inArray, isNotNull } from 'drizzle-orm';
+// REMOVED: CreditAllocationService - Application-specific allocations removed completely
 import Stripe from 'stripe';
 import { randomUUID } from 'crypto';
 import { crmSyncStreams } from '../../../utils/redis.js';
+
+// Supported applications (for operation code extraction)
+const SUPPORTED_APPLICATIONS = ['crm', 'hr', 'affiliate', 'system'];
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -44,7 +47,7 @@ export class CreditService {
     }
 
     const parts = operationCode.split('.');
-    if (parts.length >= 2 && CreditAllocationService.SUPPORTED_APPLICATIONS.includes(parts[0])) {
+    if (parts.length >= 2 && SUPPORTED_APPLICATIONS.includes(parts[0])) {
       return parts[0];
     }
 
@@ -244,55 +247,172 @@ export class CreditService {
         }
       }
 
-      // Get application credit allocations for this tenant
-      const applicationAllocations = await CreditAllocationService.getApplicationAllocations(tenantId, searchEntityId);
+      // REMOVED: Application credit allocations check - applications manage their own credits
+      // Applications consume directly from organization balance in credits table
 
-      // Check for applications with low or no allocations
-      if (applicationAllocations.success && applicationAllocations.data.allocations.length > 0) {
-        const totalAllocated = applicationAllocations.data.summary.totalAllocated;
-        const totalAvailableInAllocations = applicationAllocations.data.summary.totalAvailable;
+      // Categorize credits by analyzing transactions and allocations
+      let freeCredits = 0;
+      let paidCredits = 0;
+      let seasonalCredits = 0;
+      let freeCreditsExpiry = null;
+      let paidCreditsExpiry = null;
+      let seasonalCreditsExpiry = null;
+      
+      // Get subscription expiry date (for free credits from subscription)
+      let subscriptionExpiry = null;
+      try {
+        const { subscriptions } = await import('../../../db/schema/subscriptions.js');
+        const [subscription] = await db
+          .select({
+            currentPeriodEnd: subscriptions.currentPeriodEnd,
+            plan: subscriptions.plan
+          })
+          .from(subscriptions)
+          .where(and(
+            eq(subscriptions.tenantId, tenantId),
+            eq(subscriptions.status, 'active')
+          ))
+          .limit(1);
+        
+        if (subscription?.currentPeriodEnd) {
+          subscriptionExpiry = new Date(subscription.currentPeriodEnd).toISOString();
+          // Free credits from subscription expire with subscription
+          freeCreditsExpiry = subscriptionExpiry;
+        }
+      } catch (subError) {
+        console.warn('⚠️ Error fetching subscription expiry:', subError.message);
+      }
 
-        if (totalAvailableInAllocations === 0 && totalAllocated > 0) {
-          alerts.push({
-            id: 'all_applications_out_of_credits',
-            type: 'allocation_warning',
-            severity: 'critical',
-            title: 'All Applications Out of Credits',
-            message: 'All allocated credits have been consumed. Allocate more credits to applications.',
-            threshold: 0,
-            currentValue: 0,
-            actionRequired: 'allocate_credits_to_applications'
-          });
-        } else if (totalAvailableInAllocations <= 50) { // Low threshold for allocations
-          alerts.push({
-            id: 'low_application_credits',
-            type: 'allocation_warning',
-            severity: 'warning',
-            title: 'Low Application Credits',
-            message: `Only ${totalAvailableInAllocations} credits remaining across all applications`,
-            threshold: 50,
-            currentValue: totalAvailableInAllocations,
-            actionRequired: 'allocate_credits_to_applications'
-          });
+      // Analyze credit transactions to categorize credits
+      try {
+        // Get all purchase transactions for this entity
+        const purchaseTransactions = await db
+          .select()
+          .from(creditTransactions)
+          .where(and(
+            eq(creditTransactions.tenantId, tenantId),
+            eq(creditTransactions.entityId, searchEntityId),
+            eq(creditTransactions.transactionType, 'purchase')
+          ))
+          .orderBy(desc(creditTransactions.createdAt));
+
+        // Categorize credits based on operation_code and source
+        for (const transaction of purchaseTransactions) {
+          const amount = parseFloat(transaction.amount || 0);
+          const operationCode = transaction.operationCode || '';
+          
+          // Free credits: from onboarding, subscription, or system allocations
+          if (operationCode === 'onboarding' || 
+              operationCode === 'subscription' || 
+              operationCode === 'trial' ||
+              operationCode === 'system') {
+            freeCredits += amount;
+            // Free credits expire with subscription if available
+            if (!freeCreditsExpiry && subscriptionExpiry) {
+              freeCreditsExpiry = subscriptionExpiry;
+            }
+          }
+          // Paid credits: from purchases (stripe, manual purchase)
+          else if (operationCode === 'purchase' || 
+                   operationCode === 'stripe' ||
+                   operationCode === 'manual_purchase') {
+            paidCredits += amount;
+            // Paid credits never expire (null expiry)
+            paidCreditsExpiry = null;
+          }
+        }
+      } catch (txError) {
+        console.warn('⚠️ Error analyzing credit transactions:', txError.message);
+        // Fallback: assume all credits are free if we can't analyze
+        freeCredits = parseFloat(creditBalance.availableCredits || 0);
+      }
+
+      // Get seasonal credit allocations with expiry dates
+      let earliestExpiry = null;
+      let applicationExpiryDates = {};
+      
+      try {
+        const { seasonalCreditAllocations } = await import('../../../db/schema/seasonal-credits.js');
+        
+        // Get all active, non-expired allocations for this entity
+        const activeAllocations = await db
+          .select({
+            allocatedCredits: seasonalCreditAllocations.allocatedCredits,
+            usedCredits: seasonalCreditAllocations.usedCredits,
+            expiresAt: seasonalCreditAllocations.expiresAt,
+            targetApplication: seasonalCreditAllocations.targetApplication
+          })
+          .from(seasonalCreditAllocations)
+          .where(and(
+            eq(seasonalCreditAllocations.tenantId, tenantId),
+            eq(seasonalCreditAllocations.entityId, searchEntityId),
+            eq(seasonalCreditAllocations.isActive, true),
+            eq(seasonalCreditAllocations.isExpired, false),
+            isNotNull(seasonalCreditAllocations.expiresAt),
+            gte(seasonalCreditAllocations.expiresAt, new Date())
+          ))
+          .orderBy(seasonalCreditAllocations.expiresAt);
+
+        // Calculate seasonal credits and find earliest expiry
+        for (const allocation of activeAllocations) {
+          const allocated = parseFloat(allocation.allocatedCredits || 0);
+          const used = parseFloat(allocation.usedCredits || 0);
+          const available = allocated - used;
+          seasonalCredits += available;
+          
+          const expiryDate = new Date(allocation.expiresAt);
+          if (!seasonalCreditsExpiry || expiryDate < new Date(seasonalCreditsExpiry)) {
+            seasonalCreditsExpiry = expiryDate.toISOString();
+          }
+          
+          if (!earliestExpiry || expiryDate < new Date(earliestExpiry)) {
+            earliestExpiry = expiryDate.toISOString();
+          }
+
+          // Group by application
+          const appKey = allocation.targetApplication || 'primary_org';
+          if (!applicationExpiryDates[appKey] || expiryDate < new Date(applicationExpiryDates[appKey])) {
+            applicationExpiryDates[appKey] = expiryDate.toISOString();
+          }
+        }
+        
+      } catch (expiryError) {
+        console.warn('⚠️ Error fetching seasonal credit expiry:', expiryError.message);
+      }
+
+      // If we couldn't categorize from transactions, use total as free credits (onboarding scenario)
+      const totalAvailable = parseFloat(creditBalance.availableCredits || 0);
+      if (freeCredits === 0 && paidCredits === 0 && seasonalCredits === 0 && totalAvailable > 0) {
+        // Likely onboarding credits - categorize as free
+        freeCredits = totalAvailable;
+        if (subscriptionExpiry) {
+          freeCreditsExpiry = subscriptionExpiry;
         }
       }
 
       return {
         tenantId: creditBalance.tenantId,
         entityId: creditBalance.entityId,
-        availableCredits: parseFloat(creditBalance.availableCredits),
-        reservedCredits: parseFloat(creditBalance.reservedCredits),
+        availableCredits: totalAvailable,
+        freeCredits: freeCredits,
+        paidCredits: paidCredits,
+        seasonalCredits: seasonalCredits,
+        reservedCredits: parseFloat(creditBalance.reservedCredits || 0),
         lowBalanceThreshold: 100,
         criticalBalanceThreshold: 10,
         lastPurchase: creditBalance.lastUpdatedAt,
-        creditExpiry: null,
+        creditExpiry: earliestExpiry || freeCreditsExpiry, // Overall earliest expiry
+        freeCreditsExpiry: freeCreditsExpiry, // Free credits expiry (subscription expiry)
+        paidCreditsExpiry: paidCreditsExpiry, // Paid credits expiry (null = never expires)
+        seasonalCreditsExpiry: seasonalCreditsExpiry, // Seasonal credits expiry
+        subscriptionExpiry: subscriptionExpiry, // Subscription plan expiry
+        applicationExpiryDates: applicationExpiryDates,
         plan: 'credit_based',
-        status: creditBalance.availableCredits > 0 ? 'active' : 'insufficient_credits',
+        status: totalAvailable > 0 ? 'active' : 'insufficient_credits',
         usageThisPeriod: 0,
         periodLimit: 0,
         periodType: 'month',
-        alerts,
-        applicationAllocations: applicationAllocations.success ? applicationAllocations.data : null
+        alerts
       };
     } catch (error) {
       console.error('Error fetching current credit balance:', error);
@@ -1457,11 +1577,66 @@ export class CreditService {
   /**
    * Find the root organization entity for a tenant
    */
+  /**
+   * Find the primary/root organization for a tenant
+   * Prioritizes: isPrimary=true (from organizationMemberships) > isDefault=true > first created root org
+   */
   static async findRootOrganization(tenantId) {
     try {
-      const { entities } = await import('../db/schema/index.js');
-      const { eq, and, isNull } = await import('drizzle-orm');
+      const { entities } = await import('../../../db/schema/index.js');
+      const { organizationMemberships } = await import('../../../db/schema/organization_memberships.js');
+      const { eq, and, isNull, desc } = await import('drizzle-orm');
       
+      // First, try to find organization with isPrimary=true membership
+      const primaryOrgMembership = await db
+        .select({
+          entityId: organizationMemberships.entityId
+        })
+        .from(organizationMemberships)
+        .where(and(
+          eq(organizationMemberships.tenantId, tenantId),
+          eq(organizationMemberships.entityType, 'organization'),
+          eq(organizationMemberships.membershipStatus, 'active'),
+          eq(organizationMemberships.isPrimary, true)
+        ))
+        .limit(1);
+
+      if (primaryOrgMembership.length > 0) {
+        const primaryEntityId = primaryOrgMembership[0].entityId;
+        const [primaryOrg] = await db
+          .select()
+          .from(entities)
+          .where(and(
+            eq(entities.entityId, primaryEntityId),
+            eq(entities.isActive, true)
+          ))
+          .limit(1);
+        
+        if (primaryOrg) {
+          console.log(`✅ Found primary organization via membership: ${primaryOrg.entityId} (${primaryOrg.entityName})`);
+          return primaryOrg.entityId;
+        }
+      }
+
+      // Second, try to find organization with isDefault=true
+      const [defaultOrg] = await db
+        .select()
+        .from(entities)
+        .where(and(
+          eq(entities.tenantId, tenantId),
+          eq(entities.entityType, 'organization'),
+          isNull(entities.parentEntityId), // Root organization has no parent
+          eq(entities.isActive, true),
+          eq(entities.isDefault, true)
+        ))
+        .limit(1);
+
+      if (defaultOrg) {
+        console.log(`✅ Found default organization: ${defaultOrg.entityId} (${defaultOrg.entityName})`);
+        return defaultOrg.entityId;
+      }
+
+      // Third, fallback to first created root organization
       const [rootOrg] = await db
         .select()
         .from(entities)
@@ -1479,7 +1654,7 @@ export class CreditService {
         return null;
       }
 
-      console.log(`✅ Found root organization for tenant ${tenantId}: ${rootOrg.entityId} (${rootOrg.entityName})`);
+      console.log(`✅ Found root organization (fallback): ${rootOrg.entityId} (${rootOrg.entityName})`);
       return rootOrg.entityId;
     } catch (error) {
       console.error('❌ Error finding root organization:', error);
@@ -1715,6 +1890,12 @@ export class CreditService {
 
   /**
    * Consume credits for an operation
+   * 
+   * NOTE: Applications handle their own credit consumption.
+   * This method is for organization-level credit consumption only.
+   * Applications should consume credits directly from their own systems.
+   * 
+   * Credit auto-replenishment is not required - applications manage their own credits.
    */
   static async consumeCredits({
     tenantId,
@@ -1728,49 +1909,11 @@ export class CreditService {
     entityId = null // New parameter for hierarchical support
   }) {
     try {
-      // Check if this operation should use application-specific credits
-      const applicationCode = this.extractApplicationFromOperationCode(operationCode);
-
-      if (applicationCode) {
-        console.log('🎯 Application-specific credit consumption detected:', {
-          tenantId,
-          applicationCode,
-          operationCode,
-          creditCost
-        });
-
-        // Try to consume from application allocation first
-        // Get the user's organization/entity for allocation filtering
-        const userEntityId = await this.getUserEntityId(tenantId, userId);
-
-        const appCreditResult = await CreditAllocationService.consumeApplicationCredits({
-          tenantId,
-          sourceEntityId: userEntityId, // Filter by user's organization
-          application: applicationCode,
-          creditAmount: creditCost,
-          operationCode,
-          operationId,
-          description,
-          initiatedBy: userId
-        });
-
-        if (appCreditResult.success) {
-          console.log('✅ Consumed credits from application allocation:', appCreditResult);
-          return {
-            success: true,
-            data: {
-              transactionId: `app_${appCreditResult.allocationId}_${Date.now()}`,
-              creditsConsumed: creditCost,
-              remainingCredits: appCreditResult.remainingCredits,
-              source: 'application_allocation',
-              application: applicationCode
-            }
-          };
-        } else {
-          console.log('⚠️ Application allocation consumption failed, falling back to organization credits:', appCreditResult.message);
-          // Fall through to organization credit consumption below
-        }
-      }
+      // REMOVED: Application-specific credit allocation logic
+      // REMOVED: Auto-replenishment logic
+      // Applications now manage their own credit consumption directly
+      // They consume from organization balance using their own logic
+      // This method only handles organization-level credit consumption
 
       // Get current balance for the specific entity (fallback or direct consumption)
       const currentBalance = await this.getEntityBalance(tenantId, entityType, entityId);

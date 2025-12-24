@@ -66,7 +66,7 @@ import permissionSyncRoutes from './routes/permission-sync.js';
 import userApplicationRoutes from './routes/user-applications.js';
 import { organizationsRoutes, locationsRoutes, entitiesRoutes } from './features/organizations/index.js';
 // paymentUpgradeRoutes moved to subscriptions feature
-import { creditsRoutes } from './features/credits/index.js';
+import { creditsRoutes, creditExpiryRoutes } from './features/credits/index.js';
 import demoRoutes from './routes/demo.js';
 import notificationRoutes from './routes/notifications.js';
 import entityScopeRoutes from './routes/entity-scope.js';
@@ -84,6 +84,7 @@ import { trackActivity } from './middleware/activityTracker.js';
 
 // Import utilities
 import trialManager from './utils/trial-manager.js';
+import creditExpiryManager from './utils/credit-expiry-manager.js';
 
 // Import database connection manager
 import { dbManager } from './db/connection-manager.js';
@@ -556,6 +557,7 @@ async function registerRoutes() {
   console.log('✅ Entities routes registered successfully');
   await fastify.register(paymentUpgradeRoutes, { prefix: '/api/payment-upgrade' });
   await fastify.register(creditsRoutes, { prefix: '/api/credits' });
+  await fastify.register(creditExpiryRoutes, { prefix: '/api/credits/expiry' });
   await fastify.register(notificationRoutes, { prefix: '/api/notifications' });
   await fastify.register(demoRoutes, { prefix: '/api/demo' });
   await fastify.register(enhancedCrmIntegrationRoutes, { prefix: '/api/enhanced-crm-integration' });
@@ -976,6 +978,28 @@ if (import.meta.url === `file://${process.argv[1]}` || process.env.NODE_ENV !== 
 //   }
 // }
 
+// Initialize credit expiry monitoring system after app setup
+export async function initializeCreditExpirySystem() {
+  try {
+    console.log('🚀 Initializing credit expiry monitoring system...');
+
+    // Start credit expiry monitoring
+    creditExpiryManager.startExpiryMonitoring();
+
+    // Verify it's running
+    const status = creditExpiryManager.getMonitoringStatus();
+    if (status.isRunning) {
+      console.log('✅ Credit expiry monitoring system initialized successfully');
+      console.log(`📊 Active jobs: ${status.activeJobs}`);
+    } else {
+      console.error('❌ Failed to initialize credit expiry monitoring system');
+    }
+
+  } catch (error) {
+    console.error('❌ Error initializing credit expiry system:', error);
+  }
+}
+
 // // Call initialization after database connection is established
 // if (process.env.NODE_ENV !== 'test') {
 //   // Delay initialization to ensure database is ready
@@ -985,5 +1009,15 @@ if (import.meta.url === `file://${process.argv[1]}` || process.env.NODE_ENV !== 
 //     });
 //   }, 2000);
 // }
+
+// Call credit expiry initialization after database connection is established
+if (process.env.NODE_ENV !== 'test') {
+  // Delay initialization to ensure database is ready
+  setTimeout(() => {
+    initializeCreditExpirySystem().catch(error => {
+      console.error('Failed to initialize credit expiry system:', error);
+    });
+  }, 3000);
+}
 
 export default fastify;

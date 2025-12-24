@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Check, Shield, Trash2, X } from 'lucide-react';
+import { useState } from 'react';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { PearlButton } from '@/components/ui/pearl-button';
+import { Check, Shield } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { RoleAssignmentConfirmationModal } from '@/components/common/ConfirmationModal';
 
@@ -27,7 +27,6 @@ interface RoleAssignmentModalProps {
   selectedRoles: string[];
   setSelectedRoles: (roles: string[]) => void;
   onSave: () => void;
-  onDeassignRole?: (userId: string, roleId: string) => void;
 }
 
 export function RoleAssignmentModal({
@@ -37,8 +36,7 @@ export function RoleAssignmentModal({
   roles,
   selectedRoles,
   setSelectedRoles,
-  onSave,
-  onDeassignRole
+  onSave
 }: RoleAssignmentModalProps) {
   const [confirmationModal, setConfirmationModal] = useState<{
     isOpen: boolean;
@@ -80,16 +78,7 @@ export function RoleAssignmentModal({
     setConfirmationModal(null);
   };
 
-  const handleDeassign = async (e: React.MouseEvent, roleId: string) => {
-    e.stopPropagation();
-    if (user && onDeassignRole) {
-      if (confirm(`Remove role from ${user.name}?`)) {
-        onDeassignRole(user.userId, roleId);
-        // Optimistic update locally
-        setSelectedRoles(selectedRoles.filter(id => id !== roleId));
-      }
-    }
-  };
+
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -112,18 +101,16 @@ export function RoleAssignmentModal({
                 <div
                   key={role.roleId}
                   onClick={() => handleRoleToggle(role.roleId)}
-                  className={`relative flex items-center p-4 rounded-xl border-2 transition-all cursor-pointer group ${
-                    isSelected
-                      ? 'border-violet-600 bg-violet-50 dark:bg-violet-900/20 shadow-sm'
-                      : 'border-white dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700'
-                  }`}
+                  className={`relative flex items-center p-4 rounded-xl border-2 transition-all cursor-pointer group ${isSelected
+                    ? 'border-violet-600 bg-violet-50 dark:bg-violet-900/20 shadow-sm'
+                    : 'border-white dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700'
+                    }`}
                 >
-                  <div className={`p-3 rounded-lg mr-4 ${
-                    isSelected ? 'bg-violet-200 dark:bg-violet-800 text-violet-700 dark:text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
-                  }`}>
+                  <div className={`p-3 rounded-lg mr-4 ${isSelected ? 'bg-violet-200 dark:bg-violet-800 text-violet-700 dark:text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                    }`}>
                     {role.icon ? <span className="text-lg">{role.icon}</span> : <Shield className="w-5 h-5" />}
                   </div>
-                  
+
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <h4 className={`font-semibold ${isSelected ? 'text-violet-900 dark:text-violet-100' : 'text-slate-900 dark:text-slate-200'}`}>
@@ -156,17 +143,17 @@ export function RoleAssignmentModal({
         </div>
 
         <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex justify-between items-center">
-            <span className="text-sm text-slate-500 ml-2">
-                {selectedRoles.length} role{selectedRoles.length !== 1 ? 's' : ''} selected
-            </span>
-            <div className="flex gap-3">
-                <Button variant="ghost" onClick={onClose} className="hover:bg-slate-100 dark:hover:bg-slate-800">
-                    Cancel
-                </Button>
-                <Button onClick={onSave} className="bg-violet-600 hover:bg-violet-700 text-white">
-                    Save Changes
-                </Button>
-            </div>
+          <span className="text-sm text-slate-500 ml-2">
+            {selectedRoles.length} role{selectedRoles.length !== 1 ? 's' : ''} selected
+          </span>
+          <div className="flex gap-3">
+            <PearlButton variant="secondary" onClick={onClose} size="sm">
+              Cancel
+            </PearlButton>
+            <PearlButton onClick={onSave} size="sm">
+              Save Changes
+            </PearlButton>
+          </div>
         </div>
       </DialogContent>
 

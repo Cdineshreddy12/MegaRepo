@@ -14,7 +14,6 @@ export { TenantManagement } from './components/TenantManagement';
 export { EntityManagement } from './components/EntityManagement';
 export { CreditManagement } from './components/CreditManagement';
 export { default as ApplicationAssignmentManager } from './components/ApplicationAssignmentManager';
-export { default as ApplicationCreditAllocations } from './components/ApplicationCreditAllocations';
 export { AdminPromotionManager } from './components/AdminPromotionManager';
 export { default as CampaignDetailsModal } from './components/CampaignDetailsModal';
 export { default as ExpiryManagementPanel } from './components/ExpiryManagementPanel';

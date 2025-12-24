@@ -816,30 +816,12 @@ export const PLAN_ACCESS_MATRIX = {
       }
     },
     credits: {
-      free: 500,         // Free tier gets recurring credits (monthly)
+      free: 1000,        // Free tier gets 1000 initial credits (as per onboarding requirements)
       paid: 0,           // Can purchase additional credits
       expiryDays: 30     // Monthly renewal cycle
     }
   },
 
-  trial: {
-    applications: ['crm'],
-    modules: {
-      crm: ['leads', 'contacts', 'dashboard']
-    },
-    permissions: {
-      crm: {
-        leads: ['read', 'create', 'update', 'delete', 'export', 'import'],
-        contacts: ['read', 'create', 'update', 'delete', 'export', 'import'],
-        dashboard: ['read']
-      }
-    },
-    credits: {
-      free: 1000,        // Trial credits (expire with trial)
-      paid: 0,           // No paid credits for trial
-      expiryDays: 30     // Trial credits expire in 30 days
-    }
-  },
 
   starter: {
     applications: ['crm', 'hr'],
@@ -903,41 +885,6 @@ export const PLAN_ACCESS_MATRIX = {
     }
   },
 
-  basic: {
-    applications: ['crm', 'hr'],
-    modules: {
-      crm: ['leads', 'contacts', 'accounts', 'opportunities', 'quotations', 'invoices', 'inventory', 'product_orders', 'tickets', 'communications', 'calendar', 'dashboard'],
-      hr: ['employees', 'payroll', 'leave', 'documents', 'dashboard']
-    },
-    permissions: {
-      crm: {
-        leads: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'import', 'assign', 'convert'],
-        contacts: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'import'],
-        accounts: ['read', 'read_all', 'create', 'update', 'delete', 'view_contacts', 'export', 'import', 'assign'],
-        opportunities: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'import', 'close', 'assign'],
-        quotations: ['read', 'read_all', 'create', 'update', 'delete', 'generate_pdf', 'send', 'approve', 'assign'],
-        invoices: ['read', 'read_all', 'create', 'update', 'delete', 'send', 'mark_paid', 'generate_pdf', 'export', 'import'],
-        inventory: ['read', 'read_all', 'create', 'update', 'delete', 'adjust', 'movement', 'export', 'import', 'low_stock_alerts'],
-        product_orders: ['read', 'read_all', 'create', 'update', 'delete', 'process', 'export', 'import'],
-        tickets: ['read', 'read_all', 'create', 'update', 'delete', 'assign', 'resolve', 'escalate', 'export', 'import'],
-        communications: ['read', 'read_all', 'create', 'update', 'delete', 'send', 'schedule', 'export', 'import'],
-        calendar: ['read', 'read_all', 'create', 'update', 'delete', 'share', 'export', 'import'],
-        dashboard: ['view', 'customize', 'export']
-      },
-      hr: {
-        employees: ['read', 'read_all', 'create', 'update', 'delete', 'view_salary', 'export'],
-        payroll: ['read', 'process', 'approve', 'export', 'generate_reports'],
-        leave: ['read', 'create', 'approve', 'reject', 'cancel', 'export'],
-        documents: ['read', 'create', 'update', 'delete', 'export'],
-        dashboard: ['view', 'customize', 'export']
-      }
-    },
-    credits: {
-      free: 250000,      // Basic plan free credits
-      paid: 0,           // Additional paid credits can be purchased
-      expiryDays: 365    // Annual renewal cycle
-    }
-  },
 
   enterprise: {
     applications: ['crm', 'hr', 'affiliateConnect'],
@@ -1184,6 +1131,44 @@ export class PermissionMatrixUtils {
 
     return {};
   }
+}
+
+/**
+ * Create super admin role configuration for onboarding
+ * Uses PLAN_ACCESS_MATRIX to generate permissions based on subscription plan
+ * @param {string} selectedPlan - The selected plan (free, trial, starter, professional, basic, enterprise)
+ * @param {string} tenantId - The tenant ID
+ * @param {string} createdBy - The user ID creating the role
+ * @returns {object} Role configuration object with nested permissions structure
+ */
+export function createSuperAdminRoleConfig(selectedPlan = 'free', tenantId, createdBy) {
+  // Get plan access configuration from PLAN_ACCESS_MATRIX
+  const planAccess = PLAN_ACCESS_MATRIX[selectedPlan];
+  
+  if (!planAccess) {
+    console.warn(`⚠️ Plan ${selectedPlan} not found in PLAN_ACCESS_MATRIX, using 'free' plan`);
+    return createSuperAdminRoleConfig('free', tenantId, createdBy);
+  }
+
+  // Extract permissions from PLAN_ACCESS_MATRIX
+  // The permissions structure is already in nested format: { crm: { leads: [...], contacts: [...] } }
+  const permissions = planAccess.permissions || {};
+
+  return {
+    tenantId,
+    organizationId: tenantId, // Set organizationId to tenantId for root organization (will be updated after org creation)
+    roleName: 'Organization Admin',
+    description: 'Full administrative access to all features and settings. This role has complete control over the organization.',
+    permissions,
+    isSystemRole: true,
+    isDefault: true,
+    priority: 100, // Highest priority
+    scope: 'organization',
+    isInheritable: true,
+    color: '#dc2626', // Red color for admin role
+    createdBy,
+    restrictions: {}, // No restrictions for super admin
+  };
 }
 
 export default BUSINESS_SUITE_MATRIX; 

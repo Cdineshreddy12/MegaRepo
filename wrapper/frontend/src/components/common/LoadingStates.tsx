@@ -1,5 +1,5 @@
 import React from 'react';
-import { RefreshCw, AlertCircle, Activity, FileX, Wifi, WifiOff } from 'lucide-react';
+import { RefreshCw, AlertCircle, FileX, Wifi, WifiOff } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -17,14 +17,14 @@ interface LoadingSpinnerProps {
 export function LoadingSpinner({ size = 'md', className }: LoadingSpinnerProps) {
   const sizeClasses = {
     xs: 'w-3 h-3',
-    sm: 'w-4 h-4', 
+    sm: 'w-4 h-4',
     md: 'w-6 h-6',
     lg: 'w-8 h-8',
     xl: 'w-12 h-12'
   };
 
   return (
-    <div className={cn('animate-spin rounded-full border-2 border-gray-300 border-t-primary', sizeClasses[size], className)} />
+    <div className={cn('animate-spin rounded-full border-2 border-gray-100 border-t-blue-500', sizeClasses[size], className)} />
   );
 }
 
@@ -34,10 +34,10 @@ interface PageLoadingProps {
   className?: string;
 }
 
-export function PageLoading({ 
-  message = 'Loading...', 
+export function PageLoading({
+  message = 'Loading...',
   showBackground = true,
-  className 
+  className
 }: PageLoadingProps) {
   return (
     <div className={cn(
@@ -60,11 +60,11 @@ interface CardLoadingProps {
   className?: string;
 }
 
-export function CardLoading({ 
-  title, 
-  description, 
+export function CardLoading({
+  title,
+  description,
   showHeader = true,
-  className 
+  className
 }: CardLoadingProps) {
   return (
     <Card className={className}>
@@ -91,10 +91,10 @@ interface InlineLoadingProps {
   className?: string;
 }
 
-export function InlineLoading({ 
-  message = 'Loading...', 
+export function InlineLoading({
+  message = 'Loading...',
   size = 'md',
-  className 
+  className
 }: InlineLoadingProps) {
   return (
     <div className={cn('flex items-center gap-2', className)}>
@@ -118,14 +118,14 @@ interface PageErrorProps {
   className?: string;
 }
 
-export function PageError({ 
-  error, 
+export function PageError({
+  error,
   title = 'Something went wrong',
   description = 'An unexpected error occurred. Please try again.',
   onRetry,
   retryLabel = 'Try again',
   showBackground = true,
-  className 
+  className
 }: PageErrorProps) {
   const errorMessage = typeof error === 'string' ? error : error?.message;
 
@@ -167,14 +167,14 @@ interface CardErrorProps {
   className?: string;
 }
 
-export function CardError({ 
-  error, 
+export function CardError({
+  error,
   title = 'Failed to load data',
   description = 'There was an error loading the data.',
   onRetry,
   retryLabel = 'Retry',
   showHeader = true,
-  className 
+  className
 }: CardErrorProps) {
   const errorMessage = typeof error === 'string' ? error : error?.message;
 
@@ -215,11 +215,11 @@ interface InlineErrorProps {
   className?: string;
 }
 
-export function InlineError({ 
-  error, 
+export function InlineError({
+  error,
   onRetry,
   retryLabel = 'Retry',
-  className 
+  className
 }: InlineErrorProps) {
   const errorMessage = typeof error === 'string' ? error : error?.message;
 
@@ -250,13 +250,13 @@ interface PageEmptyProps {
   className?: string;
 }
 
-export function PageEmpty({ 
+export function PageEmpty({
   title = 'No data available',
   description = 'There is no data to display at the moment.',
   icon: Icon = FileX,
   action,
   showBackground = true,
-  className 
+  className
 }: PageEmptyProps) {
   return (
     <div className={cn(
@@ -285,13 +285,13 @@ interface CardEmptyProps {
   className?: string;
 }
 
-export function CardEmpty({ 
+export function CardEmpty({
   title = 'No data available',
   description = 'Data will appear here once available.',
   icon: Icon = FileX,
   action,
   showHeader = true,
-  className 
+  className
 }: CardEmptyProps) {
   return (
     <Card className={className}>
@@ -321,10 +321,10 @@ interface InlineEmptyProps {
   className?: string;
 }
 
-export function InlineEmpty({ 
+export function InlineEmpty({
   message = 'No data available',
   icon: Icon = FileX,
-  className 
+  className
 }: InlineEmptyProps) {
   return (
     <div className={cn('flex items-center gap-2 text-muted-foreground', className)}>
@@ -344,10 +344,10 @@ interface ConnectivityErrorProps {
   className?: string;
 }
 
-export function ConnectivityError({ 
+export function ConnectivityError({
   onRetry,
   retryLabel = 'Check Connection',
-  className 
+  className
 }: ConnectivityErrorProps) {
   return (
     <div className={cn('flex items-center justify-center min-h-[200px]', className)}>
@@ -379,11 +379,11 @@ interface LoadingOverlayProps {
   className?: string;
 }
 
-export function LoadingOverlay({ 
-  isLoading, 
-  children, 
+export function LoadingOverlay({
+  isLoading,
+  children,
   message = 'Loading...',
-  className 
+  className
 }: LoadingOverlayProps) {
   return (
     <div className={cn('relative', className)}>
@@ -410,10 +410,10 @@ interface SkeletonCardProps {
   className?: string;
 }
 
-export function SkeletonCard({ 
-  showHeader = true, 
+export function SkeletonCard({
+  showHeader = true,
   lines = 3,
-  className 
+  className
 }: SkeletonCardProps) {
   return (
     <Card className={className}>
@@ -461,10 +461,10 @@ interface SkeletonTableProps {
   className?: string;
 }
 
-export function SkeletonTable({ 
-  rows = 5, 
+export function SkeletonTable({
+  rows = 5,
   columns = 4,
-  className 
+  className
 }: SkeletonTableProps) {
   return (
     <div className={cn('space-y-3', className)}>
