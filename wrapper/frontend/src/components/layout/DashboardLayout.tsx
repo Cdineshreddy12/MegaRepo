@@ -248,6 +248,11 @@ const defaultSidebarData = {
       url: "/dashboard/roles",
       icon: Crown,
     },
+    {
+      title: "Activity",
+      url: "/dashboard/activity",
+      icon: Activity,
+    },
   ],
   bottomNav: [
     {

@@ -686,6 +686,8 @@ export default async function permissionRoutes(fastify, options) {
       );
       console.log('permissionService.deleteRole result:', result);
 
+      console.log('🔍 DEBUG: About to publish role deletion event, roleToDelete exists:', !!roleToDelete);
+
       // Log role deletion activity
       await ActivityLogger.logActivity(
         request.userContext.internalUserId,
@@ -705,10 +707,17 @@ export default async function permissionRoutes(fastify, options) {
       // Publish role deletion event to relevant applications (only apps with permissions)
       if (roleToDelete) {
         console.log('📡 Publishing role deletion event for role:', roleId);
+        console.log('📋 Role data for event:', {
+          roleId: roleToDelete.roleId,
+          roleName: roleToDelete.roleName,
+          permissionsType: typeof roleToDelete.permissions,
+          permissionsValue: roleToDelete.permissions ? (typeof roleToDelete.permissions === 'string' ? 'JSON string' : 'object') : 'null/undefined',
+          hasPermissions: !!roleToDelete.permissions
+        });
         try {
           // Import the event publishing function
           console.log('Importing roles.js...');
-          const { publishRoleEventToApplications } = await import('./roles.js');
+          const { publishRoleEventToApplications } = await import('../features/roles/routes/roles.js');
           console.log('Successfully imported publishRoleEventToApplications');
 
           await publishRoleEventToApplications(

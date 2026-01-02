@@ -66,8 +66,8 @@ const updateRole = async ({ roleId, roleData }: { roleId: string; roleData: Role
 };
 
 // Delete role
-const deleteRole = async (roleId: string): Promise<void> => {
-  const response = await api.delete(`/permissions/roles/${roleId}`);
+const deleteRole = async (roleId: string, force: boolean = true): Promise<void> => {
+  const response = await api.delete(`/permissions/roles/${roleId}`, { params: { force } });
   
   if (!response.data.success) {
     throw new Error(response.data.message || 'Failed to delete role');

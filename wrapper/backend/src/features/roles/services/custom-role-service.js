@@ -63,7 +63,8 @@ async function formatPermissionsForUI(permissionCodes, appCode, moduleCode, tena
   const moduleMatrix = appMatrix?.modules?.[moduleCode];
 
   // Get credit configurations for this tenant (tenant-specific first, then global fallback)
-  const creditConfigs = await db
+  // First, get tenant-specific configs
+  const tenantConfigs = await db
     .select({
       operationCode: creditConfigurations.operationCode,
       creditCost: creditConfigurations.creditCost,
@@ -73,21 +74,47 @@ async function formatPermissionsForUI(permissionCodes, appCode, moduleCode, tena
     })
     .from(creditConfigurations)
     .where(and(
-      or(
-        eq(creditConfigurations.tenantId, tenantId), // Tenant-specific configs
-        isNull(creditConfigurations.tenantId) // Global configs
-      ),
+      eq(creditConfigurations.tenantId, tenantId), // Tenant-specific configs only
       eq(creditConfigurations.isActive, true),
       like(creditConfigurations.operationCode, `${appCode}.${moduleCode}.%`)
-    ))
-    .orderBy(creditConfigurations.isGlobal); // Tenant-specific configs first
+    ));
+
+  // Then, get global configs for operations not covered by tenant-specific configs
+  const tenantOperationCodes = new Set(tenantConfigs.map(c => c.operationCode));
+  const globalConfigs = await db
+    .select({
+      operationCode: creditConfigurations.operationCode,
+      creditCost: creditConfigurations.creditCost,
+      unit: creditConfigurations.unit,
+      unitMultiplier: creditConfigurations.unitMultiplier,
+      isGlobal: creditConfigurations.isGlobal
+    })
+    .from(creditConfigurations)
+    .where(and(
+      isNull(creditConfigurations.tenantId), // Global configs only
+      eq(creditConfigurations.isActive, true),
+      like(creditConfigurations.operationCode, `${appCode}.${moduleCode}.%`)
+    ));
 
   // Create a map of operation codes to credit costs
+  // Tenant-specific configs take priority
   const creditCostMap = new Map();
-  creditConfigs.forEach(config => {
+  
+  // First, add tenant-specific configs
+  tenantConfigs.forEach(config => {
     const operationCode = config.operationCode;
-    if (!creditCostMap.has(operationCode) || !config.isGlobal) {
-      // Use tenant-specific over global configs
+    creditCostMap.set(operationCode, {
+      creditCost: parseFloat(config.creditCost),
+      unit: config.unit,
+      unitMultiplier: parseFloat(config.unitMultiplier),
+      isGlobal: config.isGlobal
+    });
+  });
+
+  // Then, add global configs only for operations not covered by tenant-specific configs
+  globalConfigs.forEach(config => {
+    const operationCode = config.operationCode;
+    if (!creditCostMap.has(operationCode)) {
       creditCostMap.set(operationCode, {
         creditCost: parseFloat(config.creditCost),
         unit: config.unit,

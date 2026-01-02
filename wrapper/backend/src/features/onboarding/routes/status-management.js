@@ -502,7 +502,7 @@ export default async function statusManagementRoutes(fastify, options) {
 
       // If we have form data from the table, use it (takes precedence)
       if (formDataFromTable) {
-        return {
+        return reply.code(200).send({
           success: true,
           data: {
             isOnboarded: false,
@@ -518,7 +518,7 @@ export default async function statusManagementRoutes(fastify, options) {
             },
             source: 'onboarding_form_data_table'
           }
-        };
+        });
       }
 
       // Fallback to user preferences if user exists
@@ -526,7 +526,7 @@ export default async function statusManagementRoutes(fastify, options) {
         const onboardingData = user.preferences?.onboarding || {};
         const formData = onboardingData.formData || {};
 
-        return {
+        return reply.code(200).send({
           success: true,
           data: {
             isOnboarded: user.onboardingCompleted,
@@ -536,11 +536,11 @@ export default async function statusManagementRoutes(fastify, options) {
             onboardingProgress: onboardingData,
             source: 'user_preferences'
           }
-        };
+        });
       }
 
       // No data found
-      return {
+      return reply.code(200).send({
         success: true,
         data: {
           isOnboarded: false,
@@ -549,7 +549,7 @@ export default async function statusManagementRoutes(fastify, options) {
           savedFormData: {},
           message: 'No previous onboarding data found'
         }
-      };
+      });
 
     } catch (error) {
       request.log.error('Error getting onboarding data by email:', error);

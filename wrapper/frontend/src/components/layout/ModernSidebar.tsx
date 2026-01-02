@@ -10,7 +10,8 @@ import {
     Shield,
     CreditCard,
     Settings,
-    LogOut
+    LogOut,
+    Activity
 } from "lucide-react"
 import {
     Avatar,
@@ -100,6 +101,7 @@ export function ModernSidebar({
         { title: "Team", url: "/dashboard/users", icon: Users },
         { title: "Organization", url: "/dashboard/organization", icon: Building2 },
         { title: "Roles", url: "/dashboard/roles", icon: Shield },
+        { title: "Activity", url: "/dashboard/activity", icon: Activity },
     ]
 
     const bottomItems = [

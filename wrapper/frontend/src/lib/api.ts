@@ -762,7 +762,7 @@ export const permissionsAPI = {
     permissions?: string[];
     restrictions?: any
   }) => api.put(`/api/permissions/roles/${roleId}`, data),
-  deleteRole: (roleId: string) => api.delete(`/api/permissions/roles/${roleId}`),
+  deleteRole: (roleId: string, force: boolean = true) => api.delete(`/api/permissions/roles/${roleId}`, { params: { force } }),
 
   // Role Templates - REMOVED (using application/module builder instead)
 

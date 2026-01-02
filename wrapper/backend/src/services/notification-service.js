@@ -1,6 +1,7 @@
 import { db } from '../db/index.js';
 import { notifications, NOTIFICATION_TYPES, NOTIFICATION_PRIORITIES } from '../db/schema/notifications.js';
 import { and, eq, or, lt, gte, desc, sql, isNull } from 'drizzle-orm';
+import { notificationCacheService } from './notification-cache-service.js';
 
 class NotificationService {
 
@@ -496,6 +497,201 @@ class NotificationService {
         currency
       }
     });
+  }
+
+  /**
+   * Bulk create notifications
+   * @param {Array<Object>} notificationsData - Array of notification data objects
+   * @returns {Promise<Array>} Created notifications
+   */
+  async bulkCreateNotifications(notificationsData) {
+    try {
+      if (!Array.isArray(notificationsData) || notificationsData.length === 0) {
+        throw new Error('Notifications data must be a non-empty array');
+      }
+
+      // Batch insert in chunks of 100 to avoid overwhelming the database
+      const batchSize = 100;
+      const allNotifications = [];
+
+      for (let i = 0; i < notificationsData.length; i += batchSize) {
+        const batch = notificationsData.slice(i, i + batchSize);
+        
+        const created = await db
+          .insert(notifications)
+          .values(batch.map(data => ({
+            tenantId: data.tenantId,
+            type: data.type || NOTIFICATION_TYPES.SYSTEM_UPDATE,
+            priority: data.priority || NOTIFICATION_PRIORITIES.MEDIUM,
+            title: data.title,
+            message: data.message,
+            actionUrl: data.actionUrl,
+            actionLabel: data.actionLabel,
+            metadata: data.metadata || {},
+            expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
+            scheduledAt: data.scheduledAt ? new Date(data.scheduledAt) : null,
+            targetUserId: data.targetUserId || null
+          })))
+          .returning();
+
+        allNotifications.push(...created);
+      }
+
+      console.log(`📧 Bulk created ${allNotifications.length} notifications`);
+      return allNotifications;
+
+    } catch (error) {
+      console.error('Error bulk creating notifications:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send notification to multiple tenants
+   * @param {Array<string>} tenantIds - Array of tenant IDs
+   * @param {Object} notificationData - Notification data
+   * @returns {Promise<Object>} Result with sent count and notifications
+   */
+  async sendToTenants(tenantIds, notificationData) {
+    try {
+      const notificationsToCreate = tenantIds.map(tenantId => ({
+        tenantId,
+        ...notificationData
+      }));
+
+      const createdNotifications = await this.bulkCreateNotifications(notificationsToCreate);
+
+      return {
+        sentCount: createdNotifications.length,
+        totalTenants: tenantIds.length,
+        notifications: createdNotifications
+      };
+    } catch (error) {
+      console.error('Error sending notifications to tenants:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get notification statistics for a tenant
+   * @param {string} tenantId - Tenant ID
+   * @param {Object} options - Query options
+   * @returns {Promise<Object>} Statistics
+   */
+  async getNotificationStats(tenantId, options = {}) {
+    try {
+      const { startDate, endDate } = options;
+
+      const whereConditions = [
+        eq(notifications.tenantId, tenantId),
+        eq(notifications.isActive, true)
+      ];
+
+      if (startDate) {
+        whereConditions.push(gte(notifications.createdAt, new Date(startDate)));
+      }
+
+      if (endDate) {
+        whereConditions.push(lte(notifications.createdAt, new Date(endDate)));
+      }
+
+      const stats = await db
+        .select({
+          total: sql`count(*)`,
+          unread: sql`count(case when ${notifications.isRead} = false then 1 end)`,
+          read: sql`count(case when ${notifications.isRead} = true then 1 end)`,
+          dismissed: sql`count(case when ${notifications.isDismissed} = true then 1 end)`,
+          byType: sql`json_object_agg(${notifications.type}, count(*))`,
+          byPriority: sql`json_object_agg(${notifications.priority}, count(*))`
+        })
+        .from(notifications)
+        .where(and(...whereConditions));
+
+      return stats[0] || {
+        total: 0,
+        unread: 0,
+        read: 0,
+        dismissed: 0,
+        byType: {},
+        byPriority: {}
+      };
+    } catch (error) {
+      console.error('Error getting notification stats:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get sent notifications history (admin)
+   * @param {Object} filters - Filter options
+   * @returns {Promise<Object>} History with pagination
+   */
+  async getSentNotificationsHistory(filters = {}) {
+    try {
+      const {
+        page = 1,
+        limit = 50,
+        tenantId,
+        startDate,
+        endDate,
+        type,
+        adminUserId
+      } = filters;
+
+      const offset = (page - 1) * limit;
+      const whereConditions = [
+        sql`${notifications.metadata}->>'sentByAdmin' = 'true'`
+      ];
+
+      if (tenantId) {
+        whereConditions.push(eq(notifications.tenantId, tenantId));
+      }
+
+      if (startDate) {
+        whereConditions.push(gte(notifications.createdAt, new Date(startDate)));
+      }
+
+      if (endDate) {
+        whereConditions.push(lte(notifications.createdAt, new Date(endDate)));
+      }
+
+      if (type) {
+        whereConditions.push(eq(notifications.type, type));
+      }
+
+      if (adminUserId) {
+        whereConditions.push(sql`${notifications.metadata}->>'adminUserId' = ${adminUserId}`);
+      }
+
+      const [notificationsList, totalResult] = await Promise.all([
+        db
+          .select()
+          .from(notifications)
+          .where(and(...whereConditions))
+          .orderBy(desc(notifications.createdAt))
+          .limit(limit)
+          .offset(offset),
+        db
+          .select({ count: sql`count(*)` })
+          .from(notifications)
+          .where(and(...whereConditions))
+      ]);
+
+      const total = parseInt(totalResult[0]?.count || 0);
+
+      return {
+        notifications: notificationsList,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit)
+        }
+      };
+    } catch (error) {
+      console.error('Error getting sent notifications history:', error);
+      throw error;
+    }
   }
 
   /**

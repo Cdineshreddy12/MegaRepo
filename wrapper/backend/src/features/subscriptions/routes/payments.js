@@ -418,6 +418,45 @@ async function handlePaymentIntentSucceeded(paymentIntent) {
       paidAt: new Date()
     });
   }
+
+  // Send payment confirmation email
+  try {
+    const userInfo = await getTenantAdminEmail(tenantId);
+    if (userInfo?.email) {
+      const { EmailService } = await import('../../../utils/email.js');
+      const emailService = new EmailService();
+      
+      const planId = paymentIntent.metadata?.planId;
+      const billingCycle = paymentIntent.metadata?.billingCycle || 'yearly';
+      
+      // Get plan name
+      let planName = 'Premium Plan';
+      if (planId) {
+        const { SubscriptionService } = await import('../services/subscription-service.js');
+        const plans = await SubscriptionService.getAvailablePlans();
+        const plan = plans.find(p => p.id === planId);
+        if (plan) planName = plan.name;
+      }
+
+      await emailService.sendPaymentConfirmation({
+        tenantId,
+        userEmail: userInfo.email,
+        userName: userInfo.name,
+        paymentType: 'subscription',
+        amount: paymentIntent.amount / 100,
+        currency: paymentIntent.currency.toUpperCase(),
+        transactionId: paymentIntent.id,
+        planName,
+        billingCycle,
+        sessionId: paymentIntent.id
+      });
+    } else {
+      console.warn('⚠️ Could not find user email for tenant:', tenantId);
+    }
+  } catch (emailError) {
+    console.error('❌ Failed to send payment confirmation email:', emailError);
+    // Don't fail the webhook if email fails
+  }
 }
 
 async function handlePaymentIntentFailed(paymentIntent) {
@@ -602,6 +641,62 @@ async function findTenantByCustomer(customerId) {
     return tenant?.tenantId || null;
   } catch (error) {
     console.error('Error finding tenant by customer:', error);
+    return null;
+  }
+}
+
+// Export utility function to get tenant admin email
+export async function getTenantAdminEmail(tenantId) {
+  if (!tenantId) return null;
+
+  try {
+    const { db } = await import('../db/index.js');
+    const { tenants, tenantUsers } = await import('../db/schema/index.js');
+    const { eq, and } = await import('drizzle-orm');
+
+    // First try to get from tenant admin users
+    const [adminUser] = await db
+      .select({ email: tenantUsers.email, name: tenantUsers.name })
+      .from(tenantUsers)
+      .where(and(
+        eq(tenantUsers.tenantId, tenantId),
+        eq(tenantUsers.isTenantAdmin, true),
+        eq(tenantUsers.isActive, true)
+      ))
+      .limit(1);
+
+    if (adminUser?.email) {
+      return { email: adminUser.email, name: adminUser.name || 'User' };
+    }
+
+    // Fallback: get any active user from tenant
+    const [anyUser] = await db
+      .select({ email: tenantUsers.email, name: tenantUsers.name })
+      .from(tenantUsers)
+      .where(and(
+        eq(tenantUsers.tenantId, tenantId),
+        eq(tenantUsers.isActive, true)
+      ))
+      .limit(1);
+
+    if (anyUser?.email) {
+      return { email: anyUser.email, name: anyUser.name || 'User' };
+    }
+
+    // Last resort: try to get from Stripe customer
+    const [tenant] = await db
+      .select()
+      .from(tenants)
+      .where(eq(tenants.tenantId, tenantId))
+      .limit(1);
+
+    if (tenant?.adminEmail) {
+      return { email: tenant.adminEmail, name: tenant.companyName || 'User' };
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Error getting tenant admin email:', error);
     return null;
   }
 }
@@ -945,6 +1040,40 @@ async function handleCheckoutSessionCompleted(session) {
     } else if (session.mode === 'payment') {
       // For payment mode (credit purchases), the credit processing happens via invoice payment webhook
       console.log(`💳 Credit purchase session completed for tenant ${tenantId}, plan ${planId}`);
+    }
+
+    // Send payment confirmation email
+    try {
+      const userInfo = await getTenantAdminEmail(tenantId);
+      if (userInfo?.email) {
+        const { EmailService } = await import('../../../utils/email.js');
+        const emailService = new EmailService();
+        
+        const paymentType = session.mode === 'subscription' ? 'subscription' : 'credit_purchase';
+        const amount = session.amount_total ? session.amount_total / 100 : planConfig.amount / 100;
+        const currency = session.currency?.toUpperCase() || 'USD';
+        const dollarAmount = session.metadata?.dollarAmount ? parseFloat(session.metadata.dollarAmount) : null;
+        const creditsAdded = dollarAmount ? Math.floor(dollarAmount * 1000) : null; // $1 = 1000 credits at $0.001 per credit
+
+        await emailService.sendPaymentConfirmation({
+          tenantId,
+          userEmail: userInfo.email,
+          userName: userInfo.name,
+          paymentType,
+          amount: paymentType === 'credit_purchase' && dollarAmount ? dollarAmount : amount,
+          currency,
+          transactionId: session.id,
+          planName: paymentType === 'subscription' ? planDetails.name : 'Credit Purchase',
+          billingCycle: paymentType === 'subscription' ? billingCycle : null,
+          creditsAdded,
+          sessionId: session.id
+        });
+      } else {
+        console.warn('⚠️ Could not find user email for tenant:', tenantId);
+      }
+    } catch (emailError) {
+      console.error('❌ Failed to send payment confirmation email:', emailError);
+      // Don't fail the webhook if email fails
     }
 
   } catch (error) {

@@ -17,6 +17,7 @@ import EmployeeOrgAssignment from '../models/EmployeeOrgAssignment.js';
 import CrmCreditConfig from '../models/CrmCreditConfig.js';
 import CrmEntityCredit from '../models/CrmEntityCredit.js';
 import TenantSyncStatus from '../models/TenantSyncStatus.js';
+import { TenantSyncFileLogger } from '../utils/tenant-sync-file-logger.js';
 
 class TenantDataSyncServiceV2 {
   constructor() {
@@ -46,6 +47,14 @@ class TenantDataSyncServiceV2 {
    */
   async syncTenant(tenantId, authToken, options = {}) {
     const startTime = Date.now();
+    
+    // Initialize file logger for debugging
+    const fileLogger = new TenantSyncFileLogger(tenantId, {
+      processId: this.processId,
+      strategy: 'Essential + Background',
+      authTokenLength: authToken ? authToken.length : 0
+    });
+    
     console.log(`\n${'='.repeat(70)}`);
     console.log(`🚀 STARTING TENANT SYNC`);
     console.log(`${'='.repeat(70)}`);
@@ -53,9 +62,11 @@ class TenantDataSyncServiceV2 {
     console.log(`🎯 Strategy: Essential + Background`);
     console.log(`🔧 Process ID: ${this.processId}`);
     console.log(`⏰ Started At: ${new Date().toISOString()}`);
+    console.log(`📝 Log file: ${fileLogger.getLogFilePath() || 'Initializing...'}`);
     console.log(`${'='.repeat(70)}\n`);
 
     let syncStatus = null;
+    let syncResult = null;
 
     try {
       // Step 1: Check if sync is needed (idempotency)
@@ -71,11 +82,20 @@ class TenantDataSyncServiceV2 {
         console.log(`✅ SYNC NOT NEEDED - TENANT ALREADY SYNCED`);
         console.log(`${'='.repeat(70)}\n`);
         
-        return {
+        syncResult = {
           success: true,
           alreadySynced: true,
           syncStatus: syncStatus.toObject()
         };
+        
+        // Finalize logger
+        await fileLogger.finalize({
+          success: true,
+          alreadySynced: true,
+          duration: Date.now() - startTime
+        });
+        
+        return syncResult;
       }
       
       console.log('✅ STEP 1: Sync needed, proceeding...\n');
@@ -161,7 +181,7 @@ class TenantDataSyncServiceV2 {
       console.log('🔄 Starting background sync process...\n');
       
       // Trigger background sync without waiting
-      this.syncBackgroundData(tenantId, authToken, syncStatus)
+      this.syncBackgroundData(tenantId, authToken, syncStatus, fileLogger, startTime)
         .then(async () => {
           const totalDuration = Date.now() - startTime;
 
@@ -176,6 +196,15 @@ class TenantDataSyncServiceV2 {
           console.log(`📊 All collections synced successfully`);
           console.log(`📈 Final record count: ${finalTotalRecords}`);
           console.log(`${'='.repeat(70)}\n`);
+          
+          // Finalize logger
+          await fileLogger.finalize({
+            success: true,
+            duration: totalDuration,
+            totalRecords: finalTotalRecords,
+            essentialDuration,
+            backgroundDuration: totalDuration - essentialDuration
+          });
         })
         .catch(async (error) => {
           console.error(`\n${'='.repeat(70)}`);
@@ -194,6 +223,16 @@ class TenantDataSyncServiceV2 {
           console.error(`✅ ESSENTIAL DATA STILL AVAILABLE: User can continue using the app`);
           console.error(`📊 Essential records synced: ${finalTotalRecords}`);
           console.error(`${'='.repeat(70)}\n`);
+          
+          // Finalize logger with error
+          await fileLogger.finalize({
+            success: true, // Essential data succeeded
+            duration: totalDuration,
+            totalRecords: finalTotalRecords,
+            essentialDuration,
+            backgroundError: error.message,
+            backgroundDuration: totalDuration - essentialDuration
+          });
         });
 
       // Don't mark as completed yet - background sync will handle final completion
@@ -209,13 +248,19 @@ class TenantDataSyncServiceV2 {
       console.log(`⏰ Started At: ${new Date().toISOString()}`);
       console.log(`${'='.repeat(70)}\n`);
 
-      return {
+      syncResult = {
         success: true,
         tenantId,
         duration: essentialDuration,
         stats: essentialResult.stats,
-        backgroundSyncStarted: true
+        backgroundSyncStarted: true,
+        logFile: fileLogger.getLogFilePath()
       };
+      
+      // Note: We don't finalize the logger here because background sync is still running
+      // The background sync will handle finalization when it completes
+      
+      return syncResult;
 
     } catch (error) {
       console.error(`\n${'='.repeat(70)}`);
@@ -231,6 +276,19 @@ class TenantDataSyncServiceV2 {
         console.log('🔓 Releasing sync lock due to error...');
         await syncStatus.releaseLock();
         console.log('✅ Lock released\n');
+      }
+
+      // Finalize logger with error
+      try {
+        await fileLogger.finalize({
+          success: false,
+          error: error.message,
+          errorType: error.type || 'UNKNOWN_ERROR',
+          errorStack: error.stack,
+          duration: Date.now() - startTime
+        });
+      } catch (loggerError) {
+        console.error('Failed to finalize logger:', loggerError);
       }
 
       throw error;
@@ -388,7 +446,7 @@ class TenantDataSyncServiceV2 {
    * This provides better resilience - if one collection fails, others can still succeed.
    * Background sync is non-critical (user can already log in), so we prioritize resilience over atomicity.
    */
-  async syncBackgroundData(tenantId, authToken, syncStatus) {
+  async syncBackgroundData(tenantId, authToken, syncStatus, fileLogger = null, startTime = null) {
     const bgStartTime = Date.now();
     
     try {

@@ -176,6 +176,35 @@ export default async function adminRoutes(fastify, options) {
         }
       }
 
+      // Check if user is invited
+      let isInvitedUser = false;
+      let userType = 'REGULAR_USER';
+      
+      if (request.userContext.internalUserId && request.userContext.tenantId) {
+        try {
+          const [user] = await db
+            .select()
+            .from(tenantUsers)
+            .where(eq(tenantUsers.userId, request.userContext.internalUserId))
+            .limit(1);
+          
+          if (user) {
+            isInvitedUser = user.preferences?.userType === 'INVITED_USER' ||
+                          user.preferences?.isInvitedUser === true ||
+                          user.invitedBy !== null ||
+                          user.invitedAt !== null;
+            
+            if (isInvitedUser && !user.isTenantAdmin) {
+              userType = 'INVITED_USER';
+            } else if (user.onboardingCompleted) {
+              userType = 'EXISTING_USER';
+            }
+          }
+        } catch (error) {
+          console.error('Error checking invited user status:', error);
+        }
+      }
+
       return {
         success: true,
         authStatus: {
@@ -187,6 +216,8 @@ export default async function adminRoutes(fastify, options) {
           isTenantAdmin: request.userContext.isTenantAdmin,
           needsOnboarding: request.userContext.needsOnboarding,
           onboardingCompleted: request.userContext.onboardingCompleted,
+          isInvitedUser: isInvitedUser && !request.userContext.isTenantAdmin,
+          userType: userType,
           userPermissions,
           userRoles,
           legacyPermissions
@@ -2228,7 +2259,6 @@ export default async function adminRoutes(fastify, options) {
           roleName: customRoles.roleName,
           description: customRoles.description,
           color: customRoles.color,
-          icon: customRoles.icon,
           permissions: customRoles.permissions,
           restrictions: customRoles.restrictions,
           isSystemRole: customRoles.isSystemRole,

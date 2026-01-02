@@ -8,6 +8,8 @@ import { parse } from 'url';
 
 let wss = null;
 const clientConnections = new Map(); // userId -> Set of WebSocket connections
+const tenantUserMap = new Map(); // tenantId -> Set of userIds
+const userTenantMap = new Map(); // userId -> tenantId
 
 /**
  * Initialize WebSocket server
@@ -46,6 +48,13 @@ export function initWebSocketServer(server) {
     }
     clientConnections.get(userId).add(ws);
 
+    // Maintain tenant-to-users mapping
+    if (!tenantUserMap.has(tenantId)) {
+      tenantUserMap.set(tenantId, new Set());
+    }
+    tenantUserMap.get(tenantId).add(userId);
+    userTenantMap.set(userId, tenantId);
+
     // Send welcome message
     ws.send(JSON.stringify({
       type: 'connected',
@@ -75,6 +84,19 @@ export function initWebSocketServer(server) {
         connections.delete(ws);
         if (connections.size === 0) {
           clientConnections.delete(userId);
+          
+          // Clean up tenant mapping
+          const userTenant = userTenantMap.get(userId);
+          if (userTenant) {
+            const tenantUsers = tenantUserMap.get(userTenant);
+            if (tenantUsers) {
+              tenantUsers.delete(userId);
+              if (tenantUsers.size === 0) {
+                tenantUserMap.delete(userTenant);
+              }
+            }
+            userTenantMap.delete(userId);
+          }
         }
       }
     });
@@ -155,10 +177,62 @@ export function sendNotificationToUser(userId, notification) {
  * Broadcast notification to all users in a tenant
  */
 export function broadcastToTenant(tenantId, notification) {
-  // This would require maintaining a tenant -> users mapping
-  // For now, we'll implement user-level broadcasting
-  console.log(`📢 Broadcasting to tenant ${tenantId}`);
-  // TODO: Implement tenant-level broadcasting
+  const userIds = tenantUserMap.get(tenantId);
+  if (!userIds || userIds.size === 0) {
+    console.log(`⚠️ No active connections for tenant ${tenantId}`);
+    return { sent: 0, total: 0 };
+  }
+
+  const message = JSON.stringify({
+    type: 'notification',
+    data: notification,
+    timestamp: new Date().toISOString()
+  });
+
+  let sentCount = 0;
+  const totalUsers = userIds.size;
+
+  userIds.forEach(userId => {
+    const connections = clientConnections.get(userId);
+    if (connections && connections.size > 0) {
+      connections.forEach(ws => {
+        if (ws.readyState === ws.OPEN) {
+          try {
+            ws.send(message);
+            sentCount++;
+          } catch (error) {
+            console.error(`❌ Failed to send notification to ${userId}:`, error);
+          }
+        }
+      });
+    }
+  });
+
+  console.log(`📢 Broadcasted to ${sentCount} connections across ${totalUsers} users in tenant ${tenantId}`);
+  return { sent: sentCount, total: totalUsers };
+}
+
+/**
+ * Broadcast notification to multiple tenants
+ */
+export function broadcastToTenants(tenantIds, notification) {
+  const results = tenantIds.map(tenantId => ({
+    tenantId,
+    ...broadcastToTenant(tenantId, notification)
+  }));
+
+  const totalSent = results.reduce((sum, r) => sum + r.sent, 0);
+  const totalUsers = results.reduce((sum, r) => sum + r.total, 0);
+
+  console.log(`📢 Bulk broadcasted to ${totalSent} connections across ${totalUsers} users in ${tenantIds.length} tenants`);
+  return {
+    results,
+    summary: {
+      totalSent,
+      totalUsers,
+      totalTenants: tenantIds.length
+    }
+  };
 }
 
 /**
@@ -175,11 +249,29 @@ export function getConnectionCount() {
   return clientConnections.size;
 }
 
+/**
+ * Get tenant user count
+ */
+export function getTenantUserCount(tenantId) {
+  const userIds = tenantUserMap.get(tenantId);
+  return userIds ? userIds.size : 0;
+}
+
+/**
+ * Get all active tenants
+ */
+export function getActiveTenants() {
+  return Array.from(tenantUserMap.keys());
+}
+
 export default {
   initWebSocketServer,
   sendNotificationToUser,
   broadcastToTenant,
+  broadcastToTenants,
   getWebSocketServer,
-  getConnectionCount
+  getConnectionCount,
+  getTenantUserCount,
+  getActiveTenants
 };
 

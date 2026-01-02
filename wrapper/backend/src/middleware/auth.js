@@ -49,6 +49,7 @@ const PUBLIC_ROUTES = [
   '/api/onboarding/verify-gstin',
   '/api/onboarding/check-subdomain',
   '/api/onboarding/onboard-frontend',
+  'POST /api/onboarding/get-data',
 ];
 
 // Helper functions

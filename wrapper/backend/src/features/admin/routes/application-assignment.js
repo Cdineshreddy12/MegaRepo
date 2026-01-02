@@ -704,9 +704,11 @@ export default async function applicationAssignmentRoutes(fastify, options) {
                 console.warn(`Failed to parse permissions for module ${module.moduleCode}:`, error);
                 parsedPermissions = [];
               }
+              // Only set permissions for this specific application's modules
+              // Don't merge with permissions from other applications
               finalCustomPermissions[module.moduleCode] = parsedPermissions;
             });
-            console.log('Using default permissions:', finalCustomPermissions);
+            console.log('Using default permissions for app', appId, ':', finalCustomPermissions);
           }
         }
 
@@ -1299,13 +1301,19 @@ export default async function applicationAssignmentRoutes(fastify, options) {
         // Update custom permissions to include the new module's permissions
         const currentCustomPermissions = existingAssignment[0].customPermissions || {};
 
+        // Only update permissions for the specific module being assigned
+        // Don't merge with existing permissions from other modules
         const updatedCustomPermissions = {
-          ...currentCustomPermissions,
-          [module[0].moduleCode]: modulePermissions
+          ...currentCustomPermissions
         };
 
+        // Only add the new module's permissions if it doesn't already exist
+        if (!updatedCustomPermissions[module[0].moduleCode]) {
+          updatedCustomPermissions[module[0].moduleCode] = modulePermissions;
+        }
+
         console.log(`🔄 Updating existing assignment ${assignmentId} with modules:`, updatedModules);
-        console.log(`🔄 Updating custom permissions:`, updatedCustomPermissions);
+        console.log(`🔄 Updating custom permissions for module ${module[0].moduleCode}:`, modulePermissions);
 
         // Validate data before update
         if (!Array.isArray(updatedModules)) {

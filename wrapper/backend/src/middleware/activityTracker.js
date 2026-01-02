@@ -46,8 +46,14 @@ export const trackActivity = (options = {}) => {
       const result = originalSend(payload);
       
       // Track activity after response (non-blocking)
+      // Also capture errors if status code indicates an error
       setImmediate(() => {
         logRequestActivity(request, reply, options);
+        
+        // If response indicates an error, log it separately
+        if (reply.statusCode >= 400 && request.user?.tenantId) {
+          logErrorActivity(request, reply, payload, options);
+        }
       });
       
       return result;
@@ -62,24 +68,38 @@ export const trackActivity = (options = {}) => {
  */
 async function logRequestActivity(request, reply, options = {}) {
   try {
-    if (!request.user) return; // Skip if no authenticated user
+    if (!request.user) {
+      return; // Skip if no authenticated user
+    }
 
     const { method, url, activityContext } = request;
     const { tenantId } = request.user;
     
+    if (!tenantId) {
+      console.log('⚠️ Activity tracking skipped: No tenantId for', url);
+      return;
+    }
+    
     // Use internal user ID, not Kinde user ID
     const userId = request.user.internalUserId || request.user.userId;
-    if (!userId) return; // Skip if no valid user ID
+    if (!userId) {
+      console.log('⚠️ Activity tracking skipped: No userId for', url);
+      return;
+    }
     
     // Determine activity type and details based on URL patterns
     const activityInfo = determineActivityType(method, url, request.body);
     
-    if (!activityInfo) return; // Skip if not a trackable activity
+    if (!activityInfo) {
+      return; // Skip if not a trackable activity
+    }
 
-    const requestContext = ActivityLogger.createRequestContext(request, activityContext.sessionId);
+    const requestContext = ActivityLogger.createRequestContext(request, activityContext?.sessionId);
+    
+    console.log(`📝 Logging activity: ${activityInfo.action} for user ${userId}, tenant ${tenantId}, URL: ${url}`);
     
     // Log the activity
-    await ActivityLogger.logActivity(
+    const result = await ActivityLogger.logActivity(
       userId,
       tenantId,
       activityInfo.appId,
@@ -88,11 +108,15 @@ async function logRequestActivity(request, reply, options = {}) {
         method,
         url,
         responseStatus: reply.statusCode,
-        duration: Date.now() - activityContext.startTime,
+        duration: Date.now() - (activityContext?.startTime || Date.now()),
         ...activityInfo.metadata
       },
       requestContext
     );
+
+    if (!result.success) {
+      console.error(`❌ Failed to log activity: ${result.error}`);
+    }
 
   } catch (error) {
     console.error('❌ Failed to track request activity:', error);
@@ -102,11 +126,10 @@ async function logRequestActivity(request, reply, options = {}) {
 
 /**
  * Determine activity type based on request patterns
- * Only returns activity types for meaningful operations (no views)
+ * Logs meaningful operations including API calls
  */
 function determineActivityType(method, url, body = {}) {
   const patterns = [
-    // Only meaningful operations - no view activities
     // Authentication activities
     {
       pattern: /\/api\/auth\/login/,
@@ -116,6 +139,12 @@ function determineActivityType(method, url, body = {}) {
     {
       pattern: /\/api\/auth\/logout/,
       action: ACTIVITY_TYPES.AUTH_LOGOUT,
+      appId: null
+    },
+    {
+      pattern: /\/api\/auth\/me/,
+      method: 'GET',
+      action: ACTIVITY_TYPES.AUTH_TOKEN_REFRESH,
       appId: null
     },
 
@@ -525,7 +554,27 @@ function determineActivityType(method, url, body = {}) {
     }
   }
 
-  return null; // No matching pattern found
+  // Log general API activity for POST, PUT, DELETE, PATCH operations
+  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+    // Extract app/module from URL
+    const urlParts = url.split('/').filter(Boolean);
+    let appCode = 'system';
+    
+    if (urlParts.length >= 2 && urlParts[0] === 'api') {
+      appCode = urlParts[1]; // e.g., 'users', 'roles', 'permissions'
+    }
+
+    return {
+      action: `api.${method.toLowerCase()}.${appCode}`,
+      appId: appCode,
+      metadata: {
+        endpoint: url,
+        method: method
+      }
+    };
+  }
+
+  return null; // No matching pattern found for GET requests
 }
 
 /**
@@ -757,4 +806,77 @@ export const trackLogout = async (user, request) => {
   } catch (error) {
     console.error('❌ Failed to track logout activity:', error);
   }
-}; 
+};
+
+/**
+ * Log error activity for API responses with error status codes
+ */
+async function logErrorActivity(request, reply, payload, options = {}) {
+  try {
+    if (!request.user) {
+      return; // Skip if no authenticated user
+    }
+
+    const { tenantId } = request.user;
+    const userId = request.user.internalUserId || request.user.userId;
+    
+    if (!tenantId || !userId) {
+      return;
+    }
+
+    const { method, url } = request;
+    const statusCode = reply.statusCode;
+    
+    // Only log significant errors (400+)
+    if (statusCode < 400) {
+      return;
+    }
+
+    const requestContext = ActivityLogger.createRequestContext(request, request.activityContext?.sessionId);
+    
+    // Create error object from response
+    const errorInfo = {
+      statusCode,
+      message: payload?.error || payload?.message || `HTTP ${statusCode}`,
+      code: payload?.code,
+      details: payload?.details,
+      validation: payload?.validation
+    };
+
+    // Determine error action based on status code
+    let action = ACTIVITY_TYPES.ERROR_API_ERROR;
+    if (statusCode === 400) {
+      action = ACTIVITY_TYPES.ERROR_VALIDATION_ERROR;
+    } else if (statusCode === 401 || statusCode === 403) {
+      action = ACTIVITY_TYPES.ERROR_AUTH_ERROR;
+    } else if (statusCode === 404) {
+      action = ACTIVITY_TYPES.ERROR_NOT_FOUND;
+    } else if (statusCode === 429) {
+      action = ACTIVITY_TYPES.ERROR_RATE_LIMIT;
+    } else if (statusCode >= 500) {
+      action = ACTIVITY_TYPES.ERROR_INTERNAL_ERROR;
+    }
+
+    // Log as activity with error context
+    await ActivityLogger.logActivity(
+      userId,
+      tenantId,
+      null,
+      action,
+      {
+        method,
+        url,
+        statusCode,
+        errorMessage: errorInfo.message,
+        errorCode: errorInfo.code,
+        hasDetails: !!errorInfo.details,
+        duration: Date.now() - (request.activityContext?.startTime || Date.now())
+      },
+      requestContext
+    );
+
+  } catch (error) {
+    console.error('❌ Failed to log error activity:', error);
+    // Don't throw - error logging failures shouldn't affect the main request
+  }
+} 

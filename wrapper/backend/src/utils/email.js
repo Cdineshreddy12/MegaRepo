@@ -1069,6 +1069,168 @@ class EmailService {
     console.log('✅ Dispute notification sent successfully');
   }
 
+  // Send payment confirmation email
+  async sendPaymentConfirmation({ tenantId, userEmail, userName, paymentType, amount, currency, transactionId, planName, billingCycle, creditsAdded, sessionId }) {
+    console.log('📧 Sending payment confirmation:', {
+      tenantId,
+      userEmail,
+      paymentType,
+      amount,
+      currency,
+      transactionId
+    });
+
+    const isSubscription = paymentType === 'subscription';
+    const isCreditPurchase = paymentType === 'credit_purchase' || paymentType === 'topup';
+    
+    const subject = isSubscription 
+      ? `Payment Confirmation - ${planName} Plan`
+      : `Payment Confirmation - Credit Purchase`;
+
+    const formattedAmount = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currency || 'USD'
+    }).format(amount);
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Payment Confirmation</title>
+        <style>
+          body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #f5f5f5; }
+          .container { max-width: 600px; margin: 20px auto; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+          .header { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); color: white; padding: 40px 30px; text-align: center; }
+          .header h1 { margin: 0; font-size: 28px; }
+          .header p { margin: 10px 0 0 0; opacity: 0.9; }
+          .content { padding: 30px; }
+          .success-icon { font-size: 48px; margin-bottom: 20px; }
+          .amount-box { background: #f0fdf4; border: 2px solid #22c55e; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0; }
+          .amount-box .amount { font-size: 32px; font-weight: bold; color: #16a34a; margin: 10px 0; }
+          .details { background: #f9fafb; border-radius: 8px; padding: 20px; margin: 20px 0; }
+          .detail-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #e5e7eb; }
+          .detail-row:last-child { border-bottom: none; }
+          .detail-label { color: #6b7280; font-weight: 500; }
+          .detail-value { color: #111827; font-weight: 600; }
+          .features { margin: 20px 0; }
+          .features h3 { color: #111827; margin-bottom: 15px; }
+          .feature-item { display: flex; align-items: center; padding: 10px 0; }
+          .feature-item::before { content: "✓"; color: #22c55e; font-weight: bold; margin-right: 10px; font-size: 18px; }
+          .footer { background: #f9fafb; padding: 20px 30px; text-align: center; color: #6b7280; font-size: 14px; border-top: 1px solid #e5e7eb; }
+          .button { display: inline-block; background: #22c55e; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 10px 5px; font-weight: 600; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <div class="success-icon">✅</div>
+            <h1>Payment Confirmed</h1>
+            <p>Thank you for your payment!</p>
+          </div>
+          <div class="content">
+            <div class="amount-box">
+              <div style="color: #6b7280; font-size: 14px;">Amount Paid</div>
+              <div class="amount">${formattedAmount}</div>
+            </div>
+
+            <div class="details">
+              <div class="detail-row">
+                <span class="detail-label">Transaction ID:</span>
+                <span class="detail-value">${transactionId || sessionId || 'N/A'}</span>
+              </div>
+              ${isSubscription ? `
+              <div class="detail-row">
+                <span class="detail-label">Plan:</span>
+                <span class="detail-value">${planName || 'Premium Plan'}</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Billing Cycle:</span>
+                <span class="detail-value">${billingCycle === 'yearly' ? 'Annual' : 'Monthly'}</span>
+              </div>
+              ` : ''}
+              ${isCreditPurchase && creditsAdded ? `
+              <div class="detail-row">
+                <span class="detail-label">Credits Added:</span>
+                <span class="detail-value">${creditsAdded.toLocaleString()} credits</span>
+              </div>
+              ` : ''}
+              <div class="detail-row">
+                <span class="detail-label">Payment Method:</span>
+                <span class="detail-value">Card</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Date:</span>
+                <span class="detail-value">${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+              </div>
+            </div>
+
+            ${isSubscription ? `
+            <div class="features">
+              <h3>Your Plan Benefits:</h3>
+              <div class="feature-item">Access to all premium features</div>
+              <div class="feature-item">Priority customer support</div>
+              <div class="feature-item">Advanced analytics and reporting</div>
+              <div class="feature-item">${billingCycle === 'yearly' ? 'Annual billing with savings' : 'Monthly billing flexibility'}</div>
+            </div>
+            ` : isCreditPurchase ? `
+            <div class="features">
+              <h3>Your Credits:</h3>
+              <div class="feature-item">${creditsAdded ? creditsAdded.toLocaleString() + ' credits' : 'Credits'} added to your account</div>
+              <div class="feature-item">Credits never expire</div>
+              <div class="feature-item">Use across all applications</div>
+            </div>
+            ` : ''}
+
+            <p style="text-align: center; margin-top: 30px;">
+              <a href="${process.env.FRONTEND_URL || 'https://app.wrapper.app'}/billing" class="button">View Billing Details</a>
+            </p>
+          </div>
+          <div class="footer">
+            <p>This is an automated confirmation email. Please keep this for your records.</p>
+            <p>If you have any questions, please contact our support team.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const textContent = `
+Payment Confirmation
+
+Thank you for your payment!
+
+Amount: ${formattedAmount}
+Transaction ID: ${transactionId || sessionId || 'N/A'}
+${isSubscription ? `Plan: ${planName || 'Premium Plan'}\nBilling Cycle: ${billingCycle === 'yearly' ? 'Annual' : 'Monthly'}` : ''}
+${isCreditPurchase && creditsAdded ? `Credits Added: ${creditsAdded.toLocaleString()} credits` : ''}
+Payment Method: Card
+Date: ${new Date().toLocaleDateString()}
+
+${isSubscription ? 'Your subscription is now active. All premium features are available.' : 'Your credits have been added to your account and are ready to use.'}
+
+View your billing details: ${process.env.FRONTEND_URL || 'https://app.wrapper.app'}/billing
+
+This is an automated confirmation email. Please keep this for your records.
+    `.trim();
+
+    try {
+      const result = await this.sendEmail({
+        to: userEmail,
+        subject,
+        htmlContent: html,
+        textContent: textContent
+      });
+
+      console.log(`✅ Payment confirmation email sent successfully to: ${userEmail}`);
+      return { success: true, result, emailSent: true };
+    } catch (error) {
+      console.error(`❌ Failed to send payment confirmation email to: ${userEmail}`, error);
+      return { success: false, error: error.message, emailSent: false };
+    }
+  }
+
   // Send refund confirmation
   async sendRefundConfirmation({ tenantId, refundId, amount, currency, reason, processedAt }) {
     console.log('📧 Sending refund confirmation:', {

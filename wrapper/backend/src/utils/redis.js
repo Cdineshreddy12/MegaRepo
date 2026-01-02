@@ -787,6 +787,7 @@ export { crmSyncStreams };
 export { CrmSyncStreams };
 
 // Export both the manager and the cache
+export { redisManager };
 export { redisManager as redis };
 export { usageCache };
 export { UsageCache };

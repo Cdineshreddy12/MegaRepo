@@ -798,6 +798,416 @@ export const BUSINESS_SUITE_MATRIX = {
       },
 
     }
+  },
+
+  // 📋 **PROJECT MANAGEMENT APPLICATION**
+  project_management: {
+    appInfo: {
+      appCode: 'project_management',
+      appName: 'Project Management',
+      description: 'Complete project management solution for managing projects, tasks, teams, and workflows',
+      icon: '📋',
+      baseUrl: 'https://prm.zopkit.com',
+      version: '1.0.0',
+      isCore: true,
+      sortOrder: 2
+    },
+    modules: {
+      // 📁 PROJECTS MODULE
+      projects: {
+        moduleCode: 'projects',
+        moduleName: 'Project Management',
+        description: 'Manage projects, timelines, and budgets',
+        isCore: true,
+        permissions: [
+          { code: 'read', name: 'View Projects', description: 'View and browse project information' },
+          { code: 'read_all', name: 'View All Projects', description: 'View all projects in organization' },
+          { code: 'create', name: 'Create Projects', description: 'Create new projects' },
+          { code: 'update', name: 'Edit Projects', description: 'Modify existing project information' },
+          { code: 'delete', name: 'Delete Projects', description: 'Remove projects from the system' },
+          { code: 'export', name: 'Export Projects', description: 'Export project data to various formats' },
+          { code: 'import', name: 'Import Projects', description: 'Import projects from external files' },
+          { code: 'assign', name: 'Assign Projects', description: 'Assign projects to team members' },
+          { code: 'archive', name: 'Archive Projects', description: 'Archive completed or inactive projects' },
+          { code: 'restore', name: 'Restore Projects', description: 'Restore archived projects' },
+          { code: 'manage_budget', name: 'Manage Budget', description: 'Manage project budgets and financials' },
+          { code: 'manage_timeline', name: 'Manage Timeline', description: 'Manage project timelines and milestones' },
+          { code: 'manage_settings', name: 'Manage Settings', description: 'Manage project settings and configurations' }
+        ]
+      },
+
+      // ✅ TASKS MODULE
+      tasks: {
+        moduleCode: 'tasks',
+        moduleName: 'Task Management',
+        description: 'Manage tasks, subtasks, and assignments',
+        isCore: true,
+        permissions: [
+          { code: 'read', name: 'View Tasks', description: 'View and browse task information' },
+          { code: 'read_all', name: 'View All Tasks', description: 'View all tasks in organization' },
+          { code: 'create', name: 'Create Tasks', description: 'Create new tasks' },
+          { code: 'update', name: 'Edit Tasks', description: 'Modify existing task information' },
+          { code: 'delete', name: 'Delete Tasks', description: 'Remove tasks from the system' },
+          { code: 'export', name: 'Export Tasks', description: 'Export task data to various formats' },
+          { code: 'import', name: 'Import Tasks', description: 'Import tasks from external files' },
+          { code: 'assign', name: 'Assign Tasks', description: 'Assign tasks to team members' },
+          { code: 'reassign', name: 'Reassign Tasks', description: 'Reassign tasks to different team members' },
+          { code: 'change_status', name: 'Change Status', description: 'Change task status (todo, in progress, done, etc.)' },
+          { code: 'change_priority', name: 'Change Priority', description: 'Change task priority levels' },
+          { code: 'add_subtasks', name: 'Add Subtasks', description: 'Add subtasks to existing tasks' },
+          { code: 'manage_dependencies', name: 'Manage Dependencies', description: 'Manage task dependencies and relationships' },
+          { code: 'add_attachments', name: 'Add Attachments', description: 'Add attachments to tasks' },
+          { code: 'add_comments', name: 'Add Comments', description: 'Add comments to tasks' },
+          { code: 'time_track', name: 'Track Time', description: 'Track time spent on tasks' }
+        ]
+      },
+
+      // 🏃 SPRINTS MODULE
+      sprints: {
+        moduleCode: 'sprints',
+        moduleName: 'Sprint Management',
+        description: 'Manage agile sprints and iterations',
+        isCore: true,
+        permissions: [
+          { code: 'read', name: 'View Sprints', description: 'View and browse sprint information' },
+          { code: 'read_all', name: 'View All Sprints', description: 'View all sprints in organization' },
+          { code: 'create', name: 'Create Sprints', description: 'Create new sprints' },
+          { code: 'update', name: 'Edit Sprints', description: 'Modify existing sprint information' },
+          { code: 'delete', name: 'Delete Sprints', description: 'Remove sprints from the system' },
+          { code: 'export', name: 'Export Sprints', description: 'Export sprint data' },
+          { code: 'start', name: 'Start Sprints', description: 'Start sprint execution' },
+          { code: 'complete', name: 'Complete Sprints', description: 'Mark sprints as completed' },
+          { code: 'cancel', name: 'Cancel Sprints', description: 'Cancel active sprints' },
+          { code: 'manage_capacity', name: 'Manage Capacity', description: 'Manage sprint capacity and velocity' },
+          { code: 'assign_tasks', name: 'Assign Tasks', description: 'Assign tasks to sprints' },
+          { code: 'view_burndown', name: 'View Burndown', description: 'View sprint burndown charts' }
+        ]
+      },
+
+      // ⏱️ TIME TRACKING MODULE
+      time_tracking: {
+        moduleCode: 'time_tracking',
+        moduleName: 'Time Tracking',
+        description: 'Track time spent on projects and tasks',
+        isCore: true,
+        permissions: [
+          { code: 'read', name: 'View Time Entries', description: 'View time entry information' },
+          { code: 'read_all', name: 'View All Time Entries', description: 'View all time entries in organization' },
+          { code: 'create', name: 'Create Time Entries', description: 'Create new time entries' },
+          { code: 'update', name: 'Edit Time Entries', description: 'Modify existing time entries' },
+          { code: 'delete', name: 'Delete Time Entries', description: 'Remove time entries' },
+          { code: 'export', name: 'Export Time Entries', description: 'Export time tracking data' },
+          { code: 'import', name: 'Import Time Entries', description: 'Import time entries from files' },
+          { code: 'approve', name: 'Approve Time Entries', description: 'Approve time entries for billing' },
+          { code: 'reject', name: 'Reject Time Entries', description: 'Reject time entries' },
+          { code: 'view_reports', name: 'View Reports', description: 'View time tracking reports and analytics' },
+          { code: 'manage_billable', name: 'Manage Billable Hours', description: 'Mark time entries as billable/non-billable' },
+          { code: 'bulk_approve', name: 'Bulk Approve', description: 'Approve multiple time entries at once' }
+        ]
+      },
+
+      // 👥 TEAM MODULE
+      team: {
+        moduleCode: 'team',
+        moduleName: 'Team Management',
+        description: 'Manage team members and assignments',
+        isCore: true,
+        permissions: [
+          { code: 'read', name: 'View Team Members', description: 'View team member information' },
+          { code: 'read_all', name: 'View All Team Members', description: 'View all team members in organization' },
+          { code: 'create', name: 'Add Team Members', description: 'Add new team members to projects' },
+          { code: 'update', name: 'Edit Team Members', description: 'Modify team member information' },
+          { code: 'delete', name: 'Remove Team Members', description: 'Remove team members from projects' },
+          { code: 'export', name: 'Export Team Data', description: 'Export team member data' },
+          { code: 'import', name: 'Import Team Members', description: 'Import team members from files' },
+          { code: 'assign_roles', name: 'Assign Roles', description: 'Assign roles to team members' },
+          { code: 'manage_permissions', name: 'Manage Permissions', description: 'Manage team member permissions' },
+          { code: 'view_performance', name: 'View Performance', description: 'View team member performance metrics' },
+          { code: 'manage_availability', name: 'Manage Availability', description: 'Manage team member availability and capacity' }
+        ]
+      },
+
+      // 📊 BACKLOG MODULE
+      backlog: {
+        moduleCode: 'backlog',
+        moduleName: 'Backlog Management',
+        description: 'Manage product backlog and user stories',
+        isCore: true,
+        permissions: [
+          { code: 'read', name: 'View Backlog', description: 'View backlog items and user stories' },
+          { code: 'read_all', name: 'View All Backlog', description: 'View all backlog items in organization' },
+          { code: 'create', name: 'Create Backlog Items', description: 'Create new backlog items and stories' },
+          { code: 'update', name: 'Edit Backlog Items', description: 'Modify existing backlog items' },
+          { code: 'delete', name: 'Delete Backlog Items', description: 'Remove backlog items' },
+          { code: 'export', name: 'Export Backlog', description: 'Export backlog data' },
+          { code: 'import', name: 'Import Backlog', description: 'Import backlog items from files' },
+          { code: 'prioritize', name: 'Prioritize Items', description: 'Prioritize backlog items' },
+          { code: 'estimate', name: 'Estimate Items', description: 'Add story points and estimates' },
+          { code: 'move_to_sprint', name: 'Move to Sprint', description: 'Move backlog items to sprints' },
+          { code: 'manage_epics', name: 'Manage Epics', description: 'Manage epics and feature groups' }
+        ]
+      },
+
+      // 📄 DOCUMENTS MODULE
+      documents: {
+        moduleCode: 'documents',
+        moduleName: 'Document Management',
+        description: 'Manage project documents and files',
+        isCore: true,
+        permissions: [
+          { code: 'read', name: 'View Documents', description: 'View document information' },
+          { code: 'read_all', name: 'View All Documents', description: 'View all documents in organization' },
+          { code: 'create', name: 'Upload Documents', description: 'Upload new documents' },
+          { code: 'update', name: 'Edit Documents', description: 'Modify document information and metadata' },
+          { code: 'delete', name: 'Delete Documents', description: 'Remove documents from the system' },
+          { code: 'export', name: 'Export Documents', description: 'Export document data' },
+          { code: 'download', name: 'Download Documents', description: 'Download document files' },
+          { code: 'share', name: 'Share Documents', description: 'Share documents with team members' },
+          { code: 'version_control', name: 'Manage Versions', description: 'Manage document versions' },
+          { code: 'add_comments', name: 'Add Comments', description: 'Add comments to documents' },
+          { code: 'approve', name: 'Approve Documents', description: 'Approve documents for use' },
+          { code: 'manage_permissions', name: 'Manage Permissions', description: 'Manage document access permissions' }
+        ]
+      },
+
+      // 📈 ANALYTICS MODULE
+      analytics: {
+        moduleCode: 'analytics',
+        moduleName: 'Analytics & Reporting',
+        description: 'View project analytics and generate reports',
+        isCore: true,
+        permissions: [
+          { code: 'read', name: 'View Analytics', description: 'View analytics and metrics' },
+          { code: 'read_all', name: 'View All Analytics', description: 'View all analytics in organization' },
+          { code: 'create', name: 'Create Reports', description: 'Create custom reports' },
+          { code: 'update', name: 'Edit Reports', description: 'Modify existing reports' },
+          { code: 'delete', name: 'Delete Reports', description: 'Remove reports' },
+          { code: 'export', name: 'Export Reports', description: 'Export report data' },
+          { code: 'schedule', name: 'Schedule Reports', description: 'Schedule automated reports' },
+          { code: 'view_dashboards', name: 'View Dashboards', description: 'View analytics dashboards' },
+          { code: 'customize_dashboards', name: 'Customize Dashboards', description: 'Customize dashboard layouts' },
+          { code: 'view_project_health', name: 'View Project Health', description: 'View project health scores and metrics' },
+          { code: 'view_team_performance', name: 'View Team Performance', description: 'View team performance analytics' },
+          { code: 'view_burndown', name: 'View Burndown Charts', description: 'View sprint and project burndown charts' },
+          { code: 'view_velocity', name: 'View Velocity', description: 'View team velocity metrics' }
+        ]
+      },
+
+      // 📋 REPORTS MODULE
+      reports: {
+        moduleCode: 'reports',
+        moduleName: 'Report Management',
+        description: 'Create and manage project reports',
+        isCore: true,
+        permissions: [
+          { code: 'read', name: 'View Reports', description: 'View report information' },
+          { code: 'read_all', name: 'View All Reports', description: 'View all reports in organization' },
+          { code: 'create', name: 'Create Reports', description: 'Create new reports' },
+          { code: 'update', name: 'Edit Reports', description: 'Modify existing reports' },
+          { code: 'delete', name: 'Delete Reports', description: 'Remove reports' },
+          { code: 'export', name: 'Export Reports', description: 'Export report data to various formats' },
+          { code: 'schedule', name: 'Schedule Reports', description: 'Schedule automated report generation' },
+          { code: 'share', name: 'Share Reports', description: 'Share reports with team members' },
+          { code: 'generate_pdf', name: 'Generate PDF', description: 'Generate PDF versions of reports' },
+          { code: 'customize', name: 'Customize Reports', description: 'Customize report templates and layouts' }
+        ]
+      },
+
+      // 💬 CHAT MODULE
+      chat: {
+        moduleCode: 'chat',
+        moduleName: 'Project Chat',
+        description: 'Team communication and collaboration',
+        isCore: true,
+        permissions: [
+          { code: 'read', name: 'View Messages', description: 'View chat messages and conversations' },
+          { code: 'read_all', name: 'View All Messages', description: 'View all messages in organization' },
+          { code: 'create', name: 'Send Messages', description: 'Send messages in project chats' },
+          { code: 'update', name: 'Edit Messages', description: 'Edit own messages' },
+          { code: 'delete', name: 'Delete Messages', description: 'Delete own messages' },
+          { code: 'create_channels', name: 'Create Channels', description: 'Create new chat channels' },
+          { code: 'manage_channels', name: 'Manage Channels', description: 'Manage channel settings and members' },
+          { code: 'delete_channels', name: 'Delete Channels', description: 'Delete chat channels' },
+          { code: 'mention_users', name: 'Mention Users', description: 'Mention users in messages' },
+          { code: 'share_files', name: 'Share Files', description: 'Share files in chat' },
+          { code: 'pin_messages', name: 'Pin Messages', description: 'Pin important messages' }
+        ]
+      },
+
+      // 📅 CALENDAR MODULE
+      calendar: {
+        moduleCode: 'calendar',
+        moduleName: 'Calendar Management',
+        description: 'Manage project events, meetings, and schedules',
+        isCore: true,
+        permissions: [
+          { code: 'read', name: 'View Calendar', description: 'View calendar events' },
+          { code: 'read_all', name: 'View All Events', description: 'View all calendar events in organization' },
+          { code: 'create', name: 'Create Events', description: 'Create new calendar events' },
+          { code: 'update', name: 'Edit Events', description: 'Modify event information' },
+          { code: 'delete', name: 'Delete Events', description: 'Remove calendar events' },
+          { code: 'export', name: 'Export Calendar', description: 'Export calendar data' },
+          { code: 'import', name: 'Import Events', description: 'Import events from files' },
+          { code: 'share', name: 'Share Events', description: 'Share events with team members' },
+          { code: 'manage_recurring', name: 'Manage Recurring Events', description: 'Create and manage recurring events' }
+        ]
+      },
+
+      // 🎯 KANBAN MODULE
+      kanban: {
+        moduleCode: 'kanban',
+        moduleName: 'Kanban Board',
+        description: 'Manage tasks using Kanban boards',
+        isCore: true,
+        permissions: [
+          { code: 'read', name: 'View Kanban Boards', description: 'View Kanban board information' },
+          { code: 'read_all', name: 'View All Boards', description: 'View all Kanban boards in organization' },
+          { code: 'create', name: 'Create Boards', description: 'Create new Kanban boards' },
+          { code: 'update', name: 'Edit Boards', description: 'Modify board settings and columns' },
+          { code: 'delete', name: 'Delete Boards', description: 'Remove Kanban boards' },
+          { code: 'move_cards', name: 'Move Cards', description: 'Move task cards between columns' },
+          { code: 'manage_columns', name: 'Manage Columns', description: 'Add, edit, and remove board columns' },
+          { code: 'manage_filters', name: 'Manage Filters', description: 'Create and manage board filters' },
+          { code: 'export', name: 'Export Boards', description: 'Export board data' }
+        ]
+      },
+
+      // 📊 DASHBOARD MODULE
+      dashboard: {
+        moduleCode: 'dashboard',
+        moduleName: 'Project Dashboard',
+        description: 'Project overview and analytics dashboard',
+        isCore: true,
+        permissions: [
+          { code: 'view', name: 'View Dashboard', description: 'Access project dashboard' },
+          { code: 'customize', name: 'Customize Dashboard', description: 'Customize dashboard layout and widgets' },
+          { code: 'export', name: 'Export Dashboard', description: 'Export dashboard data and reports' },
+          { code: 'share', name: 'Share Dashboard', description: 'Share dashboard views with others' },
+          { code: 'create_widgets', name: 'Create Widgets', description: 'Create custom dashboard widgets' },
+          { code: 'manage_widgets', name: 'Manage Widgets', description: 'Manage dashboard widget settings' }
+        ]
+      },
+
+      // 🔔 NOTIFICATIONS MODULE
+      notifications: {
+        moduleCode: 'notifications',
+        moduleName: 'Notification Management',
+        description: 'Manage notifications and alerts',
+        isCore: true,
+        permissions: [
+          { code: 'read', name: 'View Notifications', description: 'View notification information' },
+          { code: 'read_all', name: 'View All Notifications', description: 'View all notifications in organization' },
+          { code: 'create', name: 'Create Notifications', description: 'Create custom notifications' },
+          { code: 'update', name: 'Edit Notifications', description: 'Modify notification settings' },
+          { code: 'delete', name: 'Delete Notifications', description: 'Remove notifications' },
+          { code: 'manage_preferences', name: 'Manage Preferences', description: 'Manage notification preferences' },
+          { code: 'mark_read', name: 'Mark as Read', description: 'Mark notifications as read' },
+          { code: 'bulk_actions', name: 'Bulk Actions', description: 'Perform bulk actions on notifications' }
+        ]
+      },
+
+      // ⚙️ WORKSPACE MODULE
+      workspace: {
+        moduleCode: 'workspace',
+        moduleName: 'Workspace Management',
+        description: 'Manage workspaces and team collaboration spaces',
+        isCore: true,
+        permissions: [
+          { code: 'read', name: 'View Workspaces', description: 'View workspace information' },
+          { code: 'read_all', name: 'View All Workspaces', description: 'View all workspaces in organization' },
+          { code: 'create', name: 'Create Workspaces', description: 'Create new workspaces' },
+          { code: 'update', name: 'Edit Workspaces', description: 'Modify workspace settings' },
+          { code: 'delete', name: 'Delete Workspaces', description: 'Remove workspaces' },
+          { code: 'manage_members', name: 'Manage Members', description: 'Add and remove workspace members' },
+          { code: 'manage_roles', name: 'Manage Roles', description: 'Assign roles to workspace members' },
+          { code: 'manage_settings', name: 'Manage Settings', description: 'Manage workspace settings and configurations' },
+          { code: 'export', name: 'Export Workspace Data', description: 'Export workspace data' },
+          { code: 'archive', name: 'Archive Workspaces', description: 'Archive inactive workspaces' },
+          { code: 'restore', name: 'Restore Workspaces', description: 'Restore archived workspaces' }
+        ]
+      },
+
+      // 🔄 WORKFLOW MODULE
+      workflow: {
+        moduleCode: 'workflow',
+        moduleName: 'Workflow Management',
+        description: 'Manage automated workflows and processes',
+        isCore: false,
+        permissions: [
+          { code: 'read', name: 'View Workflows', description: 'View workflow information' },
+          { code: 'read_all', name: 'View All Workflows', description: 'View all workflows in organization' },
+          { code: 'create', name: 'Create Workflows', description: 'Create new workflows' },
+          { code: 'update', name: 'Edit Workflows', description: 'Modify workflow definitions' },
+          { code: 'delete', name: 'Delete Workflows', description: 'Remove workflows' },
+          { code: 'activate', name: 'Activate Workflows', description: 'Activate workflows for execution' },
+          { code: 'deactivate', name: 'Deactivate Workflows', description: 'Deactivate workflows' },
+          { code: 'view_executions', name: 'View Executions', description: 'View workflow execution history' },
+          { code: 'manage_rules', name: 'Manage Rules', description: 'Manage workflow rules and conditions' },
+          { code: 'manage_actions', name: 'Manage Actions', description: 'Manage workflow actions and triggers' },
+          { code: 'export', name: 'Export Workflows', description: 'Export workflow definitions' },
+          { code: 'import', name: 'Import Workflows', description: 'Import workflows from files' }
+        ]
+      },
+
+      // ⚙️ SYSTEM MODULE
+      system: {
+        moduleCode: 'system',
+        moduleName: 'System Configuration',
+        description: 'System administration and configuration management',
+        isCore: true,
+        permissions: [
+          // Settings Permissions
+          { code: 'settings_read', name: 'View Settings', description: 'View system settings and configurations' },
+          { code: 'settings_update', name: 'Update Settings', description: 'Update system settings' },
+
+          // User Management Permissions
+          { code: 'users_read', name: 'View Users', description: 'View user information' },
+          { code: 'users_read_all', name: 'View All Users', description: 'View all users in organization' },
+          { code: 'users_create', name: 'Create Users', description: 'Create new user accounts' },
+          { code: 'users_update', name: 'Edit Users', description: 'Modify user information' },
+          { code: 'users_delete', name: 'Delete Users', description: 'Remove user accounts' },
+          { code: 'users_activate', name: 'Activate Users', description: 'Activate/deactivate users' },
+          { code: 'users_reset_password', name: 'Reset Passwords', description: 'Reset user passwords' },
+          { code: 'users_export', name: 'Export Users', description: 'Export user data' },
+          { code: 'users_import', name: 'Import Users', description: 'Import users from files' },
+
+          // Role Management Permissions
+          { code: 'roles_read', name: 'View Roles', description: 'View role information' },
+          { code: 'roles_read_all', name: 'View All Roles', description: 'View all roles in organization' },
+          { code: 'roles_create', name: 'Create Roles', description: 'Create new roles' },
+          { code: 'roles_update', name: 'Edit Roles', description: 'Modify role information' },
+          { code: 'roles_delete', name: 'Delete Roles', description: 'Remove roles' },
+          { code: 'roles_assign', name: 'Assign Roles', description: 'Assign roles to users' },
+          { code: 'roles_export', name: 'Export Roles', description: 'Export role data' },
+
+          // Integration Permissions
+          { code: 'integrations_read', name: 'View Integrations', description: 'View system integrations' },
+          { code: 'integrations_create', name: 'Create Integrations', description: 'Create new integrations' },
+          { code: 'integrations_update', name: 'Update Integrations', description: 'Update existing integrations' },
+          { code: 'integrations_delete', name: 'Delete Integrations', description: 'Delete integrations' },
+
+          // Audit Logs Permissions
+          { code: 'audit_read', name: 'View Audit Logs', description: 'View basic audit log information' },
+          { code: 'audit_read_all', name: 'View All Audit Logs', description: 'View all audit logs in organization' },
+          { code: 'audit_export', name: 'Export Audit Logs', description: 'Export audit log data to various formats' },
+          { code: 'audit_view_details', name: 'View Audit Details', description: 'View detailed audit log information' },
+          { code: 'audit_filter', name: 'Filter Audit Logs', description: 'Filter audit logs by various criteria' },
+          { code: 'audit_generate_reports', name: 'Generate Reports', description: 'Generate audit reports' },
+          { code: 'audit_archive', name: 'Archive Logs', description: 'Archive old audit logs' },
+          { code: 'audit_purge', name: 'Purge Old Logs', description: 'Purge old audit logs' },
+
+          // Activity Logs Permissions
+          { code: 'activity_logs_read', name: 'View Activity Logs', description: 'View activity log information' },
+          { code: 'activity_logs_read_all', name: 'View All Activity Logs', description: 'View all activity logs in organization' },
+          { code: 'activity_logs_export', name: 'Export Activity Logs', description: 'Export activity log data' },
+          { code: 'activity_logs_view_details', name: 'View Activity Details', description: 'View detailed activity information' },
+          { code: 'activity_logs_filter', name: 'Filter Activity Logs', description: 'Filter activity logs by various criteria' },
+          { code: 'activity_logs_generate_reports', name: 'Generate Reports', description: 'Generate activity log reports' },
+          { code: 'activity_logs_archive', name: 'Archive Logs', description: 'Archive old activity logs' },
+          { code: 'activity_logs_purge', name: 'Purge Old Logs', description: 'Purge old activity logs' }
+        ]
+      }
+    }
   }
 };
 
@@ -824,10 +1234,11 @@ export const PLAN_ACCESS_MATRIX = {
 
 
   starter: {
-    applications: ['crm', 'hr'],
+    applications: ['crm', 'hr', 'project_management'],
     modules: {
       crm: ['leads', 'contacts', 'accounts', 'opportunities', 'dashboard'],
-      hr: ['employees', 'leave', 'dashboard']
+      hr: ['employees', 'leave', 'dashboard'],
+      project_management: ['projects', 'tasks', 'team', 'dashboard']
     },
     permissions: {
       crm: {
@@ -841,6 +1252,12 @@ export const PLAN_ACCESS_MATRIX = {
         employees: ['read', 'create', 'update', 'delete'],
         leave: ['read', 'create', 'update', 'approve'],
         dashboard: ['read']
+      },
+      project_management: {
+        projects: ['read', 'create', 'update', 'delete', 'export', 'assign'],
+        tasks: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'assign', 'change_status'],
+        team: ['read', 'read_all', 'create', 'update', 'delete', 'export'],
+        dashboard: ['view']
       }
     },
     credits: {
@@ -851,10 +1268,11 @@ export const PLAN_ACCESS_MATRIX = {
   },
 
   professional: {
-    applications: ['crm', 'hr'],
+    applications: ['crm', 'hr', 'project_management'],
     modules: {
       crm: ['leads', 'contacts', 'accounts', 'opportunities', 'quotations', 'invoices', 'inventory', 'product_orders', 'tickets', 'communications', 'calendar', 'dashboard'],
-      hr: ['employees', 'payroll', 'leave', 'dashboard']
+      hr: ['employees', 'payroll', 'leave', 'dashboard'],
+      project_management: ['projects', 'tasks', 'sprints', 'time_tracking', 'team', 'backlog', 'documents', 'analytics', 'reports', 'chat', 'calendar', 'kanban', 'dashboard', 'notifications', 'workspace']
     },
     permissions: {
       crm: {
@@ -876,6 +1294,23 @@ export const PLAN_ACCESS_MATRIX = {
         payroll: ['read', 'create', 'update', 'process'],
         leave: ['read', 'read_all', 'create', 'update', 'approve', 'reject'],
         dashboard: ['read']
+      },
+      project_management: {
+        projects: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'import', 'assign', 'archive', 'restore', 'manage_budget', 'manage_timeline', 'manage_settings'],
+        tasks: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'import', 'assign', 'reassign', 'change_status', 'change_priority', 'add_subtasks', 'manage_dependencies', 'add_attachments', 'add_comments', 'time_track'],
+        sprints: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'start', 'complete', 'cancel', 'manage_capacity', 'assign_tasks', 'view_burndown'],
+        time_tracking: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'import', 'approve', 'reject', 'view_reports', 'manage_billable'],
+        team: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'import', 'assign_roles', 'manage_permissions', 'view_performance', 'manage_availability'],
+        backlog: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'import', 'prioritize', 'estimate', 'move_to_sprint', 'manage_epics'],
+        documents: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'download', 'share', 'version_control', 'add_comments', 'approve', 'manage_permissions'],
+        analytics: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'schedule', 'view_dashboards', 'customize_dashboards', 'view_project_health', 'view_team_performance', 'view_burndown', 'view_velocity'],
+        reports: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'schedule', 'share', 'generate_pdf', 'customize'],
+        chat: ['read', 'read_all', 'create', 'update', 'delete', 'create_channels', 'manage_channels', 'delete_channels', 'mention_users', 'share_files', 'pin_messages'],
+        calendar: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'import', 'share', 'manage_recurring'],
+        kanban: ['read', 'read_all', 'create', 'update', 'delete', 'move_cards', 'manage_columns', 'manage_filters', 'export'],
+        dashboard: ['view', 'customize', 'export', 'share', 'create_widgets', 'manage_widgets'],
+        notifications: ['read', 'read_all', 'create', 'update', 'delete', 'manage_preferences', 'mark_read', 'bulk_actions'],
+        workspace: ['read', 'read_all', 'create', 'update', 'delete', 'manage_members', 'manage_roles', 'manage_settings', 'export', 'archive', 'restore']
       }
     },
     credits: {
@@ -887,11 +1322,12 @@ export const PLAN_ACCESS_MATRIX = {
 
 
   enterprise: {
-    applications: ['crm', 'hr', 'affiliateConnect'],
+    applications: ['crm', 'hr', 'affiliateConnect', 'project_management'],
     modules: {
       crm: ['leads', 'accounts', 'contacts', 'opportunities', 'quotations', 'invoices', 'inventory', 'product_orders', 'sales_orders', 'tickets', 'communications', 'calendar', 'ai_insights', 'form_builder', 'analytics', 'dashboard', 'system'],
       hr: ['employees', 'payroll', 'leave', 'dashboard'],
-      affiliateConnect: ['dashboard', 'products', 'affiliates', 'tracking', 'commissions', 'campaigns', 'influencers', 'payments', 'analytics', 'fraud', 'communications', 'integrations', 'settings', 'support']
+      affiliateConnect: ['dashboard', 'products', 'affiliates', 'tracking', 'commissions', 'campaigns', 'influencers', 'payments', 'analytics', 'fraud', 'communications', 'integrations', 'settings', 'support'],
+      project_management: ['projects', 'tasks', 'sprints', 'time_tracking', 'team', 'backlog', 'documents', 'analytics', 'reports', 'chat', 'calendar', 'kanban', 'dashboard', 'notifications', 'workspace', 'workflow', 'system']
     },
     permissions: {
       crm: {
@@ -934,6 +1370,25 @@ export const PLAN_ACCESS_MATRIX = {
         integrations: ['read_api_keys', 'create_api_keys', 'update_api_keys', 'delete_api_keys', 'read_webhooks', 'create_webhooks', 'update_webhooks', 'delete_webhooks', 'manage_integrations'],
         settings: ['read_tenant_settings', 'update_tenant_settings', 'read_users', 'create_users', 'update_users', 'delete_users', 'read_roles', 'create_roles', 'update_roles', 'delete_roles', 'manage_permissions'],
         support: ['read_tickets', 'create_tickets', 'update_tickets', 'view_knowledge_base', 'search_knowledge_base', 'manage_tickets', 'view_all_tickets']
+      },
+      project_management: {
+        projects: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'import', 'assign', 'archive', 'restore', 'manage_budget', 'manage_timeline', 'manage_settings'],
+        tasks: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'import', 'assign', 'reassign', 'change_status', 'change_priority', 'add_subtasks', 'manage_dependencies', 'add_attachments', 'add_comments', 'time_track'],
+        sprints: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'start', 'complete', 'cancel', 'manage_capacity', 'assign_tasks', 'view_burndown'],
+        time_tracking: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'import', 'approve', 'reject', 'view_reports', 'manage_billable', 'bulk_approve'],
+        team: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'import', 'assign_roles', 'manage_permissions', 'view_performance', 'manage_availability'],
+        backlog: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'import', 'prioritize', 'estimate', 'move_to_sprint', 'manage_epics'],
+        documents: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'download', 'share', 'version_control', 'add_comments', 'approve', 'manage_permissions'],
+        analytics: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'schedule', 'view_dashboards', 'customize_dashboards', 'view_project_health', 'view_team_performance', 'view_burndown', 'view_velocity'],
+        reports: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'schedule', 'share', 'generate_pdf', 'customize'],
+        chat: ['read', 'read_all', 'create', 'update', 'delete', 'create_channels', 'manage_channels', 'delete_channels', 'mention_users', 'share_files', 'pin_messages'],
+        calendar: ['read', 'read_all', 'create', 'update', 'delete', 'export', 'import', 'share', 'manage_recurring'],
+        kanban: ['read', 'read_all', 'create', 'update', 'delete', 'move_cards', 'manage_columns', 'manage_filters', 'export'],
+        dashboard: ['view', 'customize', 'export', 'share', 'create_widgets', 'manage_widgets'],
+        notifications: ['read', 'read_all', 'create', 'update', 'delete', 'manage_preferences', 'mark_read', 'bulk_actions'],
+        workspace: ['read', 'read_all', 'create', 'update', 'delete', 'manage_members', 'manage_roles', 'manage_settings', 'export', 'archive', 'restore'],
+        workflow: ['read', 'read_all', 'create', 'update', 'delete', 'activate', 'deactivate', 'view_executions', 'manage_rules', 'manage_actions', 'export', 'import'],
+        system: ['settings_read', 'settings_update', 'users_read', 'users_read_all', 'users_create', 'users_update', 'users_delete', 'users_activate', 'users_reset_password', 'users_export', 'users_import', 'roles_read', 'roles_read_all', 'roles_create', 'roles_update', 'roles_delete', 'roles_assign', 'roles_export', 'integrations_read', 'integrations_create', 'integrations_update', 'integrations_delete', 'audit_read', 'audit_read_all', 'audit_export', 'audit_view_details', 'audit_filter', 'audit_generate_reports', 'audit_archive', 'audit_purge', 'activity_logs_read', 'activity_logs_read_all', 'activity_logs_export', 'activity_logs_view_details', 'activity_logs_filter', 'activity_logs_generate_reports', 'activity_logs_archive', 'activity_logs_purge']
       }
     },
     credits: {

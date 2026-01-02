@@ -4,6 +4,7 @@ import { trackUsage } from '../../../middleware/usage.js';
 import { checkRoleLimit } from '../../../middleware/planRestrictions.js';
 import { db } from '../../../db/index.js';
 import { userRoleAssignments, tenantUsers, customRoles } from '../../../db/schema/index.js';
+import { applications as applicationsSchema, organizationApplications } from '../../../db/schema/suite-schema.js';
 import { eq, and } from 'drizzle-orm';
 import Logger from '../../../utils/logger.js';
 import ActivityLogger, { ACTIVITY_TYPES, RESOURCE_TYPES } from '../../../services/activityLogger.js';
@@ -25,20 +26,77 @@ export async function publishRoleEventToApplications(eventType, tenantId, roleId
 
     // Parse permissions if they're stored as JSON string
     let permissions = roleData.permissions;
+    console.log(`🔍 [publishRoleEvent] Processing permissions for role ${roleId}:`, {
+      type: typeof permissions,
+      isNull: permissions === null,
+      isUndefined: permissions === undefined,
+      isString: typeof permissions === 'string',
+      isObject: typeof permissions === 'object' && permissions !== null,
+      sample: permissions ? (typeof permissions === 'string' ? permissions.substring(0, 100) : JSON.stringify(permissions).substring(0, 100)) : 'null/undefined'
+    });
+
     if (typeof permissions === 'string') {
       try {
         permissions = JSON.parse(permissions);
+        console.log(`✅ [publishRoleEvent] Parsed permissions JSON string for role ${roleId}`);
       } catch (e) {
-        console.warn('⚠️ Failed to parse permissions JSON:', e.message);
+        console.warn(`⚠️ [publishRoleEvent] Failed to parse permissions JSON for role ${roleId}:`, e.message);
         permissions = {};
       }
     }
 
-    // Extract which applications are present in this role's permissions
-    const applications = PermissionMatrixUtils.extractApplicationsFromPermissions(permissions);
+    // Ensure permissions is an object (could be null/undefined from database)
+    if (!permissions || typeof permissions !== 'object') {
+      console.warn(`⚠️ [publishRoleEvent] Invalid permissions format for role ${roleId}, using empty object. Type: ${typeof permissions}`);
+      permissions = {};
+    }
 
-    if (applications.length === 0) {
-      console.log(`⚠️ No applications found in role ${roleId} permissions, skipping event publishing`);
+    // Extract which applications are present in this role's permissions
+    let applications = PermissionMatrixUtils.extractApplicationsFromPermissions(permissions);
+    console.log(`🔍 [publishRoleEvent] Extracted applications for role ${roleId}:`, applications);
+
+    // For deletion events, if we can't extract applications from permissions,
+    // try to get all enabled applications for the tenant as a fallback
+    if (applications.length === 0 && eventType === 'role.deleted') {
+      console.log(`⚠️ [publishRoleEvent] No applications found in role ${roleId} permissions for deletion event, attempting fallback...`);
+      console.log(`📋 [publishRoleEvent] Permissions structure:`, {
+        permissionsKeys: permissions ? Object.keys(permissions) : 'null/undefined',
+        permissionsType: typeof permissions,
+        permissionsPreview: permissions ? JSON.stringify(permissions).substring(0, 200) : 'null/undefined'
+      });
+      
+      try {
+        // Try to get enabled applications for the tenant as fallback
+        const enabledApps = await db
+          .select({
+            appCode: applicationsSchema.appCode
+          })
+          .from(organizationApplications)
+          .innerJoin(applicationsSchema, eq(organizationApplications.appId, applicationsSchema.appId))
+          .where(and(
+            eq(organizationApplications.tenantId, tenantId),
+            eq(organizationApplications.isEnabled, true)
+          ));
+        
+        applications = enabledApps.map(app => app.appCode);
+        console.log(`✅ [publishRoleEvent] Fallback: Found ${applications.length} enabled applications for tenant ${tenantId}:`, applications);
+        
+        if (applications.length === 0) {
+          console.log(`⚠️ [publishRoleEvent] No enabled applications found for tenant ${tenantId}, skipping event publishing`);
+          return;
+        }
+      } catch (fallbackError) {
+        console.error(`❌ [publishRoleEvent] Failed to get enabled applications as fallback:`, fallbackError.message);
+        console.log(`⚠️ [publishRoleEvent] Skipping event publishing for role ${roleId}`);
+        return;
+      }
+    } else if (applications.length === 0) {
+      console.log(`⚠️ [publishRoleEvent] No applications found in role ${roleId} permissions, skipping event publishing`);
+      console.log(`📋 [publishRoleEvent] Permissions structure:`, {
+        permissionsKeys: permissions ? Object.keys(permissions) : 'null/undefined',
+        permissionsType: typeof permissions,
+        permissionsPreview: permissions ? JSON.stringify(permissions).substring(0, 200) : 'null/undefined'
+      });
       return;
     }
 

@@ -5,7 +5,7 @@ import { trackUsage } from '../../../middleware/usage.js';
 import { getPlanLimits } from '../../../middleware/planRestrictions.js';
 // REMOVED: credit-allocation-validation middleware - Applications manage their own credits
 import { db } from '../../../db/index.js';
-import { credits, creditTransactions, tenantUsers, entities } from '../../../db/schema/index.js';
+import { credits, creditTransactions, creditPurchases, tenantUsers, entities } from '../../../db/schema/index.js';
 import { eq, and, desc, gte, lte } from 'drizzle-orm';
 import ErrorResponses from '../../../utils/error-responses.js';
 
@@ -117,6 +117,9 @@ export default async function creditRoutes(fastify, options) {
           data: {
             tenantId: null, // No tenant yet
             availableCredits: 0,
+            freeCredits: 0,
+            paidCredits: 0,
+            seasonalCredits: 0,
             reservedCredits: 0,
             totalCredits: 0,
             creditBalance: 0,
@@ -124,6 +127,9 @@ export default async function creditRoutes(fastify, options) {
             status: 'no_credits',
             lastPurchase: null,
             creditExpiry: null,
+            freeCreditsExpiry: null,
+            paidCreditsExpiry: null,
+            seasonalCreditsExpiry: null,
             usageThisPeriod: 0,
             periodLimit: 0,
             periodType: 'month',
@@ -222,11 +228,18 @@ export default async function creditRoutes(fastify, options) {
             tenantId,
             entityId: defaultEntityId,
             availableCredits: 0,
+            freeCredits: 0,
+            paidCredits: 0,
+            seasonalCredits: 0,
             reservedCredits: 0,
             lowBalanceThreshold: 100,
             criticalBalanceThreshold: 10,
             plan: 'credit_based',
             status: 'no_credits',
+            creditExpiry: null,
+            freeCreditsExpiry: null,
+            paidCreditsExpiry: null,
+            seasonalCreditsExpiry: null,
             usageThisPeriod: 0,
             periodLimit: 0,
             periodType: 'month',
@@ -400,6 +413,30 @@ export default async function creditRoutes(fastify, options) {
         entityId
       });
 
+      // Log successful credit purchase initiation
+      try {
+        const ActivityLogger = (await import('../../../services/activityLogger.js')).default;
+        const requestContext = ActivityLogger.createRequestContext(request);
+        await ActivityLogger.logActivity(
+          internalUserId,
+          tenantId,
+          null,
+          'credit.purchase_success',
+          {
+            creditAmount: parseInt(creditAmount),
+            paymentMethod,
+            currency,
+            purchaseId: result.purchaseId,
+            sessionId: result.sessionId,
+            entityType,
+            entityId
+          },
+          requestContext
+        );
+      } catch (logError) {
+        console.warn('⚠️ Failed to log credit purchase activity:', logError.message);
+      }
+
       return {
         success: true,
         data: result,
@@ -407,6 +444,28 @@ export default async function creditRoutes(fastify, options) {
       };
     } catch (error) {
       request.log.error('Error processing credit purchase:', error);
+      
+      // Log failed credit purchase
+      try {
+        const ActivityLogger = (await import('../../../services/activityLogger.js')).default;
+        const requestContext = ActivityLogger.createRequestContext(request);
+        await ActivityLogger.logActivity(
+          request.userContext?.internalUserId || request.userContext?.userId,
+          request.userContext?.tenantId,
+          null,
+          'credit.purchase_failed',
+          {
+            error: error.message,
+            creditAmount: request.body?.creditAmount,
+            paymentMethod: request.body?.paymentMethod,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+          },
+          requestContext
+        );
+      } catch (logError) {
+        console.warn('⚠️ Failed to log credit purchase failure activity:', logError.message);
+      }
+      
       return reply.code(500).send({
         error: 'Failed to process credit purchase',
         message: error.message
@@ -1025,6 +1084,265 @@ export default async function creditRoutes(fastify, options) {
     }
   });
 
+  // Get detailed credit purchase payment information by sessionId
+  fastify.get('/payment/:identifier', {
+    preHandler: authenticateToken,
+    schema: {
+      params: {
+        type: 'object',
+        required: ['identifier'],
+        properties: {
+          identifier: { type: 'string' }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    try {
+      const { identifier } = request.params;
+      const tenantId = request.userContext.tenantId;
+
+      if (!tenantId) {
+        return reply.code(400).send({
+          error: 'No organization found',
+          message: 'User must be associated with an organization'
+        });
+      }
+
+      let payment;
+      let stripeSession = null;
+      let paymentMethodDetails = {};
+
+      try {
+        // Check if identifier is a valid UUID (purchaseId)
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(identifier);
+
+        if (isUUID) {
+          // Try to find by purchaseId first (if it's a UUID)
+          let [purchaseById] = await db
+            .select()
+            .from(creditPurchases)
+            .where(and(
+              eq(creditPurchases.purchaseId, identifier),
+              eq(creditPurchases.tenantId, tenantId)
+            ))
+            .limit(1);
+
+          if (purchaseById) {
+            payment = purchaseById;
+          }
+        }
+
+        // If not found by purchaseId or identifier is not a UUID, try by Stripe payment intent ID
+        if (!payment) {
+          let [purchaseByIntent] = await db
+            .select()
+            .from(creditPurchases)
+            .where(and(
+              eq(creditPurchases.stripePaymentIntentId, identifier),
+              eq(creditPurchases.tenantId, tenantId)
+            ))
+            .limit(1);
+
+          if (purchaseByIntent) {
+            payment = purchaseByIntent;
+          }
+        }
+
+        // Also try by Stripe checkout session ID - need to get payment intent from Stripe first
+        if (!payment && (identifier.startsWith('cs_test_') || identifier.startsWith('cs_live_'))) {
+          try {
+            // Import Stripe to get payment intent from checkout session
+            const Stripe = (await import('stripe')).default;
+            if (process.env.STRIPE_SECRET_KEY) {
+              const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+              stripeSession = await stripe.checkout.sessions.retrieve(identifier, {
+                expand: ['payment_intent.payment_method']
+              });
+              
+              if (stripeSession.payment_intent) {
+                let [purchaseByIntent] = await db
+                  .select()
+                  .from(creditPurchases)
+                  .where(and(
+                    eq(creditPurchases.stripePaymentIntentId, typeof stripeSession.payment_intent === 'string' 
+                      ? stripeSession.payment_intent 
+                      : stripeSession.payment_intent.id),
+                    eq(creditPurchases.tenantId, tenantId)
+                  ))
+                  .limit(1);
+
+                if (purchaseByIntent) {
+                  payment = purchaseByIntent;
+                }
+
+                // Fetch payment method details from Stripe
+                try {
+                  const paymentIntent = typeof stripeSession.payment_intent === 'string'
+                    ? await stripe.paymentIntents.retrieve(stripeSession.payment_intent, {
+                        expand: ['payment_method']
+                      })
+                    : stripeSession.payment_intent;
+
+                  if (paymentIntent.payment_method) {
+                    const pm = typeof paymentIntent.payment_method === 'string'
+                      ? await stripe.paymentMethods.retrieve(paymentIntent.payment_method)
+                      : paymentIntent.payment_method;
+                    
+                    if (pm.card) {
+                      paymentMethodDetails = {
+                        card: {
+                          brand: pm.card.brand,
+                          last4: pm.card.last4,
+                          exp_month: pm.card.exp_month,
+                          exp_year: pm.card.exp_year
+                        }
+                      };
+                    }
+                  }
+                } catch (pmError) {
+                  console.log('Could not fetch payment method details:', pmError.message);
+                }
+              }
+            }
+          } catch (stripeError) {
+            console.log('Could not retrieve Stripe session:', stripeError.message);
+            // Continue to return 404 if not found
+          }
+        }
+      } catch (dbError) {
+        console.error('Database error in credit payment lookup:', dbError);
+        return reply.code(500).send({
+          error: 'Database error',
+          message: 'Failed to query credit payment records'
+        });
+      }
+
+      if (!payment) {
+        // Check if this is a checkout session that hasn't completed yet
+        if (identifier.startsWith('cs_test_') || identifier.startsWith('cs_live_')) {
+          return reply.code(404).send({
+            error: 'Payment not found',
+            message: 'Checkout session found but payment has not been completed yet. Please complete the payment process.',
+            code: 'PAYMENT_PENDING'
+          });
+        }
+
+        return ErrorResponses.notFound(reply, 'Credit Payment', 'Credit payment not found or does not belong to your organization');
+      }
+
+      try {
+        // Try to get payment method details from payments table
+        let paymentMethodDetailsFromDB = {};
+        try {
+          const { payments } = await import('../../../db/schema/subscriptions.js');
+          const { eq, and } = await import('drizzle-orm');
+          
+          const [paymentRecord] = await db
+            .select()
+            .from(payments)
+            .where(and(
+              eq(payments.stripePaymentIntentId, payment.stripePaymentIntentId || identifier),
+              eq(payments.tenantId, tenantId),
+              eq(payments.paymentType, 'credit_purchase')
+            ))
+            .limit(1);
+          
+          if (paymentRecord?.paymentMethodDetails) {
+            paymentMethodDetailsFromDB = paymentRecord.paymentMethodDetails;
+          }
+        } catch (dbError) {
+          console.log('Could not fetch payment record:', dbError.message);
+        }
+
+        // Use payment method details from DB if available, otherwise use Stripe fetch
+        const finalPaymentMethodDetails = Object.keys(paymentMethodDetailsFromDB).length > 0 
+          ? paymentMethodDetailsFromDB 
+          : paymentMethodDetails;
+
+        // Get credit details and current balance using CreditService
+        const creditBalance = await CreditService.getCurrentBalance(tenantId);
+        
+        // Calculate credits added in this transaction
+        const creditsAdded = parseFloat(payment.creditAmount || 0);
+        const totalAmount = parseFloat(payment.totalAmount || 0);
+        
+        // Calculate credit details from balance
+        const availableCredits = parseFloat(creditBalance?.availableCredits || 0);
+        const reservedCredits = parseFloat(creditBalance?.reservedCredits || 0);
+        
+        // Check if payment has been processed (credits added)
+        const isProcessed = payment.status === 'completed' || payment.paymentStatus === 'completed' || payment.creditedAt;
+        
+        // For display purposes, treat all available credits as paid credits (since we don't track free vs paid separately in simplified schema)
+        // If payment is pending, show what the balance will be after processing
+        const finalAvailableCredits = isProcessed ? availableCredits : (availableCredits + creditsAdded);
+        
+        const creditDetails = {
+          freeCredits: 0, // Not tracked in simplified schema
+          paidCredits: finalAvailableCredits, // All available credits are considered paid
+          freeCreditsExpiry: creditBalance?.freeCreditsExpiry || null,
+          paidCreditsExpiry: creditBalance?.paidCreditsExpiry || null,
+          totalCredits: finalAvailableCredits,
+          availableCredits: finalAvailableCredits,
+          reservedCredits: reservedCredits
+        };
+
+        // Return data in the format expected by PaymentSuccess component
+        return {
+          success: true,
+          data: {
+            sessionId: identifier, // Use the identifier (checkout session ID) passed in
+            transactionId: payment.purchaseId,
+            amount: totalAmount,
+            currency: 'USD',
+            planId: 'credit-purchase',
+            planName: 'Credit Purchase',
+            billingCycle: 'one-time',
+            paymentMethod: payment.paymentMethod || 'card',
+            paymentMethodDetails: finalPaymentMethodDetails,
+            status: payment.status || payment.paymentStatus || 'completed',
+            createdAt: payment.createdAt || payment.requestedAt,
+            processedAt: payment.creditedAt || payment.paidAt || payment.createdAt,
+            description: `Credit purchase: ${creditsAdded.toLocaleString()} credits for $${totalAmount.toFixed(2)}`,
+            subscription: null, // Credit purchases don't have subscriptions
+            features: [
+              `${creditsAdded.toLocaleString()} credits added to account`,
+              'Credits never expire',
+              'Use across all applications'
+            ],
+            credits: creditsAdded,
+            // Additional credit-specific fields
+            creditsAdded: creditsAdded,
+            creditDetails: creditDetails,
+            creditBalance: {
+              freeCredits: creditDetails.freeCredits,
+              paidCredits: creditDetails.paidCredits,
+              totalCredits: creditDetails.totalCredits,
+              availableCredits: creditDetails.availableCredits,
+              reservedCredits: creditDetails.reservedCredits
+            },
+            // Include full balance object for compatibility
+            balance: creditBalance,
+            // Include Stripe raw data for frontend extraction
+            stripeRawData: stripeSession || {}
+          }
+        };
+      } catch (error) {
+        request.log.error('Error fetching credit payment details:', error);
+        return reply.code(500).send({
+          error: 'Failed to fetch credit payment details',
+          message: error.message
+        });
+      }
+    } catch (error) {
+      request.log.error('Error in credit payment details route:', error);
+      return reply.code(500).send({
+        error: 'Internal server error',
+        message: 'Failed to process credit payment details request'
+      });
+    }
+  });
+
   // Stripe webhook for credit purchase completion
   fastify.post('/webhook', {
     // Webhook endpoint should be public and handle raw body
@@ -1140,6 +1458,33 @@ export default async function creditRoutes(fastify, options) {
               return reply.code(400).send({ error: 'Missing required metadata' });
             }
 
+            // Fetch payment method details from Stripe
+            let paymentMethodDetails = {};
+            try {
+              const Stripe = (await import('stripe')).default;
+              if (process.env.STRIPE_SECRET_KEY && session.payment_intent) {
+                const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+                const paymentIntent = await stripe.paymentIntents.retrieve(session.payment_intent);
+                
+                if (paymentIntent.payment_method) {
+                  const paymentMethod = await stripe.paymentMethods.retrieve(paymentIntent.payment_method);
+                  if (paymentMethod.card) {
+                    paymentMethodDetails = {
+                      card: {
+                        brand: paymentMethod.card.brand,
+                        last4: paymentMethod.card.last4,
+                        exp_month: paymentMethod.card.exp_month,
+                        exp_year: paymentMethod.card.exp_year
+                      }
+                    };
+                    console.log('💳 Payment method details fetched:', paymentMethodDetails);
+                  }
+                }
+              }
+            } catch (stripeError) {
+              console.warn('⚠️ Could not fetch payment method details from Stripe:', stripeError.message);
+            }
+
             // Process the credit purchase
             const purchaseResult = await CreditService.purchaseCredits({
               tenantId,
@@ -1149,8 +1494,41 @@ export default async function creditRoutes(fastify, options) {
               currency: 'USD',
               entityType,
               entityId,
-              notes: `Stripe webhook: ${session.id}`
+              notes: `Stripe webhook: ${session.id}`,
+              paymentMethodDetails: paymentMethodDetails
             });
+
+            // Create payment record with payment method details
+            try {
+              const { PaymentService } = await import('../../subscriptions/services/payment-service.js');
+              const totalAmount = parseFloat(session.metadata.totalAmount || (session.amount_total / 100).toString());
+              
+              await PaymentService.recordPayment({
+                tenantId,
+                stripePaymentIntentId: session.payment_intent || session.id,
+                stripeCustomerId: session.customer,
+                amount: totalAmount.toString(),
+                currency: (session.currency || 'USD').toUpperCase(),
+                status: 'succeeded',
+                paymentMethod: 'card',
+                paymentMethodDetails: paymentMethodDetails,
+                paymentType: 'credit_purchase',
+                description: `Credit purchase: ${creditAmount.toLocaleString()} credits for $${totalAmount.toFixed(2)}`,
+                metadata: {
+                  stripeCheckoutSessionId: session.id,
+                  creditAmount: creditAmount.toString(),
+                  purchaseId: purchaseResult.purchaseId,
+                  entityType,
+                  entityId,
+                  ...session.metadata
+                },
+                stripeRawData: session,
+                paidAt: new Date()
+              });
+              console.log('✅ Payment record created with payment method details');
+            } catch (paymentRecordError) {
+              console.warn('⚠️ Could not create payment record:', paymentRecordError.message);
+            }
 
             console.log('✅ CREDIT PURCHASE PROCESSED:');
             console.log('   • Purchase ID:', purchaseResult.purchaseId);

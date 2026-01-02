@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   Activity,
@@ -15,7 +15,6 @@ import {
   TrendingUp,
   BarChart3,
   Users,
-  FileText,
   Database,
   Settings,
   LogIn,
@@ -27,9 +26,10 @@ import {
   Globe,
   Smartphone,
   Monitor,
-  ChevronDown,
   ChevronRight,
-  X
+  X,
+  CheckCircle2,
+  Info
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -37,9 +37,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, format } from 'date-fns';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
+import { cn } from '@/lib/utils';
 
 interface ActivityLog {
   logId: string;
@@ -51,117 +52,83 @@ interface ActivityLog {
   createdAt: string;
 }
 
-interface AuditLog {
-  logId: string;
-  userId: string;
-  userName?: string;
-  userEmail?: string;
-  action: string;
-  resourceType: string;
-  resourceId?: string;
-  oldValues?: any;
-  newValues?: any;
-  details?: any;
-  ipAddress?: string;
-  createdAt: string;
-}
-
 interface ActivityStats {
   period: string;
   uniqueActiveUsers: number;
   activityBreakdown: Array<{ action: string; count: number }>;
-  auditBreakdown: Array<{ resourceType: string; action: string; count: number }>;
 }
 
 export function ActivityDashboard() {
-  const [activeTab, setActiveTab] = useState<'activities' | 'audit' | 'stats'>('activities');
   const [searchQuery, setSearchQuery] = useState('');
-  const [actionFilter, setActionFilter] = useState('');
-  const [resourceTypeFilter, setResourceTypeFilter] = useState('all');
-  const [userFilter, setUserFilter] = useState('');
+  const [actionFilter, setActionFilter] = useState('all');
   const [periodFilter, setPeriodFilter] = useState('24h');
-  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+  const [selectedLogId, setSelectedLogId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   // Fetch user activities
-  const { data: userActivities, isLoading: activitiesLoading, refetch: refetchActivities } = useQuery({
+  const { data: userActivitiesData, isLoading: activitiesLoading, refetch: refetchActivities } = useQuery({
     queryKey: ['userActivities', searchQuery, actionFilter],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (searchQuery) params.append('action', searchQuery);
-      if (actionFilter) params.append('action', actionFilter);
+      if (actionFilter !== 'all') params.append('action', actionFilter);
       params.append('limit', '100');
 
       const response = await api.get(`/activity/user?${params.toString()}`);
       return response.data;
     },
-    refetchInterval: 30000, // Refresh every 30 seconds
-  });
-
-  // Fetch audit logs (admin only)
-  const { data: auditLogs, isLoading: auditLoading, refetch: refetchAudit } = useQuery({
-    queryKey: ['auditLogs', searchQuery, actionFilter, resourceTypeFilter, userFilter],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (searchQuery) params.append('action', searchQuery);
-      if (actionFilter) params.append('action', actionFilter);
-      if (resourceTypeFilter && resourceTypeFilter !== 'all') params.append('resourceType', resourceTypeFilter);
-      if (userFilter) params.append('userId', userFilter);
-      params.append('limit', '100');
-
-      const response = await api.get(`/activity/audit?${params.toString()}`);
-      return response.data;
-    },
     refetchInterval: 30000,
-    retry: (failureCount, error: any) => {
-      // Don't retry if it's a 403 (access denied)
-      if (error?.response?.status === 403) return false;
-      return failureCount < 2;
-    }
   });
+
+  const activities = useMemo(() => userActivitiesData?.data?.activities || [], [userActivitiesData]);
 
   // Fetch activity statistics
-  const { data: activityStats, isLoading: statsLoading } = useQuery({
+  const { data: activityStatsData, isLoading: statsLoading } = useQuery({
     queryKey: ['activityStats', periodFilter],
     queryFn: async () => {
       const response = await api.get(`/activity/stats?period=${periodFilter}`);
       return response.data;
     },
-    refetchInterval: 60000, // Refresh every minute
-    retry: (failureCount, error: any) => {
-      if (error?.response?.status === 403) return false;
-      return failureCount < 2;
-    }
+    refetchInterval: 60000,
   });
 
-  const handleExport = async (type: 'user' | 'audit', format: 'json' | 'csv' = 'json') => {
+  const stats = useMemo(() => activityStatsData?.data as ActivityStats | undefined, [activityStatsData]);
+
+  const selectedLog = useMemo(() => 
+    activities.find((log: ActivityLog) => log.logId === selectedLogId),
+  [activities, selectedLogId]);
+
+  // Set first log as selected by default if none selected
+  React.useEffect(() => {
+    if (activities.length > 0 && !selectedLogId) {
+      setSelectedLogId(activities[0].logId);
+    }
+  }, [activities, selectedLogId]);
+
+  const handleExport = async (format: 'json' | 'csv' = 'json') => {
     try {
       setLoading(true);
       const filters: any = {};
-      
-      if (actionFilter) filters.action = actionFilter;
-      if (resourceTypeFilter && resourceTypeFilter !== 'all') filters.resourceType = resourceTypeFilter;
-      if (userFilter) filters.userId = userFilter;
+      if (actionFilter !== 'all') filters.action = actionFilter;
 
       const response = await api.post('/activity/export', {
-        type,
+        type: 'user',
         format,
         filters
       }, {
         responseType: 'blob'
       });
 
-      // Create download link
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${type}-logs-${new Date().toISOString().split('T')[0]}.${format}`;
+      link.download = `activity-logs-${new Date().toISOString().split('T')[0]}.${format}`;
       document.body.appendChild(link);
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
 
-      toast.success(`${type === 'user' ? 'Activity' : 'Audit'} logs exported successfully!`);
+      toast.success('Activity logs exported successfully!');
     } catch (error: any) {
       console.error('Export failed:', error);
       toast.error(error.response?.data?.error || 'Export failed');
@@ -172,45 +139,33 @@ export function ActivityDashboard() {
 
   const clearFilters = () => {
     setSearchQuery('');
-    setActionFilter('');
-    setResourceTypeFilter('all');
-    setUserFilter('');
-  };
-
-  const toggleExpanded = (id: string) => {
-    setExpandedItems(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(id)) {
-        newSet.delete(id);
-      } else {
-        newSet.add(id);
-      }
-      return newSet;
-    });
+    setActionFilter('all');
   };
 
   const getActivityIcon = (action: string) => {
-    if (action.includes('login')) return <LogIn className="w-4 h-4" />;
-    if (action.includes('logout')) return <LogOut className="w-4 h-4" />;
-    if (action.includes('user.created') || action.includes('user.invited')) return <UserPlus className="w-4 h-4" />;
-    if (action.includes('user.deleted') || action.includes('user.deactivated')) return <UserMinus className="w-4 h-4" />;
-    if (action.includes('role')) return <Shield className="w-4 h-4" />;
-    if (action.includes('permission')) return <Settings className="w-4 h-4" />;
-    if (action.includes('app')) return <Monitor className="w-4 h-4" />;
-    if (action.includes('export')) return <Download className="w-4 h-4" />;
-    if (action.includes('edit') || action.includes('updated')) return <Edit className="w-4 h-4" />;
-    if (action.includes('delete')) return <Trash2 className="w-4 h-4" />;
+    const a = action.toLowerCase();
+    if (a.includes('login')) return <LogIn className="w-4 h-4" />;
+    if (a.includes('logout')) return <LogOut className="w-4 h-4" />;
+    if (a.includes('user.created') || a.includes('user.invited')) return <UserPlus className="w-4 h-4" />;
+    if (a.includes('user.deleted') || a.includes('user.deactivated')) return <UserMinus className="w-4 h-4" />;
+    if (a.includes('role')) return <Shield className="w-4 h-4" />;
+    if (a.includes('permission')) return <Settings className="w-4 h-4" />;
+    if (a.includes('app')) return <Monitor className="w-4 h-4" />;
+    if (a.includes('export')) return <Download className="w-4 h-4" />;
+    if (a.includes('edit') || a.includes('updated')) return <Edit className="w-4 h-4" />;
+    if (a.includes('delete')) return <Trash2 className="w-4 h-4" />;
     return <Activity className="w-4 h-4" />;
   };
 
   const getActivityColor = (action: string) => {
-    if (action.includes('login')) return 'text-green-600 bg-green-50';
-    if (action.includes('logout')) return 'text-gray-600 bg-gray-50';
-    if (action.includes('created') || action.includes('invited')) return 'text-blue-600 bg-blue-50';
-    if (action.includes('deleted') || action.includes('failed')) return 'text-red-600 bg-red-50';
-    if (action.includes('updated') || action.includes('modified')) return 'text-orange-600 bg-orange-50';
-    if (action.includes('role') || action.includes('permission')) return 'text-purple-600 bg-purple-50';
-    return 'text-gray-600 bg-gray-50';
+    const a = action.toLowerCase();
+    if (a.includes('login')) return 'text-emerald-600 bg-emerald-50 border-emerald-100';
+    if (a.includes('logout')) return 'text-slate-600 bg-slate-50 border-slate-100';
+    if (a.includes('created') || a.includes('invited')) return 'text-blue-600 bg-blue-50 border-blue-100';
+    if (a.includes('deleted') || a.includes('failed')) return 'text-rose-600 bg-rose-50 border-rose-100';
+    if (a.includes('updated') || a.includes('modified')) return 'text-amber-600 bg-amber-50 border-amber-100';
+    if (a.includes('role') || a.includes('permission')) return 'text-violet-600 bg-violet-50 border-violet-100';
+    return 'text-slate-600 bg-slate-50 border-slate-100';
   };
 
   const formatActionName = (action: string) => {
@@ -223,7 +178,6 @@ export function ActivityDashboard() {
 
   const getDeviceInfo = (userAgent?: string) => {
     if (!userAgent) return { device: 'Unknown', icon: Monitor };
-    
     if (userAgent.includes('Mobile') || userAgent.includes('Android') || userAgent.includes('iPhone')) {
       return { device: 'Mobile', icon: Smartphone };
     }
@@ -231,505 +185,346 @@ export function ActivityDashboard() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="flex flex-col h-full space-y-6 animate-in fade-in duration-500">
+      {/* Header Section */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
-            <Activity className="w-8 h-8" />
-            Activity & Audit Logs
+          <h1 className="text-3xl font-black tracking-tight text-slate-900 flex items-center gap-3">
+            <div className="p-2 bg-blue-600 rounded-xl shadow-lg shadow-blue-200">
+              <Activity className="w-6 h-6 text-white" />
+            </div>
+            Activity Logs
           </h1>
-          <p className="text-gray-600 mt-1">Track user activities and system changes across your platform</p>
+          <p className="text-slate-500 mt-1 font-medium">Monitor your account activity and security events</p>
         </div>
         
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              refetchActivities();
-              refetchAudit();
-            }}
+            onClick={() => refetchActivities()}
+            className="bg-white border-slate-200 hover:bg-slate-50 shadow-sm font-semibold h-10"
           >
-            <RefreshCw className="w-4 h-4 mr-2" />
+            <RefreshCw className={cn("w-4 h-4 mr-2", activitiesLoading && "animate-spin")} />
             Refresh
+          </Button>
+          <Button
+            onClick={() => handleExport('json')}
+            disabled={loading || activities.length === 0}
+            className="bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-100 font-semibold h-10"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Export Logs
           </Button>
         </div>
       </div>
 
-      {/* Tab Navigation */}
-      <div className="border-b border-gray-200">
-        <nav className="-mb-px flex space-x-8">
-          <button
-            onClick={() => setActiveTab('activities')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'activities'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            <User className="w-4 h-4 inline mr-2" />
-            My Activities
-          </button>
-          
-          <button
-            onClick={() => setActiveTab('audit')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'audit'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            <Shield className="w-4 h-4 inline mr-2" />
-            Audit Logs
-          </button>
-          
-          <button
-            onClick={() => setActiveTab('stats')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'stats'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            <BarChart3 className="w-4 h-4 inline mr-2" />
-            Statistics
-          </button>
-        </nav>
+      {/* Statistics Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatsCard 
+          title="Total Activities" 
+          value={activities.length} 
+          icon={<Activity className="w-5 h-5" />} 
+          color="blue"
+          loading={activitiesLoading}
+        />
+        <StatsCard 
+          title="Active Users" 
+          value={stats?.uniqueActiveUsers || 0} 
+          icon={<Users className="w-5 h-5" />} 
+          color="emerald"
+          loading={statsLoading}
+        />
+        <StatsCard 
+          title="Security Events" 
+          value={activities.filter(a => a.action.includes('login') || a.action.includes('role') || a.action.includes('permission')).length} 
+          icon={<Shield className="w-5 h-5" />} 
+          color="violet"
+          loading={activitiesLoading}
+        />
+        <StatsCard 
+          title="Data Changes" 
+          value={activities.filter(a => a.action.includes('updated') || a.action.includes('created') || a.action.includes('deleted')).length} 
+          icon={<Database className="w-5 h-5" />} 
+          color="amber"
+          loading={activitiesLoading}
+        />
       </div>
 
-      {/* Filters */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Filter className="w-5 h-5" />
-            Filters
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Search Action</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <Input
-                  placeholder="Search activities..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-            </div>
-            
-            {activeTab === 'audit' && (
-              <>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Resource Type</label>
-                  <Select value={resourceTypeFilter} onValueChange={setResourceTypeFilter}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="All types" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All types</SelectItem>
-                      <SelectItem value="user">User</SelectItem>
-                      <SelectItem value="role">Role</SelectItem>
-                      <SelectItem value="permission">Permission</SelectItem>
-                      <SelectItem value="application">Application</SelectItem>
-                      <SelectItem value="session">Session</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">User Filter</label>
-                  <Input
-                    placeholder="User ID or email..."
-                    value={userFilter}
-                    onChange={(e) => setUserFilter(e.target.value)}
-                  />
-                </div>
-              </>
-            )}
-            
-            {activeTab === 'stats' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Time Period</label>
-                <Select value={periodFilter} onValueChange={setPeriodFilter}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1h">Last Hour</SelectItem>
-                    <SelectItem value="24h">Last 24 Hours</SelectItem>
-                    <SelectItem value="7d">Last 7 Days</SelectItem>
-                    <SelectItem value="30d">Last 30 Days</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            
-            <div className="flex items-end">
-              <Button variant="outline" onClick={clearFilters} className="w-full">
-                <X className="w-4 h-4 mr-2" />
-                Clear Filters
-              </Button>
+      {/* Filters Bar */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 items-center">
+        <div className="relative flex-1 w-full">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+          <Input
+            placeholder="Search by action name..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10 border-slate-200 focus:ring-blue-500 h-10 rounded-xl"
+          />
+        </div>
+        <div className="flex gap-2 w-full md:w-auto">
+          <Select value={actionFilter} onValueChange={setActionFilter}>
+            <SelectTrigger className="w-full md:w-[180px] border-slate-200 h-10 rounded-xl bg-white">
+              <SelectValue placeholder="Action Type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Actions</SelectItem>
+              <SelectItem value="login">Logins</SelectItem>
+              <SelectItem value="user">User Management</SelectItem>
+              <SelectItem value="role">Roles & Permissions</SelectItem>
+              <SelectItem value="app">App Access</SelectItem>
+              <SelectItem value="export">Exports</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button 
+            variant="ghost" 
+            onClick={clearFilters}
+            className="text-slate-500 hover:text-slate-900 h-10"
+          >
+            <X className="w-4 h-4 mr-2" />
+            Reset
+          </Button>
+        </div>
+      </div>
+
+      {/* Main Content Split Pane */}
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-6 pb-6">
+        {/* Left Panel: Logs List */}
+        <div className="lg:col-span-5 flex flex-col min-h-[400px] lg:h-full bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+            <h3 className="font-bold text-slate-800 flex items-center gap-2">
+              Recent Events
+              <Badge variant="secondary" className="bg-slate-200/50 text-slate-700 rounded-full px-2 py-0">
+                {activities.length}
+              </Badge>
+            </h3>
+            <div className="text-xs text-slate-400 font-medium italic">
+              Auto-refreshes every 30s
             </div>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Content */}
-      {activeTab === 'activities' && (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div>
-              <CardTitle>Your Activities</CardTitle>
-              <CardDescription>Your recent actions and system interactions</CardDescription>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleExport('user', 'json')}
-              disabled={loading}
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Export
-            </Button>
-          </CardHeader>
-          <CardContent>
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
             {activitiesLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <RefreshCw className="w-6 h-6 animate-spin text-gray-400" />
-                <span className="ml-2 text-gray-600">Loading activities...</span>
+              <div className="flex flex-col items-center justify-center h-full py-12 space-y-4">
+                <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
+                <p className="text-slate-400 font-medium">Fetching activities...</p>
               </div>
-            ) : (
-              <div className="space-y-4">
-                {userActivities?.data?.activities?.map((activity: ActivityLog) => {
-                  const DeviceIcon = getDeviceInfo(activity.metadata?.userAgent).icon;
-                  const isExpanded = expandedItems.has(activity.logId);
-                  
-                  return (
-                    <div
-                      key={activity.logId}
-                      className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-start space-x-3 flex-1">
-                          <div className={`p-2 rounded-lg ${getActivityColor(activity.action)}`}>
-                            {getActivityIcon(activity.action)}
-                          </div>
-                          
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="font-medium text-gray-900">
-                                {formatActionName(activity.action)}
-                              </span>
-                              {activity.appName && (
-                                <Badge variant="secondary">{activity.appName}</Badge>
-                              )}
-                            </div>
-                            
-                            <div className="flex items-center gap-4 text-sm text-gray-600">
-                              <span className="flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                {formatDistanceToNow(new Date(activity.createdAt), { addSuffix: true })}
-                              </span>
-                              
-                              {activity.ipAddress && (
-                                <span className="flex items-center gap-1">
-                                  <Globe className="w-3 h-3" />
-                                  {activity.ipAddress}
-                                </span>
-                              )}
-                              
-                              <span className="flex items-center gap-1">
-                                <DeviceIcon className="w-3 h-3" />
-                                {getDeviceInfo(activity.metadata?.userAgent).device}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        {activity.metadata && Object.keys(activity.metadata).length > 1 && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => toggleExpanded(activity.logId)}
-                          >
-                            {isExpanded ? (
-                              <ChevronDown className="w-4 h-4" />
-                            ) : (
-                              <ChevronRight className="w-4 h-4" />
-                            )}
-                          </Button>
-                        )}
-                      </div>
-                      
-                      {isExpanded && activity.metadata && (
-                        <div className="mt-4 pt-4 border-t border-gray-200">
-                          <h4 className="text-sm font-medium text-gray-700 mb-2">Details</h4>
-                          <pre className="text-xs bg-gray-100 p-3 rounded overflow-x-auto">
-                            {JSON.stringify(activity.metadata, null, 2)}
-                          </pre>
-                        </div>
+            ) : activities.length > 0 ? (
+              activities.map((activity: ActivityLog) => (
+                <button
+                  key={activity.logId}
+                  onClick={() => setSelectedLogId(activity.logId)}
+                  className={cn(
+                    "w-full text-left p-3 rounded-2xl transition-all duration-200 flex items-center gap-3 group relative border",
+                    selectedLogId === activity.logId 
+                      ? "bg-blue-50 border-blue-200 shadow-sm" 
+                      : "bg-transparent border-transparent hover:bg-slate-50 hover:border-slate-100"
+                  )}
+                >
+                  <div className={cn(
+                    "p-2 rounded-xl transition-transform group-hover:scale-110 border",
+                    getActivityColor(activity.action)
+                  )}>
+                    {getActivityIcon(activity.action)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <p className={cn(
+                        "text-sm font-bold truncate",
+                        selectedLogId === activity.logId ? "text-blue-900" : "text-slate-700"
+                      )}>
+                        {formatActionName(activity.action)}
+                      </p>
+                      <span className="text-[10px] font-medium text-slate-400 whitespace-nowrap ml-2">
+                        {formatDistanceToNow(new Date(activity.createdAt), { addSuffix: true })}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px] text-slate-500 font-medium">
+                      <span className="flex items-center gap-1">
+                        <Globe className="w-2.5 h-2.5 opacity-60" />
+                        {activity.ipAddress || 'Internal'}
+                      </span>
+                      {activity.appName && (
+                        <>
+                          <span className="w-1 h-1 bg-slate-300 rounded-full" />
+                          <span className="text-blue-600/70">{activity.appName}</span>
+                        </>
                       )}
                     </div>
-                  );
-                })}
-                
-                {!userActivities?.data?.activities?.length && (
-                  <div className="text-center py-8 text-gray-500">
-                    <Activity className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                    <p>No activities found</p>
                   </div>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {activeTab === 'audit' && (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div>
-              <CardTitle>Audit Logs</CardTitle>
-              <CardDescription>System changes and administrative actions</CardDescription>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleExport('audit', 'csv')}
-                disabled={loading}
-              >
-                <Download className="w-4 h-4 mr-2" />
-                CSV
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleExport('audit', 'json')}
-                disabled={loading}
-              >
-                <Download className="w-4 h-4 mr-2" />
-                JSON
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {auditLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <RefreshCw className="w-6 h-6 animate-spin text-gray-400" />
-                <span className="ml-2 text-gray-600">Loading audit logs...</span>
-              </div>
-            ) : auditLogs?.error ? (
-              <Alert>
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>
-                  {auditLogs.error || 'Access denied. Admin privileges required to view audit logs.'}
-                </AlertDescription>
-              </Alert>
+                  {selectedLogId === activity.logId && (
+                    <div className="absolute right-3 w-1 h-6 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
+                  )}
+                </button>
+              ))
             ) : (
-              <div className="space-y-4">
-                {auditLogs?.data?.logs?.map((log: AuditLog) => {
-                  const isExpanded = expandedItems.has(log.logId);
-                  
-                  return (
-                    <div
-                      key={log.logId}
-                      className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-start space-x-3 flex-1">
-                          <div className={`p-2 rounded-lg ${getActivityColor(log.action)}`}>
-                            {getActivityIcon(log.action)}
-                          </div>
-                          
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="font-medium text-gray-900">
-                                {formatActionName(log.action)}
-                              </span>
-                              <Badge variant="outline">{log.resourceType}</Badge>
-                              {log.resourceId && (
-                                <Badge variant="secondary" className="font-mono text-xs">
-                                  {log.resourceId.slice(0, 8)}...
-                                </Badge>
-                              )}
-                            </div>
-                            
-                            <div className="flex items-center gap-4 text-sm text-gray-600 mb-2">
-                              <span className="flex items-center gap-1">
-                                <User className="w-3 h-3" />
-                                {log.userName || log.userEmail || 'System'}
-                              </span>
-                              
-                              <span className="flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                {formatDistanceToNow(new Date(log.createdAt), { addSuffix: true })}
-                              </span>
-                              
-                              {log.ipAddress && (
-                                <span className="flex items-center gap-1">
-                                  <Globe className="w-3 h-3" />
-                                  {log.ipAddress}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        
-                        {(log.oldValues || log.newValues || log.details) && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => toggleExpanded(log.logId)}
-                          >
-                            {isExpanded ? (
-                              <ChevronDown className="w-4 h-4" />
-                            ) : (
-                              <ChevronRight className="w-4 h-4" />
-                            )}
-                          </Button>
-                        )}
-                      </div>
-                      
-                      {isExpanded && (
-                        <div className="mt-4 pt-4 border-t border-gray-200 space-y-3">
-                          {log.oldValues && (
-                            <div>
-                              <h4 className="text-sm font-medium text-gray-700 mb-2">Before</h4>
-                              <pre className="text-xs bg-red-50 p-3 rounded overflow-x-auto">
-                                {JSON.stringify(log.oldValues, null, 2)}
-                              </pre>
-                            </div>
-                          )}
-                          
-                          {log.newValues && (
-                            <div>
-                              <h4 className="text-sm font-medium text-gray-700 mb-2">After</h4>
-                              <pre className="text-xs bg-green-50 p-3 rounded overflow-x-auto">
-                                {JSON.stringify(log.newValues, null, 2)}
-                              </pre>
-                            </div>
-                          )}
-                          
-                          {log.details && (
-                            <div>
-                              <h4 className="text-sm font-medium text-gray-700 mb-2">Details</h4>
-                              <pre className="text-xs bg-gray-100 p-3 rounded overflow-x-auto">
-                                {JSON.stringify(log.details, null, 2)}
-                              </pre>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-                
-                {!auditLogs?.data?.logs?.length && (
-                  <div className="text-center py-8 text-gray-500">
-                    <FileText className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                    <p>No audit logs found</p>
-                  </div>
-                )}
+              <div className="flex flex-col items-center justify-center h-full py-12 text-center px-6">
+                <div className="p-4 bg-slate-50 rounded-full mb-4">
+                  <Activity className="w-8 h-8 text-slate-300" />
+                </div>
+                <h4 className="text-slate-900 font-bold mb-1">No Activities Found</h4>
+                <p className="text-slate-500 text-sm">No activity matches your current filters.</p>
+                <Button variant="link" onClick={clearFilters} className="text-blue-600 mt-2 font-bold">
+                  Clear All Filters
+                </Button>
               </div>
             )}
-          </CardContent>
-        </Card>
-      )}
+          </div>
+        </div>
 
-      {activeTab === 'stats' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {statsLoading ? (
-            <div className="col-span-2 flex items-center justify-center py-16">
-              <RefreshCw className="w-8 h-8 animate-spin text-gray-400" />
-              <span className="ml-3 text-gray-600">Loading statistics...</span>
-            </div>
-          ) : activityStats?.error ? (
-            <div className="col-span-2">
-              <Alert>
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>
-                  {activityStats.error || 'Access denied. Admin privileges required to view statistics.'}
-                </AlertDescription>
-              </Alert>
-            </div>
-          ) : (
+        {/* Right Panel: Detailed View */}
+        <div className="lg:col-span-7 bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
+          {selectedLog ? (
             <>
-              {/* Activity Metrics */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <TrendingUp className="w-5 h-5" />
-                    Activity Metrics
-                  </CardTitle>
-                  <CardDescription>
-                    Activity summary for the {activityStats?.data?.period || 'selected period'}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="bg-blue-50 p-4 rounded-lg">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-blue-700">Active Users</span>
-                        <Users className="w-4 h-4 text-blue-600" />
-                      </div>
-                      <div className="text-2xl font-bold text-blue-900 mt-1">
-                        {activityStats?.data?.uniqueActiveUsers || 0}
-                      </div>
+              <div className="p-6 border-b border-slate-100 bg-slate-50/30">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className={cn(
+                      "p-3 rounded-2xl shadow-sm border animate-in zoom-in duration-300",
+                      getActivityColor(selectedLog.action)
+                    )}>
+                      {React.cloneElement(getActivityIcon(selectedLog.action) as React.ReactElement, { className: "w-6 h-6" })}
                     </div>
-                    
                     <div>
-                      <h4 className="text-sm font-medium text-gray-700 mb-3">Activity Breakdown</h4>
-                      <div className="space-y-2">
-                        {activityStats?.data?.activityBreakdown?.map((item: any) => (
-                          <div key={item.action} className="flex items-center justify-between">
-                            <span className="text-sm text-gray-600">{formatActionName(item.action)}</span>
-                            <Badge variant="secondary">{item.count}</Badge>
-                          </div>
-                        ))}
+                      <h2 className="text-xl font-black text-slate-900">{formatActionName(selectedLog.action)}</h2>
+                      <div className="flex items-center gap-3 mt-1 text-sm font-medium text-slate-500">
+                        <span className="flex items-center gap-1.5">
+                          <Calendar className="w-3.5 h-3.5" />
+                          {format(new Date(selectedLog.createdAt), 'MMM d, yyyy • h:mm a')}
+                        </span>
+                        <span className="w-1 h-1 bg-slate-300 rounded-full" />
+                        <span className="text-slate-400 font-mono text-xs">{selectedLog.logId}</span>
                       </div>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-              
-              {/* Audit Metrics */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Database className="w-5 h-5" />
-                    Audit Metrics
-                  </CardTitle>
-                  <CardDescription>
-                    System changes and administrative actions
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div>
-                      <h4 className="text-sm font-medium text-gray-700 mb-3">Resource Changes</h4>
-                      <div className="space-y-2">
-                        {activityStats?.data?.auditBreakdown?.map((item: any) => (
-                          <div key={`${item.resourceType}-${item.action}`} className="flex items-center justify-between">
-                            <span className="text-sm text-gray-600">
-                              {item.resourceType} › {formatActionName(item.action)}
-                            </span>
-                            <Badge variant="outline">{item.count}</Badge>
-                          </div>
-                        ))}
-                      </div>
+                  <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200 px-3 py-1 font-bold flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3 h-3" /> Success
+                  </Badge>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
+                {/* Event Summary Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-3">
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                      <Globe className="w-3 h-3" /> Connection Info
+                    </h4>
+                    <div className="space-y-2">
+                      <DetailRow label="IP Address" value={selectedLog.ipAddress || 'Not Recorded'} />
+                      <DetailRow 
+                        label="Browser/Device" 
+                        value={getDeviceInfo(selectedLog.metadata?.userAgent).device} 
+                        icon={getDeviceInfo(selectedLog.metadata?.userAgent).icon}
+                      />
                     </div>
                   </div>
-                </CardContent>
-              </Card>
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-3">
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                      <Database className="w-3 h-3" /> Application Context
+                    </h4>
+                    <div className="space-y-2">
+                      <DetailRow label="Service Name" value={selectedLog.appName || 'Wrapper Core'} />
+                      <DetailRow label="App Code" value={selectedLog.appCode || 'N/A'} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Metadata JSON Viewer */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                      <Info className="w-3 h-3" /> Event Metadata
+                    </h4>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="h-8 text-[10px] font-black uppercase text-blue-600 hover:bg-blue-50"
+                      onClick={() => {
+                        navigator.clipboard.writeText(JSON.stringify(selectedLog.metadata, null, 2));
+                        toast.success('Metadata copied to clipboard');
+                      }}
+                    >
+                      Copy JSON
+                    </Button>
+                  </div>
+                  <div className="relative group">
+                    <div className="absolute -inset-0.5 bg-gradient-to-r from-slate-200 to-slate-100 rounded-2xl blur opacity-25 group-hover:opacity-50 transition duration-1000"></div>
+                    <pre className="relative p-5 bg-slate-900 text-blue-100 text-xs rounded-2xl overflow-x-auto shadow-inner leading-relaxed font-mono">
+                      {JSON.stringify(selectedLog.metadata, null, 2)}
+                    </pre>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 bg-slate-50/50 border-t border-slate-100">
+                <p className="text-[10px] text-center text-slate-400 font-medium italic">
+                  End-to-end encrypted log. Securely stored in your vault.
+                </p>
+              </div>
             </>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-12 bg-slate-50/30">
+              <div className="relative mb-6">
+                <div className="absolute -inset-4 bg-blue-100/50 rounded-full blur-xl animate-pulse"></div>
+                <Eye className="w-16 h-16 text-blue-200 relative z-10" />
+              </div>
+              <h3 className="text-xl font-black text-slate-900 mb-2">Select an Activity</h3>
+              <p className="text-slate-500 max-w-xs mx-auto leading-relaxed">
+                Click on any event from the left panel to view detailed metadata and security information.
+              </p>
+            </div>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
-} 
+}
+
+// Helper Components
+function StatsCard({ title, value, icon, color, loading }: { 
+  title: string; 
+  value: string | number; 
+  icon: React.ReactNode; 
+  color: 'blue' | 'emerald' | 'violet' | 'amber';
+  loading?: boolean;
+}) {
+  const colorMap = {
+    blue: 'text-blue-600 bg-blue-50 border-blue-100 shadow-blue-50',
+    emerald: 'text-emerald-600 bg-emerald-50 border-emerald-100 shadow-emerald-50',
+    violet: 'text-violet-600 bg-violet-50 border-violet-100 shadow-violet-50',
+    amber: 'text-amber-600 bg-amber-50 border-amber-100 shadow-amber-50'
+  };
+
+  return (
+    <Card className="border-slate-200 rounded-3xl shadow-sm hover:shadow-md transition-all duration-300 group overflow-hidden bg-white">
+      <CardContent className="p-6">
+        <div className="flex items-start justify-between">
+          <div className="space-y-1">
+            <p className="text-xs font-black text-slate-400 uppercase tracking-wider">{title}</p>
+            {loading ? (
+              <div className="h-8 w-16 bg-slate-100 animate-pulse rounded-lg mt-1" />
+            ) : (
+              <h3 className="text-3xl font-black text-slate-900 tracking-tight">{value}</h3>
+            )}
+          </div>
+          <div className={cn("p-3 rounded-2xl border transition-transform group-hover:rotate-12", colorMap[color])}>
+            {icon}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DetailRow({ label, value, icon }: { label: string; value: string; icon?: any }) {
+  const Icon = icon;
+  return (
+    <div className="flex flex-col space-y-1">
+      <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">{label}</span>
+      <div className="flex items-center gap-2">
+        {Icon && <Icon className="w-3.5 h-3.5 text-slate-400" />}
+        <span className="text-sm font-bold text-slate-700 truncate">{value}</span>
+      </div>
+    </div>
+  );
+}

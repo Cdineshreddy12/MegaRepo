@@ -20,6 +20,10 @@ export * from './credit_configurations.js';
 export * from './responsible_persons.js';
 export * from './event-tracking.js';
 export * from './notifications.js';
+export * from './notification-templates.js';
+export * from './tenant-template-customizations.js';
+export * from './admin-notification-history.js';
+export * from './external-applications.js';
 export * from './seasonal-credits.js';
 
 // Define relationships

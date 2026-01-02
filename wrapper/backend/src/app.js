@@ -29,7 +29,6 @@ import { usersRoutes, userRoutes, userSyncRoutes, userVerificationRoutes } from 
 import { subscriptionsRoutes, paymentsRoutes, paymentUpgradeRoutes, paymentProfileCompletionRoutes } from './features/subscriptions/index.js';
 import permissionRoutes from './routes/permissions.js';
 import { rolesRoutes, customRolesRoutes } from './features/roles/index.js';
-import analyticsRoutes from './routes/analytics.js';
 import usageRoutes from './routes/usage.js';
 import internalRoutes from './routes/internal.js';
 import enhancedInternalRoutes from './routes/internal-enhanced.js';
@@ -47,7 +46,8 @@ import {
   adminCreditConfigurationRoutes,
   adminApplicationAssignmentRoutes,
   adminOperationCostRoutes,
-  seasonalCreditsRoutes
+  seasonalCreditsRoutes,
+  adminNotificationRoutes
 } from './features/admin/index.js';
 import invitationRoutes from './routes/invitations.js';
 import suiteRoutes from './routes/suite.js';
@@ -79,6 +79,7 @@ import { errorHandler } from './middleware/error-handler.js';
 import { usageTrackingPlugin } from './middleware/usage-tracking.js';
 import { trialRestrictionMiddleware } from './middleware/trial-restriction.js';
 import { fastifyCacheMetrics } from './middleware/cache-metrics.js';
+import { restrictInvitedUsers } from './middleware/invited-user-restriction.js';
 import { RLSTenantIsolationService } from './middleware/rls-tenant-isolation.js';
 import { trackActivity } from './middleware/activityTracker.js';
 
@@ -445,6 +446,16 @@ async function registerMiddleware() {
   // Auth middleware (will set userContext if authenticated) - runs on all requests
   fastify.addHook('preHandler', authMiddleware);
 
+  // Invited user restriction middleware (after auth, blocks invited users from write operations)
+  fastify.addHook('preHandler', async (request, reply) => {
+    try {
+      await restrictInvitedUsers(request, reply);
+    } catch (error) {
+      console.error('❌ Invited user restriction middleware error:', error);
+      // Don't block the request on middleware errors, but log them
+    }
+  });
+
   // Trial restriction middleware (after auth, before routes)
   // Keep as preHandler but add better error handling
   fastify.addHook('preHandler', async (request, reply) => {
@@ -522,7 +533,6 @@ async function registerRoutes() {
   // Register custom-roles routes with both prefixes for compatibility
   await fastify.register(customRolesRoutes, { prefix: '/api/custom-roles' });
   await fastify.register(customRolesRoutes, { prefix: '/api/api/custom-roles' });
-  await fastify.register(analyticsRoutes, { prefix: '/api/analytics' });
   await fastify.register(usageRoutes, { prefix: '/api/usage' });
   await fastify.register(internalRoutes, { prefix: '/api/internal' });
   await fastify.register(enhancedInternalRoutes, { prefix: '/api' }); // Add proper prefix for consistency
@@ -541,6 +551,16 @@ async function registerRoutes() {
   await fastify.register(adminEntityManagementRoutes, { prefix: '/api/admin/entities' });
   await fastify.register(adminCreditOverviewRoutes, { prefix: '/api/admin/credits' });
   await fastify.register(seasonalCreditsRoutes, { prefix: '/api/admin/seasonal-credits' });
+  await fastify.register(adminNotificationRoutes, { prefix: '/api/admin/notifications' });
+  
+  // External Application Management (admin routes)
+  const { externalAppRoutes } = await import('./features/admin/index.js');
+  await fastify.register(externalAppRoutes, { prefix: '/api/admin/external-apps' });
+  
+  // External Notification API (public API for external apps)
+  const externalNotificationApiRoutes = (await import('./routes/external-notification-api.js')).default;
+  await fastify.register(externalNotificationApiRoutes, { prefix: '/api/v1/notifications' });
+  
   await fastify.register(suiteRoutes, { prefix: '/api/suite' });
   await fastify.register(paymentsRoutes, { prefix: '/api/payments' });
   await fastify.register(activityRoutes, { prefix: '/api/activity' });

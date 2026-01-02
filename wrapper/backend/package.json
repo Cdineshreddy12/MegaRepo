@@ -8,6 +8,10 @@
     "dev": "nodemon src/app.js",
     "start": "node src/app.js",
     "build": "echo 'No build step required for JavaScript'",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "vitest --ui",
     "db:generate": "drizzle-kit generate:pg",
     "db:migrate": "drizzle-kit push:pg",
     "db:studio": "drizzle-kit studio",
@@ -16,6 +20,9 @@
     "migrate": "node scripts/run-migrations.js migrate",
     "migrate:drop-credit-allocation-tables": "node src/scripts/run-credit-allocation-migration.js",
     "migrate:cleanup-tenant-data": "node src/scripts/cleanup-tenant-data-for-migration.js",
+    "migrate:create-notification-templates": "node src/scripts/create-notification-templates-table.js",
+    "migrate:create-external-applications": "node src/scripts/create-external-applications-table.js",
+    "migrate:add-ui-customization": "node src/scripts/add-ui-customization-fields.js",
     "migrate:all": "bash src/scripts/run-all-migrations.sh",
     "delete-tenant": "node src/scripts/delete-tenant-data.js",
     "sync-permissions": "node src/scripts/sync-permissions.js sync",
@@ -25,6 +32,7 @@
     "sync-permissions:app": "node src/scripts/sync-permissions.js app"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
     "@fastify/cookie": "^9.2.0",
     "@fastify/cors": "^8.4.0",
     "@fastify/helmet": "^11.1.1",
@@ -36,6 +44,7 @@
     "aws-sdk": "^2.1692.0",
     "axios": "^1.6.2",
     "bcryptjs": "^2.4.3",
+    "bullmq": "^5.66.2",
     "chalk": "^5.4.1",
     "commander": "^14.0.0",
     "dotenv": "^16.3.1",
@@ -58,10 +67,13 @@
     "uuid": "^9.0.1",
     "winston": "^3.11.0",
     "winston-elasticsearch": "^0.15.9",
+    "ws": "^8.18.3",
     "zod": "^3.22.4"
   },
   "devDependencies": {
     "eslint": "^8.54.0",
-    "nodemon": "^3.0.2"
+    "nodemon": "^3.0.2",
+    "vitest": "^1.0.0",
+    "@vitest/coverage-v8": "^1.0.0"
   }
 }

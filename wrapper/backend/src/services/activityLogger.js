@@ -77,6 +77,16 @@ class ActivityLogger {
     SECURITY_ACCESS_DENIED: 'security.access_denied',
     SECURITY_SUSPICIOUS_ACTIVITY: 'security.suspicious_activity',
 
+    // Error Activities
+    ERROR_API_ERROR: 'error.api_error',
+    ERROR_VALIDATION_ERROR: 'error.validation_error',
+    ERROR_DATABASE_ERROR: 'error.database_error',
+    ERROR_AUTH_ERROR: 'error.auth_error',
+    ERROR_NOT_FOUND: 'error.not_found',
+    ERROR_RATE_LIMIT: 'error.rate_limit',
+    ERROR_SERVICE_UNAVAILABLE: 'error.service_unavailable',
+    ERROR_INTERNAL_ERROR: 'error.internal_error',
+
     // Tenant Activities
     TENANT_VIEWED: 'tenant.viewed',
     TENANT_SETTINGS_UPDATED: 'tenant.settings_updated',
@@ -105,6 +115,12 @@ class ActivityLogger {
     PAYMENT_VIEWED: 'payment.viewed',
     PAYMENT_CREATED: 'payment.created',
     PAYMENT_UPGRADED: 'payment.upgraded',
+    PAYMENT_UPGRADE_SUCCESS: 'payment.upgrade_success',
+    PAYMENT_UPGRADE_FAILED: 'payment.upgrade_failed',
+    PAYMENT_TOPUP_SUCCESS: 'payment.topup_success',
+    PAYMENT_TOPUP_FAILED: 'payment.topup_failed',
+    CREDIT_PURCHASE_SUCCESS: 'credit.purchase_success',
+    CREDIT_PURCHASE_FAILED: 'credit.purchase_failed',
 
     // Organization Activities
     ORGANIZATION_VIEWED: 'organization.viewed',
@@ -205,9 +221,17 @@ class ActivityLogger {
 
   /**
    * Log user activity (for general activities like app access, login, etc.)
+   * MANDATORY: tenantId is required for all activity logs to ensure tenant isolation
    */
   async logActivity(userId, tenantId, appId, action, metadata = {}, requestContext = {}) {
     const requestId = Logger.generateRequestId('activity-log');
+    
+    // MANDATORY: Validate tenantId is provided
+    if (!tenantId) {
+      const error = new Error('Tenant ID is mandatory for activity logging');
+      console.error(`❌ [${requestId}] ${error.message}`);
+      return { success: false, error: error.message, requestId };
+    }
     
     try {
       Logger.activity.log(requestId, action, 'activity', `${userId}:${appId}`, {
@@ -225,16 +249,19 @@ class ActivityLogger {
       
       const activityData = {
         userId,
-        tenantId,
-        appId,
+        tenantId, // MANDATORY: Tenant isolation enforced at database level
+        appId: appId || null,
         action,
         resourceType: 'activity', // General activities don't have a specific resource type
-        metadata: {
+        resourceId: null, // Not used for activity logs
+        details: {
           ...metadata,
           timestamp: new Date().toISOString(),
           sessionId: requestContext.sessionId,
           requestId: requestId
         },
+        oldValues: null, // Not used for activity logs
+        newValues: null, // Not used for activity logs
         ipAddress: requestContext.ipAddress,
         userAgent: requestContext.userAgent,
       };
@@ -258,9 +285,17 @@ class ActivityLogger {
 
   /**
    * Log audit event (for system changes, data modifications, security events)
+   * MANDATORY: tenantId is required for all audit events to ensure tenant isolation
    */
   async logAuditEvent(tenantId, userId, action, resourceType, resourceId, changes = {}, requestContext = {}) {
     const requestId = Logger.generateRequestId('audit-log');
+    
+    // MANDATORY: Validate tenantId is provided
+    if (!tenantId) {
+      const error = new Error('Tenant ID is mandatory for audit event logging');
+      console.error(`❌ [${requestId}] ${error.message}`);
+      return { success: false, error: error.message, requestId };
+    }
     
     try {
       Logger.activity.log(requestId, action, resourceType, resourceId, {
@@ -321,8 +356,14 @@ class ActivityLogger {
 
   /**
    * Get user activity logs with filtering and pagination
+   * MANDATORY: tenantId is required to ensure tenant isolation
    */
-  async getUserActivity(userId, options = {}) {
+  async getUserActivity(userId, tenantId, options = {}) {
+    // MANDATORY: Validate tenantId is provided
+    if (!tenantId) {
+      throw new Error('Tenant ID is mandatory for retrieving user activity logs');
+    }
+    
     try {
       const {
         limit = 50,
@@ -334,43 +375,33 @@ class ActivityLogger {
         includeMetadata = true
       } = options;
 
-      // Define meaningful actions (no view activities)
-      const meaningfulActions = [
-        // Only create, update, delete operations
-        'user.profile_updated',
-        'tenant.settings_updated',
-        'subscription.created',
-        'subscription.updated',
-        'subscription.cancelled',
-        'payment.created',
-        'organization.created',
-        'organization.updated',
-        'entity.created',
-        'entity.updated',
-        'entity.deleted',
-        'location.created',
-        'location.updated',
-        'location.deleted',
-        'webhook.created',
-        'webhook.updated',
-        'webhook.deleted',
-        'role.created',
-        'role.updated',
-        'role.deleted',
-        'custom_role.created',
-        'custom_role.updated',
-        'custom_role.deleted',
-        'permission_matrix.updated',
-        'user_application.updated',
-        'crm_integration.updated',
-        'dns.updated'
+      // Build where conditions - filter by userId and tenantId for tenant isolation
+      const whereConditions = [
+        eq(auditLogs.userId, userId),
+        eq(auditLogs.tenantId, tenantId), // MANDATORY: Tenant isolation enforced
+        eq(auditLogs.resourceType, 'activity') // Only get activity logs, not audit events
       ];
 
-      let query = db
+      // Apply additional filters
+      if (startDate) {
+        whereConditions.push(gte(auditLogs.createdAt, startDate));
+      }
+
+      if (endDate) {
+        whereConditions.push(lte(auditLogs.createdAt, endDate));
+      }
+
+      if (actionFilter) {
+        whereConditions.push(eq(auditLogs.action, actionFilter));
+      }
+
+      // MANDATORY: Enforce tenant isolation - filter by both userId and tenantId
+      const query = db
         .select({
           logId: auditLogs.logId,
           action: auditLogs.action,
           userId: auditLogs.userId,
+          tenantId: auditLogs.tenantId, // Include tenantId in response for verification
           userName: tenantUsers.name,
           userEmail: tenantUsers.email,
           metadata: includeMetadata ? auditLogs.details : sql`NULL`,
@@ -382,26 +413,10 @@ class ActivityLogger {
           eq(auditLogs.userId, tenantUsers.userId),
           eq(auditLogs.tenantId, tenantUsers.tenantId)
         ))
-        .where(and(
-          eq(auditLogs.userId, userId),
-          sql`${auditLogs.action} IN (${meaningfulActions.map(action => `'${action}'`).join(', ')})`
-        ))
+        .where(and(...whereConditions))
         .orderBy(desc(auditLogs.createdAt))
         .limit(limit)
         .offset(offset);
-
-      // Apply additional filters
-      if (startDate) {
-        query = query.where(gte(auditLogs.createdAt, startDate));
-      }
-
-      if (endDate) {
-        query = query.where(lte(auditLogs.createdAt, endDate));
-      }
-
-      if (actionFilter) {
-        query = query.where(eq(auditLogs.action, actionFilter));
-      }
 
       const activities = await query;
 
@@ -411,12 +426,20 @@ class ActivityLogger {
         let appCode = 'system';
         let appName = 'System';
 
-        if (activity.action.includes('tenant.') || activity.action.includes('admin.tenant')) {
+        // Map action to application
+        if (activity.action.startsWith('api.')) {
+          // Extract app code from action like "api.post.users"
+          const parts = activity.action.split('.');
+          if (parts.length >= 3) {
+            appCode = parts[2];
+            appName = parts[2].charAt(0).toUpperCase() + parts[2].slice(1);
+          }
+        } else if (activity.action.includes('tenant.') || activity.action.includes('admin.tenant')) {
           appCode = 'admin';
           appName = 'Admin Panel';
-        } else if (activity.action.includes('user.')) {
+        } else if (activity.action.includes('user.') || activity.action.includes('auth.')) {
           appCode = 'users';
-          appName = 'User Management';
+          appName = activity.action.includes('auth.') ? 'Authentication' : 'User Management';
         } else if (activity.action.includes('role.') || activity.action.includes('custom_role.') || activity.action.includes('permission.')) {
           appCode = 'permissions';
           appName = 'Permissions';
@@ -480,8 +503,14 @@ class ActivityLogger {
 
   /**
    * Get tenant audit logs with filtering and pagination
+   * MANDATORY: tenantId is required to ensure tenant isolation
    */
   async getTenantAuditLogs(tenantId, options = {}) {
+    // MANDATORY: Validate tenantId is provided
+    if (!tenantId) {
+      throw new Error('Tenant ID is mandatory for retrieving tenant audit logs');
+    }
+    
     try {
       const {
         limit = 100,
@@ -504,8 +533,9 @@ class ActivityLogger {
         'subscription.created', 'subscription.updated', 'subscription.cancelled'
       ];
 
+      // MANDATORY: Tenant isolation enforced - all queries must filter by tenantId
       const conditions = [
-        eq(auditLogs.tenantId, tenantId),
+        eq(auditLogs.tenantId, tenantId), // MANDATORY: Tenant isolation enforced
         sql`${auditLogs.action} IN (${meaningfulActions.map(action => `'${action}'`).join(', ')})`
       ];
 
@@ -576,8 +606,14 @@ class ActivityLogger {
 
   /**
    * Get activity statistics for dashboard
+   * MANDATORY: tenantId is required to ensure tenant isolation
    */
   async getActivityStats(tenantId, period = '24h') {
+    // MANDATORY: Validate tenantId is provided
+    if (!tenantId) {
+      throw new Error('Tenant ID is mandatory for retrieving activity statistics');
+    }
+    
     try {
       const now = new Date();
       let startDate;
@@ -599,6 +635,7 @@ class ActivityLogger {
           startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
       }
 
+      // MANDATORY: Tenant isolation enforced - all queries must filter by tenantId
       // Get activity counts by type
       const activityStats = await db
         .select({
@@ -607,11 +644,12 @@ class ActivityLogger {
         })
         .from(auditLogs)
         .where(and(
-          eq(auditLogs.tenantId, tenantId),
+          eq(auditLogs.tenantId, tenantId), // MANDATORY: Tenant isolation enforced
           gte(auditLogs.createdAt, startDate)
         ))
         .groupBy(auditLogs.action);
 
+      // MANDATORY: Tenant isolation enforced
       // Get audit event counts
       const auditStats = await db
         .select({
@@ -621,11 +659,12 @@ class ActivityLogger {
         })
         .from(auditLogs)
         .where(and(
-          eq(auditLogs.tenantId, tenantId),
+          eq(auditLogs.tenantId, tenantId), // MANDATORY: Tenant isolation enforced
           gte(auditLogs.createdAt, startDate)
         ))
         .groupBy(auditLogs.resourceType, auditLogs.action);
 
+      // MANDATORY: Tenant isolation enforced
       // Get unique active users
       const activeUsersResult = await db
         .select({
@@ -633,7 +672,7 @@ class ActivityLogger {
         })
         .from(auditLogs)
         .where(and(
-          eq(auditLogs.tenantId, tenantId),
+          eq(auditLogs.tenantId, tenantId), // MANDATORY: Tenant isolation enforced
           gte(auditLogs.createdAt, startDate)
         ));
 
@@ -725,6 +764,278 @@ class ActivityLogger {
     } catch (error) {
       console.error('❌ Failed to log batch audit events:', error);
       return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Log error event with full context for debugging
+   * MANDATORY: tenantId is required for error logging to ensure tenant isolation
+   */
+  async logError(tenantId, userId, error, requestContext = {}, additionalContext = {}) {
+    const requestId = Logger.generateRequestId('error-log');
+    
+    // MANDATORY: Validate tenantId is provided
+    if (!tenantId) {
+      console.error(`❌ [${requestId}] Error logging skipped: No tenantId provided`);
+      return { success: false, error: 'Tenant ID is mandatory for error logging', requestId };
+    }
+
+    try {
+      // Determine error type and severity
+      const errorInfo = this.categorizeError(error);
+      
+      // Extract user ID if available
+      const errorUserId = userId || requestContext.userId || null;
+
+      Logger.activity.log(requestId, errorInfo.action, 'error', errorInfo.resourceType || 'system', {
+        tenantId,
+        userId: errorUserId,
+        errorType: errorInfo.type,
+        severity: errorInfo.severity,
+        statusCode: errorInfo.statusCode,
+        message: error.message,
+        stack: error.stack,
+        requestContext: {
+          ipAddress: requestContext.ipAddress,
+          userAgent: requestContext.userAgent,
+          sessionId: requestContext.sessionId,
+          url: requestContext.url,
+          method: requestContext.method
+        },
+        additionalContext
+      });
+
+      const errorData = {
+        tenantId, // MANDATORY: Tenant isolation enforced
+        userId: errorUserId,
+        action: errorInfo.action,
+        resourceType: 'error',
+        resourceId: requestId, // Use requestId as resourceId for error correlation
+        details: {
+          errorType: errorInfo.type,
+          severity: errorInfo.severity,
+          statusCode: errorInfo.statusCode,
+          message: error.message,
+          stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+          code: error.code,
+          name: error.name,
+          url: requestContext.url,
+          method: requestContext.method,
+          requestId: requestId,
+          timestamp: new Date().toISOString(),
+          ...additionalContext
+        },
+        oldValues: null,
+        newValues: null,
+        ipAddress: requestContext.ipAddress,
+        userAgent: requestContext.userAgent,
+      };
+
+      await db.insert(auditLogs).values(errorData);
+
+      console.log(`✅ [${requestId}] Error logged successfully: ${errorInfo.action} (${errorInfo.severity})`);
+      return { success: true, requestId, logId: requestId };
+    } catch (logError) {
+      console.error(`❌ [${requestId}] Failed to log error:`, {
+        error: logError.message,
+        originalError: error.message,
+        tenantId,
+        userId,
+        stack: logError.stack
+      });
+      return { success: false, error: logError.message, requestId };
+    }
+  }
+
+  /**
+   * Categorize error and determine appropriate action type and severity
+   */
+  categorizeError(error) {
+    let action = ACTIVITY_TYPES.ERROR_INTERNAL_ERROR;
+    let severity = 'high';
+    let statusCode = 500;
+    let type = 'unknown';
+
+    // HTTP status code errors
+    if (error.statusCode) {
+      statusCode = error.statusCode;
+      
+      if (statusCode >= 400 && statusCode < 500) {
+        severity = statusCode === 401 || statusCode === 403 ? 'high' : 'medium';
+        
+        if (statusCode === 400) {
+          action = ACTIVITY_TYPES.ERROR_VALIDATION_ERROR;
+          type = 'validation';
+        } else if (statusCode === 401) {
+          action = ACTIVITY_TYPES.ERROR_AUTH_ERROR;
+          type = 'authentication';
+        } else if (statusCode === 403) {
+          action = ACTIVITY_TYPES.ERROR_AUTH_ERROR;
+          type = 'authorization';
+        } else if (statusCode === 404) {
+          action = ACTIVITY_TYPES.ERROR_NOT_FOUND;
+          type = 'not_found';
+          severity = 'low';
+        } else if (statusCode === 409) {
+          action = ACTIVITY_TYPES.ERROR_VALIDATION_ERROR;
+          type = 'conflict';
+        } else if (statusCode === 429) {
+          action = ACTIVITY_TYPES.ERROR_RATE_LIMIT;
+          type = 'rate_limit';
+        }
+      } else if (statusCode >= 500) {
+        severity = 'critical';
+        action = ACTIVITY_TYPES.ERROR_INTERNAL_ERROR;
+        type = 'server_error';
+      }
+    }
+
+    // Error code based categorization
+    if (error.code) {
+      if (error.code === 'FST_JWT_NO_AUTHORIZATION_IN_HEADER' || 
+          error.code === 'FST_JWT_AUTHORIZATION_TOKEN_INVALID') {
+        action = ACTIVITY_TYPES.ERROR_AUTH_ERROR;
+        type = 'authentication';
+        severity = 'high';
+        statusCode = 401;
+      } else if (error.code === 'FST_RATE_LIMIT_REACHED') {
+        action = ACTIVITY_TYPES.ERROR_RATE_LIMIT;
+        type = 'rate_limit';
+        severity = 'medium';
+        statusCode = 429;
+      } else if (error.code === 'ECONNREFUSED') {
+        action = ACTIVITY_TYPES.ERROR_SERVICE_UNAVAILABLE;
+        type = 'service_unavailable';
+        severity = 'high';
+        statusCode = 503;
+      }
+    }
+
+    // Database errors
+    if (error.name === 'DrizzleError' || error.code?.startsWith('23')) {
+      action = ACTIVITY_TYPES.ERROR_DATABASE_ERROR;
+      type = 'database';
+      severity = 'critical';
+      statusCode = 500;
+    }
+
+    // Validation errors
+    if (error.validation || error.name === 'ValidationError') {
+      action = ACTIVITY_TYPES.ERROR_VALIDATION_ERROR;
+      type = 'validation';
+      severity = 'low';
+      statusCode = 400;
+    }
+
+    return {
+      action,
+      type,
+      severity,
+      statusCode,
+      resourceType: type === 'database' ? 'database' : 'api'
+    };
+  }
+
+  /**
+   * Get error logs with filtering and pagination
+   * MANDATORY: tenantId is required to ensure tenant isolation
+   */
+  async getErrorLogs(tenantId, options = {}) {
+    // MANDATORY: Validate tenantId is provided
+    if (!tenantId) {
+      throw new Error('Tenant ID is mandatory for retrieving error logs');
+    }
+
+    try {
+      const {
+        limit = 50,
+        offset = 0,
+        startDate,
+        endDate,
+        severity,
+        errorType,
+        statusCode,
+        logId
+      } = options;
+
+      const whereConditions = [
+        eq(auditLogs.tenantId, tenantId), // MANDATORY: Tenant isolation enforced
+        eq(auditLogs.resourceType, 'error') // Only get error logs
+      ];
+
+      if (startDate) {
+        whereConditions.push(gte(auditLogs.createdAt, startDate));
+      }
+
+      if (endDate) {
+        whereConditions.push(lte(auditLogs.createdAt, endDate));
+      }
+
+      if (severity) {
+        whereConditions.push(sql`${auditLogs.details}->>'severity' = ${severity}`);
+      }
+
+      if (errorType) {
+        whereConditions.push(sql`${auditLogs.details}->>'errorType' = ${errorType}`);
+      }
+
+      if (statusCode) {
+        whereConditions.push(sql`${auditLogs.details}->>'statusCode' = ${statusCode}`);
+      }
+
+      if (logId) {
+        whereConditions.push(eq(auditLogs.resourceId, logId));
+      }
+
+      const errors = await db
+        .select({
+          logId: auditLogs.logId,
+          action: auditLogs.action,
+          userId: auditLogs.userId,
+          tenantId: auditLogs.tenantId,
+          userName: tenantUsers.name,
+          userEmail: tenantUsers.email,
+          details: auditLogs.details,
+          ipAddress: auditLogs.ipAddress,
+          createdAt: auditLogs.createdAt
+        })
+        .from(auditLogs)
+        .leftJoin(tenantUsers, and(
+          eq(auditLogs.userId, tenantUsers.userId),
+          eq(auditLogs.tenantId, tenantUsers.tenantId)
+        ))
+        .where(and(...whereConditions))
+        .orderBy(desc(auditLogs.createdAt))
+        .limit(limit)
+        .offset(offset);
+
+      // Get total count for pagination
+      const totalCountResult = await db
+        .select({ count: sql`count(*)` })
+        .from(auditLogs)
+        .where(and(...whereConditions));
+
+      const total = parseInt(totalCountResult[0]?.count || 0);
+
+      return {
+        errors: errors.map(error => ({
+          ...error,
+          errorType: error.details?.errorType,
+          severity: error.details?.severity,
+          statusCode: error.details?.statusCode,
+          message: error.details?.message,
+          requestId: error.details?.requestId || error.logId
+        })),
+        pagination: {
+          limit,
+          offset,
+          total,
+          pages: Math.ceil(total / limit)
+        }
+      };
+    } catch (error) {
+      console.error('❌ Failed to get error logs:', error);
+      throw error;
     }
   }
 }

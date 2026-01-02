@@ -226,7 +226,8 @@ export function RoleManagementDashboard() {
 
   const deleteRole = useCallback(async (roleId: string) => {
     try {
-      const response = await api.delete(`/permissions/roles/${roleId}`);
+      // Always send force=true to actually delete the role (user already confirmed in modal)
+      const response = await api.delete(`/permissions/roles/${roleId}?force=true`);
       if (response.data.success) {
         toast.success('Role deleted successfully');
         invalidateRoles({ search: searchQuery, type: typeFilter !== 'all' ? typeFilter : undefined });

@@ -1,4 +1,6 @@
-export function errorHandler(error, request, reply) {
+import ActivityLogger from '../services/activityLogger.js';
+
+export async function errorHandler(error, request, reply) {
   // Log the error
   request.log.error(error);
 
@@ -91,6 +93,51 @@ export function errorHandler(error, request, reply) {
   // Add stack trace in development
   if (process.env.NODE_ENV === 'development' && error.stack) {
     response.stack = error.stack;
+  }
+
+  // Capture error in activity logs (non-blocking)
+  // Only log errors for authenticated users or if we have tenant context
+  if (request.user?.tenantId || request.userContext?.tenantId) {
+    const tenantId = request.user?.tenantId || request.userContext?.tenantId;
+    const userId = request.user?.internalUserId || request.user?.userId || request.userContext?.userId;
+    
+    // Log error asynchronously to not block the response
+    setImmediate(async () => {
+      try {
+        const requestContext = {
+          ipAddress: request.ip || request.headers['x-forwarded-for'] || request.connection?.remoteAddress,
+          userAgent: request.headers['user-agent'],
+          sessionId: request.headers['x-session-id'] || request.user?.sessionId,
+          url: request.url,
+          method: request.method
+        };
+
+        const additionalContext = {
+          responseStatus: statusCode,
+          errorPath: request.url,
+          errorMethod: request.method,
+          hasDetails: !!details,
+          validationErrors: error.validation ? error.validation.length : 0
+        };
+
+        const result = await ActivityLogger.logError(
+          tenantId,
+          userId,
+          error,
+          requestContext,
+          additionalContext
+        );
+
+        if (result.success) {
+          // Add correlation ID to response for debugging
+          response.correlationId = result.requestId;
+          response.logId = result.logId;
+        }
+      } catch (logError) {
+        // Don't let error logging failures affect the main error response
+        console.error('❌ Failed to log error to activity logs:', logError);
+      }
+    });
   }
 
   reply.code(statusCode).send(response);

@@ -759,6 +759,30 @@ export default async function paymentUpgradeRoutes(fastify, options) {
         gstinUpdated: !!organizationUpdateResult.length
       });
 
+      // Log successful payment upgrade activity
+      try {
+        const ActivityLogger = (await import('../../../services/activityLogger.js')).default;
+        const requestContext = ActivityLogger.createRequestContext(request);
+        await ActivityLogger.logActivity(
+          userContext.internalUserId || userContext.userId,
+          userContext.tenantId,
+          null,
+          'payment.upgrade_success',
+          {
+            creditPackage,
+            credits,
+            subscriptionId,
+            price: creditPrices[creditPackage],
+            profileCompleted,
+            organizationUpdated: !!organizationUpdateResult.length,
+            planLimits: planConfig
+          },
+          requestContext
+        );
+      } catch (logError) {
+        console.warn('⚠️ Failed to log payment upgrade activity:', logError.message);
+      }
+
       return {
         success: true,
         message: `Successfully purchased ${credits} credits (${creditPackage} package)${profileCompleted ? ' with profile completion' : ''}`,
@@ -777,6 +801,28 @@ export default async function paymentUpgradeRoutes(fastify, options) {
 
     } catch (error) {
       console.error('❌ Payment upgrade failed:', error);
+      
+      // Log failed payment upgrade activity
+      try {
+        const ActivityLogger = (await import('../../../services/activityLogger.js')).default;
+        const requestContext = ActivityLogger.createRequestContext(request);
+        await ActivityLogger.logActivity(
+          request.userContext?.internalUserId || request.userContext?.userId,
+          request.userContext?.tenantId,
+          null,
+          'payment.upgrade_failed',
+          {
+            error: error.message,
+            creditPackage: request.body?.creditPackage,
+            credits: request.body?.credits,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+          },
+          requestContext
+        );
+      } catch (logError) {
+        console.warn('⚠️ Failed to log payment upgrade failure activity:', logError.message);
+      }
+      
       return reply.code(500).send({
         success: false,
         message: 'Failed to process payment upgrade',

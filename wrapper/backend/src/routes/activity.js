@@ -48,9 +48,18 @@ export default async function activityRoutes(fastify, opts) {
     }
   }, async (request, reply) => {
     try {
+      // MANDATORY: Extract tenantId from authenticated user for tenant isolation
+      const { tenantId } = request.user;
+      if (!tenantId) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Tenant ID not found. Tenant isolation is mandatory.'
+        });
+      }
+      
       // Use the internal user ID, not the Kinde user ID
       const userId = request.user.internalUserId || request.user.userId;
-      console.log('Activity API - User context:', { userId, internalUserId: request.user.internalUserId, userId: request.user.userId });
+      console.log('Activity API - User context:', { userId, tenantId, internalUserId: request.user.internalUserId });
 
       if (!userId) {
         return reply.code(400).send({
@@ -83,8 +92,9 @@ export default async function activityRoutes(fastify, opts) {
         options.endDate = new Date(endDate);
       }
 
-      const result = await ActivityLogger.getUserActivity(userId, options);
-      console.log('Activity API - Result for user', userId, ':', result.activities.length, 'activities found');
+      // MANDATORY: Pass tenantId to ensure tenant isolation
+      const result = await ActivityLogger.getUserActivity(userId, tenantId, options);
+      console.log('Activity API - Result for user', userId, 'tenant', tenantId, ':', result.activities.length, 'activities found');
 
       return reply.send({
         success: true,
@@ -199,7 +209,15 @@ export default async function activityRoutes(fastify, opts) {
     }
   }, async (request, reply) => {
     try {
+      // MANDATORY: Extract tenantId from authenticated user for tenant isolation
       const { tenantId, isTenantAdmin, email } = request.user;
+      if (!tenantId) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Tenant ID not found. Tenant isolation is mandatory.'
+        });
+      }
+      
       const { period = '24h' } = request.query;
 
       // Check if user has permission to view stats
@@ -250,7 +268,15 @@ export default async function activityRoutes(fastify, opts) {
     }
   }, async (request, reply) => {
     try {
-      const { isTenantAdmin, email } = request.user;
+      // MANDATORY: Extract tenantId from authenticated user for tenant isolation
+      const { tenantId, isTenantAdmin, email } = request.user;
+      if (!tenantId) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Tenant ID not found. Tenant isolation is mandatory.'
+        });
+      }
+      
       const { userId } = request.params;
       const { days = 30 } = request.query;
 
@@ -265,8 +291,9 @@ export default async function activityRoutes(fastify, opts) {
       const endDate = new Date();
       const startDate = new Date(endDate.getTime() - (days * 24 * 60 * 60 * 1000));
 
+      // MANDATORY: Pass tenantId to ensure tenant isolation
       // Use the userId parameter directly as it should be the internal UUID
-      const result = await ActivityLogger.getUserActivity(userId, {
+      const result = await ActivityLogger.getUserActivity(userId, tenantId, {
         limit: 1000, // Get more data for summary
         startDate,
         endDate,
@@ -353,7 +380,14 @@ export default async function activityRoutes(fastify, opts) {
     }
   }, async (request, reply) => {
     try {
+      // MANDATORY: Extract tenantId from authenticated user for tenant isolation
       const { tenantId, isTenantAdmin, email } = request.user;
+      if (!tenantId) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Tenant ID not found. Tenant isolation is mandatory.'
+        });
+      }
       
       // Check admin permissions
       if (!isTenantAdmin && !email?.includes('admin')) {
@@ -379,8 +413,9 @@ export default async function activityRoutes(fastify, opts) {
         filename = `audit-logs-${new Date().toISOString().split('T')[0]}`;
       } else {
         // Export all user activities (admin only)
+        // MANDATORY: Pass tenantId to ensure tenant isolation
         // Use the userFilter directly as it should be the internal UUID for export
-        const result = await ActivityLogger.getUserActivity(filters.userId, {
+        const result = await ActivityLogger.getUserActivity(filters.userId, tenantId, {
           limit: 10000,
           ...filters
         });
@@ -414,6 +449,82 @@ export default async function activityRoutes(fastify, opts) {
       return reply.code(500).send({
         success: false,
         error: 'Failed to export activity logs'
+      });
+    }
+  });
+
+  /**
+   * Get error logs
+   * GET /api/activity/errors
+   */
+  fastify.get('/errors', {
+    schema: {
+      description: 'Get error logs for debugging',
+      tags: ['Activity'],
+      querystring: {
+        type: 'object',
+        properties: {
+          limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
+          offset: { type: 'integer', minimum: 0, default: 0 },
+          startDate: { type: 'string', format: 'date-time' },
+          endDate: { type: 'string', format: 'date-time' },
+          severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
+          errorType: { type: 'string' },
+          statusCode: { type: 'integer' },
+          logId: { type: 'string', format: 'uuid' }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    try {
+      // MANDATORY: Extract tenantId from authenticated user for tenant isolation
+      const { tenantId } = request.user;
+      if (!tenantId) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Tenant ID not found. Tenant isolation is mandatory.'
+        });
+      }
+
+      const {
+        limit = 50,
+        offset = 0,
+        startDate,
+        endDate,
+        severity,
+        errorType,
+        statusCode,
+        logId
+      } = request.query;
+
+      const options = {
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        severity,
+        errorType,
+        statusCode: statusCode ? parseInt(statusCode) : undefined,
+        logId
+      };
+
+      if (startDate) {
+        options.startDate = new Date(startDate);
+      }
+      if (endDate) {
+        options.endDate = new Date(endDate);
+      }
+
+      const result = await ActivityLogger.getErrorLogs(tenantId, options);
+
+      return reply.send({
+        success: true,
+        data: result
+      });
+
+    } catch (error) {
+      console.error('❌ Failed to get error logs:', error);
+      return reply.code(500).send({
+        success: false,
+        error: 'Failed to fetch error logs'
       });
     }
   });

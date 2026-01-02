@@ -50,6 +50,7 @@ import { OrganizationPage } from '@/features/organizations'
 import PaymentSuccess from './pages/PaymentSuccess'
 import PaymentCancelled from './pages/PaymentCancelled'
 import NotFound from './pages/NotFound'
+import { ActivityDashboard } from './pages/ActivityDashboardPage'
 
 // Professional Loading component using AnimatedLoader
 const LoadingScreen = () => (
@@ -224,6 +225,7 @@ function AppContent() {
           <Route path="billing" element={<Billing />} />
           <Route path="permissions" element={<Permissions />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="activity" element={<ActivityDashboard />} />
         </Route>
 
         {/* Company Admin Dashboard - Secure Route with Kinde Permissions */}
@@ -238,27 +240,7 @@ function AppContent() {
           }
         />
 
-        {/* Organization-specific routes with onboarding guard
-        <Route
-          path="/org/:orgCode"
-          element={
-            <ProtectedRoute>
-              <OnboardingGuard>
-                <DashboardLayout />
-              </OnboardingGuard>
-            </ProtectedRoute>
-          }
-        >
-          <Route index element={<Dashboard />} />
-          <Route path="analytics" element={<Analytics />} />
-          <Route path="users" element={<UserManagementDashboard />} />
-          <Route path="user-apps" element={<UserApplicationAccessPage />} />
-          <Route path="user-application-management" element={<UserApplicationManagement />} />
-          <Route path="billing" element={<Billing />} />
-          <Route path="usage" element={<Usage />} />
-          <Route path="permissions" element={<Permissions />} />
-          <Route path="settings" element={<Settings />} />
-        </Route> */}
+
 
         {/* Catch all - show NotFound page for invalid routes */}
         <Route

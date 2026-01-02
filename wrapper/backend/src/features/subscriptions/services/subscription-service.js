@@ -366,7 +366,11 @@ export class SubscriptionService {
         id: 'starter',
         name: 'Starter',
         description: 'Essential tools for small teams',
-        price: 20, // Annual price in USD
+        price: 120, // Annual price in USD ($10/month = $120/year)
+        monthlyPrice: 10,
+        yearlyPrice: 120,
+        stripePriceId: process.env.STRIPE_PRICE_ID_STARTER_MONTHLY,
+        stripeYearlyPriceId: process.env.STRIPE_PRICE_ID_STARTER,
         credits: 60000, // 60,000 credits annually (5,000/month)
         features: [
           'CRM tools',
@@ -392,7 +396,11 @@ export class SubscriptionService {
         id: 'professional',
         name: 'Professional',
         description: 'Comprehensive tools for growing businesses',
-        price: 49, // Annual price in USD
+        price: 240, // Annual price in USD ($20/month = $240/year)
+        monthlyPrice: 20,
+        yearlyPrice: 240,
+        stripePriceId: process.env.STRIPE_PRICE_ID_PROFESSIONAL_MONTHLY,
+        stripeYearlyPriceId: process.env.STRIPE_PRICE_ID_PROFESSIONAL,
         credits: 300000, // 300,000 credits annually (25,000/month)
         features: [
           'All Starter features',
@@ -422,7 +430,11 @@ export class SubscriptionService {
         id: 'enterprise',
         name: 'Enterprise',
         description: 'Complete solution with all features',
-        price: 99, // Annual price in USD
+        price: 360, // Annual price in USD ($30/month = $360/year)
+        monthlyPrice: 30,
+        yearlyPrice: 360,
+        stripePriceId: process.env.STRIPE_PRICE_ID_ENTERPRISE_MONTHLY,
+        stripeYearlyPriceId: process.env.STRIPE_PRICE_ID_ENTERPRISE,
         credits: 1200000, // 1,200,000 credits annually (100,000/month)
         features: [
           'All Professional features',
@@ -455,96 +467,156 @@ export class SubscriptionService {
   }
 
   // Create Stripe checkout session
-  static async createCheckoutSession({ tenantId, planId, customerId, successUrl, cancelUrl, billingCycle = 'monthly' }) {
+  static async createCheckoutSession({ tenantId, planId, customerId, successUrl, cancelUrl, billingCycle = 'monthly', credits }) {
     const startTime = Date.now();
     const requestId = Logger.generateRequestId('stripe-checkout');
 
-    Logger.billing.start(requestId, 'CREDIT PURCHASE CHECKOUT', {
+    // Determine if this is a subscription checkout or credit purchase
+    const isSubscriptionCheckout = !credits; // If credits is not provided, it's a subscription
+    const checkoutType = isSubscriptionCheckout ? 'SUBSCRIPTION CHECKOUT' : 'CREDIT PURCHASE CHECKOUT';
+
+    Logger.billing.start(requestId, checkoutType, {
       tenantId,
       planId,
       customerId,
       billingCycle,
+      credits,
+      isSubscriptionCheckout,
       stripeConfigured: this.isStripeConfigured(),
       environment: process.env.NODE_ENV
     });
 
-    // Get credit packages instead of subscription plans
-    const packages = await CreditService.getAvailablePackages();
-    const selectedPackage = packages.find(p => p.id === planId);
+    let selectedPlan;
+    let totalAmount;
+    let currency = 'USD';
+    let mode;
+    let lineItems;
 
-    console.log('🔍 createCheckoutSession - Found package:', selectedPackage ? selectedPackage.name : 'NOT FOUND');
+    if (isSubscriptionCheckout) {
+      // Handle subscription checkout
+      const plans = await this.getAvailablePlans();
+      selectedPlan = plans.find(p => p.id === planId);
 
-    if (!selectedPackage) {
-      throw new Error('Invalid credit package selected');
+      console.log('🔍 createCheckoutSession - Found subscription plan:', selectedPlan ? selectedPlan.name : 'NOT FOUND');
+
+      if (!selectedPlan) {
+        throw new Error('Invalid subscription plan selected');
+      }
+
+      // Use the plan's price based on billing cycle
+      totalAmount = selectedPlan.price; // Already in dollars for annual, or we need to calculate
+      mode = 'subscription';
+
+      // Get the appropriate Stripe price ID
+      const priceId = billingCycle === 'yearly' ?
+        selectedPlan.stripeYearlyPriceId :
+        selectedPlan.stripePriceId;
+
+      if (!priceId) {
+        throw new Error(`Stripe price ID not configured for ${planId} plan (${billingCycle})`);
+      }
+
+      lineItems = [{
+        price: priceId,
+        quantity: 1,
+      }];
+
+      console.log('🔍 createCheckoutSession - Subscription plan details:', {
+        planId: selectedPlan.id,
+        name: selectedPlan.name,
+        price: totalAmount,
+        billingCycle,
+        priceId,
+        currency
+      });
+
+    } else {
+      // Handle credit purchase checkout - simplified to direct amount
+      const packages = await CreditService.getAvailablePackages();
+      selectedPlan = packages.find(p => p.id === planId);
+
+      console.log('🔍 createCheckoutSession - Found credit package:', selectedPlan ? selectedPlan.name : 'NOT FOUND');
+
+      if (!selectedPlan) {
+        throw new Error('Invalid credit package selected');
+      }
+
+      // credits parameter now represents the dollar amount directly
+      totalAmount = credits; // Direct dollar amount, no credit calculations
+      mode = 'payment';
+
+      lineItems = [{
+        price_data: {
+          currency: selectedPlan.currency.toLowerCase(),
+          product_data: {
+            name: `$${totalAmount.toFixed(2)} Credit Purchase`,
+            description: `Purchase credits worth $${totalAmount.toFixed(2)}`
+          },
+          unit_amount: Math.round(totalAmount * 100) // Convert dollars to cents
+        },
+        quantity: 1,
+      }];
+
+      console.log('🔍 createCheckoutSession - Credit purchase details:', {
+        packageId: selectedPlan.id,
+        dollarAmount: totalAmount,
+        currency: selectedPlan.currency
+      });
     }
-
-    // Calculate pricing for credit package
-    const unitPrice = 0.10; // $0.10 per credit
-    const totalAmount = selectedPackage.credits * unitPrice;
-
-    console.log('🔍 createCheckoutSession - Credit package details:', {
-      packageId: selectedPackage.id,
-      credits: selectedPackage.credits,
-      unitPrice,
-      totalAmount,
-      currency: selectedPackage.currency
-    });
 
     // Check if we should use mock mode
     const isMockMode = !this.isStripeConfigured();
 
     if (isMockMode) {
-      console.log('🧪 createCheckoutSession - Using mock mode for credit purchase');
-      const mockSessionId = `mock_credit_session_${Date.now()}`;
-      const mockCheckoutUrl = `${successUrl}?session_id=${mockSessionId}&mock=true&package=${planId}&credits=${selectedPackage.credits}`;
-      console.log('✅ createCheckoutSession - Mock credit purchase success! URL:', mockCheckoutUrl);
+      console.log(`🧪 createCheckoutSession - Using mock mode for ${isSubscriptionCheckout ? 'subscription' : 'credit purchase'}`);
+      const mockSessionId = `mock_${isSubscriptionCheckout ? 'subscription' : 'credit'}_session_${Date.now()}`;
+      const mockCheckoutUrl = `${successUrl}?session_id=${mockSessionId}&mock=true&planId=${planId}${isSubscriptionCheckout ? `&billingCycle=${billingCycle}` : `&credits=${credits}`}`;
+      console.log(`✅ createCheckoutSession - Mock ${checkoutType.toLowerCase()} success! URL:`, mockCheckoutUrl);
 
-      // Simulate successful credit purchase
-      setTimeout(async () => {
-        try {
-          console.log('🧪 Processing mock credit purchase completion...');
+      if (!isSubscriptionCheckout) {
+        // Simulate successful credit purchase
+        setTimeout(async () => {
+          try {
+            console.log('🧪 Processing mock credit purchase completion...');
+          // For mock purchase, estimate credits based on amount ($1 = 1000 credits)
+          const estimatedCredits = Math.floor(totalAmount * 1000);
           await CreditService.purchaseCredits({
             tenantId,
             userId: 'mock-user', // This should be passed from the request
-            creditAmount: selectedPackage.credits,
+            creditAmount: estimatedCredits,
             paymentMethod: 'stripe',
-            currency: selectedPackage.currency,
-            notes: `Mock purchase of ${selectedPackage.name} package`
+            currency: selectedPlan.currency,
+            notes: `Mock purchase of $${totalAmount.toFixed(2)} worth of credits (${estimatedCredits} credits)`
           });
-          console.log('✅ Mock credit purchase processed successfully');
-        } catch (error) {
-          console.error('❌ Mock credit purchase processing error:', error);
-        }
-      }, 2000); // 2 second delay to simulate processing
+            console.log('✅ Mock credit purchase processed successfully');
+          } catch (error) {
+            console.error('❌ Mock credit purchase processing error:', error);
+          }
+        }, 2000); // 2 second delay to simulate processing
+      }
 
       return mockCheckoutUrl;
     }
 
-    console.log('🔍 createCheckoutSession - Creating credit purchase session config...');
+    console.log(`🔍 createCheckoutSession - Creating ${isSubscriptionCheckout ? 'subscription' : 'credit purchase'} session config...`);
 
     const sessionConfig = {
-      mode: 'payment', // One-time payment for credits
+      mode: mode,
       payment_method_types: ['card'],
-      line_items: [{
-        price_data: {
-          currency: selectedPackage.currency.toLowerCase(),
-          product_data: {
-            name: `${selectedPackage.credits} Credits - ${selectedPackage.name}`,
-            description: `Purchase ${selectedPackage.credits} credits for your account`
-          },
-          unit_amount: Math.round(totalAmount * 100) // Convert to cents
-        },
-        quantity: 1,
-      }],
+      line_items: lineItems,
       success_url: successUrl,
       cancel_url: cancelUrl,
       metadata: {
         tenantId,
-        packageId: planId,
-        planId: planId, // For backward compatibility
-        creditAmount: selectedPackage.credits.toString(),
-        unitPrice: unitPrice.toString(),
-        totalAmount: totalAmount.toString()
+        planId: planId,
+        ...(isSubscriptionCheckout ? {
+          billingCycle: billingCycle,
+          packageId: planId, // For backward compatibility
+        } : {
+          packageId: planId,
+          dollarAmount: credits.toString(),
+          totalAmount: totalAmount.toString()
+        })
       },
     };
 
@@ -1503,15 +1575,16 @@ export class SubscriptionService {
 
       const tenantId = session.metadata?.tenantId;
       const packageId = session.metadata?.packageId || session.metadata?.planId;
-      const creditAmount = parseInt(session.metadata?.creditAmount || 0);
-      const unitPrice = parseFloat(session.metadata?.unitPrice || 0);
+      const dollarAmount = parseFloat(session.metadata?.dollarAmount || 0);
       const totalAmount = parseFloat(session.metadata?.totalAmount || 0);
+      // Calculate credits from dollar amount ($1 = 1000 credits at $0.001 each)
+      const creditAmount = Math.floor(dollarAmount * 1000);
 
       console.log('📦 Checkout session metadata:', {
         tenantId,
         packageId,
+        dollarAmount,
         creditAmount,
-        unitPrice,
         totalAmount,
         sessionMode: session.mode
       });
@@ -1573,7 +1646,7 @@ export class SubscriptionService {
 
         // For webhook processing, we might not have a valid user context
         // Let's use null for userId and let the service handle it
-        await CreditService.purchaseCredits({
+        const purchaseResult = await CreditService.purchaseCredits({
           tenantId,
           userId: null, // Webhook doesn't have user context
           creditAmount,
@@ -1581,10 +1654,88 @@ export class SubscriptionService {
           currency: 'USD',
           entityType,
           entityId,
+          isWebhookCompletion: true,
+          sessionId: session.id,
           notes: `Completed Stripe payment for ${creditAmount} credits (${entityType})`
         });
 
         console.log('✅ Credit purchase processed successfully for tenant:', tenantId);
+
+        // Create payment record for credit purchase
+        try {
+          const { PaymentService } = await import('../services/payment-service.js');
+          const paymentAmount = dollarAmount || totalAmount || (session.amount_total / 100);
+          
+          // Check if payment record already exists
+          const existingPayment = await PaymentService.getPaymentByIntentId(session.payment_intent || session.id);
+          
+          if (!existingPayment) {
+            await PaymentService.recordPayment({
+              tenantId,
+              stripePaymentIntentId: session.payment_intent || session.id,
+              stripeCustomerId: session.customer,
+              amount: paymentAmount.toString(),
+              currency: (session.currency || 'USD').toUpperCase(),
+              status: session.payment_status === 'paid' ? 'succeeded' : 'pending',
+              paymentMethod: 'card',
+              paymentType: 'credit_purchase',
+              description: `Credit purchase: ${creditAmount.toLocaleString()} credits for $${paymentAmount.toFixed(2)}`,
+              metadata: {
+                stripeCheckoutSessionId: session.id,
+                creditAmount: creditAmount.toString(),
+                entityType,
+                entityId,
+                purchaseId: purchaseResult?.purchaseId,
+                ...session.metadata
+              },
+              paidAt: session.payment_status === 'paid' ? new Date() : null
+            });
+            console.log('✅ Payment record created for credit purchase');
+          } else {
+            // Update existing payment record
+            await PaymentService.updatePaymentStatus(
+              session.payment_intent || session.id,
+              session.payment_status === 'paid' ? 'succeeded' : 'pending',
+              {
+                stripeCheckoutSessionId: session.id,
+                paid_at: session.payment_status === 'paid' ? new Date().toISOString() : null
+              }
+            );
+            console.log('✅ Payment record updated for credit purchase');
+          }
+        } catch (paymentError) {
+          console.error('❌ Failed to create payment record for credit purchase:', paymentError);
+          // Don't fail the webhook if payment record creation fails
+        }
+
+        // Send payment confirmation email for credit purchase
+        try {
+          const paymentsModule = await import('../routes/payments.js');
+          const getTenantAdminEmail = paymentsModule.getTenantAdminEmail || (async () => null);
+          const userInfo = await getTenantAdminEmail(tenantId);
+          if (userInfo?.email) {
+            const { EmailService } = await import('../../../utils/email.js');
+            const emailService = new EmailService();
+            
+            await emailService.sendPaymentConfirmation({
+              tenantId,
+              userEmail: userInfo.email,
+              userName: userInfo.name,
+              paymentType: 'credit_purchase',
+              amount: dollarAmount || totalAmount,
+              currency: 'USD',
+              transactionId: session.id,
+              planName: 'Credit Purchase',
+              billingCycle: null,
+              creditsAdded: creditAmount,
+              sessionId: session.id
+            });
+          }
+        } catch (emailError) {
+          console.error('❌ Failed to send credit purchase confirmation email:', emailError);
+          // Don't fail the webhook if email fails
+        }
+
         return;
       }
 
@@ -1717,6 +1868,33 @@ export class SubscriptionService {
         }
 
         console.log('✅ Checkout completed successfully for tenant:', tenantId, 'plan:', planId);
+
+        // Send payment confirmation email for subscription
+        try {
+          const paymentsModule = await import('../routes/payments.js');
+          const getTenantAdminEmail = paymentsModule.getTenantAdminEmail || (async () => null);
+          const userInfo = await getTenantAdminEmail(tenantId);
+          if (userInfo?.email) {
+            const { EmailService } = await import('../../../utils/email.js');
+            const emailService = new EmailService();
+            
+            await emailService.sendPaymentConfirmation({
+              tenantId,
+              userEmail: userInfo.email,
+              userName: userInfo.name,
+              paymentType: 'subscription',
+              amount: billingCycle === 'yearly' ? plan.yearlyPrice : plan.monthlyPrice,
+              currency: 'USD',
+              transactionId: session.id,
+              planName: plan.name,
+              billingCycle,
+              sessionId: session.id
+            });
+          }
+        } catch (emailError) {
+          console.error('❌ Failed to send subscription confirmation email:', emailError);
+          // Don't fail the webhook if email fails
+        }
       }
 
     } catch (error) {
@@ -1875,6 +2053,44 @@ export class SubscriptionService {
         });
 
         console.log('✅ Payment succeeded and recorded for tenant:', subscription.tenantId, 'amount:', invoice.amount_paid / 100);
+        
+        // Log successful payment activity
+        try {
+          const ActivityLogger = (await import('../../../services/activityLogger.js')).default;
+          // Find a user from the tenant to log the activity
+          const [tenantUser] = await db
+            .select()
+            .from(tenantUsers)
+            .where(eq(tenantUsers.tenantId, subscription.tenantId))
+            .limit(1);
+          
+          if (tenantUser) {
+            const requestContext = {
+              ipAddress: null,
+              userAgent: 'stripe-webhook',
+              sessionId: null,
+              source: 'webhook'
+            };
+            
+            await ActivityLogger.logActivity(
+              tenantUser.userId,
+              subscription.tenantId,
+              null,
+              'payment.topup_success',
+              {
+                invoiceId: invoice.id,
+                subscriptionId: subscription.subscriptionId,
+                amount: invoice.amount_paid / 100,
+                currency: invoice.currency,
+                paymentMethod: invoice.payment_method_types?.[0] || 'card',
+                planId: invoice.lines?.data?.[0]?.price?.id
+              },
+              requestContext
+            );
+          }
+        } catch (logError) {
+          console.warn('⚠️ Failed to log payment success activity:', logError.message);
+        }
       } else {
         console.log('⚠️ Payment succeeded but no subscription ID found in invoice:', invoice.id);
       }
@@ -2005,6 +2221,46 @@ export class SubscriptionService {
         });
 
         console.log('❌ Payment failed and recorded for tenant:', subscription.tenantId);
+
+        // Log failed payment activity
+        try {
+          const ActivityLogger = (await import('../../../services/activityLogger.js')).default;
+          // Find a user from the tenant to log the activity
+          const [tenantUser] = await db
+            .select()
+            .from(tenantUsers)
+            .where(eq(tenantUsers.tenantId, subscription.tenantId))
+            .limit(1);
+          
+          if (tenantUser) {
+            const requestContext = {
+              ipAddress: null,
+              userAgent: 'stripe-webhook',
+              sessionId: null,
+              source: 'webhook'
+            };
+            
+            await ActivityLogger.logActivity(
+              tenantUser.userId,
+              subscription.tenantId,
+              null,
+              'payment.topup_failed',
+              {
+                invoiceId: invoice.id,
+                subscriptionId: subscription.subscriptionId,
+                amount: invoice.amount_due / 100,
+                currency: invoice.currency,
+                failureReason: invoice.last_finalization_error?.message || 'Payment failed',
+                failureCode: invoice.last_finalization_error?.code,
+                attemptCount: invoice.attempt_count,
+                nextPaymentAttempt: invoice.next_payment_attempt ? new Date(invoice.next_payment_attempt * 1000) : null
+              },
+              requestContext
+            );
+          }
+        } catch (logError) {
+          console.warn('⚠️ Failed to log payment failure activity:', logError.message);
+        }
 
         // Send payment failure notification email
         await EmailService.sendPaymentFailedNotification({
@@ -2355,6 +2611,54 @@ export class SubscriptionService {
         sessionId: session.id
       });
       console.log('✅ CreditService.purchaseCredits completed');
+
+      // Create payment record for credit purchase
+      try {
+        const { PaymentService } = await import('../services/payment-service.js');
+        const dollarAmount = parseFloat(session.metadata?.dollarAmount || session.metadata?.totalAmount || 0);
+        const paymentAmount = dollarAmount || (session.amount_total ? session.amount_total / 100 : 0);
+        
+        // Check if payment record already exists
+        const existingPayment = await PaymentService.getPaymentByIntentId(session.payment_intent || session.id);
+        
+        if (!existingPayment) {
+          await PaymentService.recordPayment({
+            tenantId,
+            stripePaymentIntentId: session.payment_intent || session.id,
+            stripeCheckoutSessionId: session.id,
+            stripeCustomerId: session.customer,
+            amount: paymentAmount.toString(),
+            currency: (session.currency || 'USD').toUpperCase(),
+            status: session.payment_status === 'paid' ? 'succeeded' : 'pending',
+            paymentMethod: 'card',
+            paymentType: 'credit_purchase',
+            description: `Credit purchase: ${creditAmount.toLocaleString()} credits for $${paymentAmount.toFixed(2)}`,
+            metadata: {
+              creditAmount: creditAmount.toString(),
+              entityType,
+              entityId,
+              purchaseId: purchaseResult?.purchaseId,
+              ...session.metadata
+            },
+            paidAt: session.payment_status === 'paid' ? new Date() : null
+          });
+          console.log('✅ Payment record created for credit purchase');
+        } else {
+          // Update existing payment record
+          await PaymentService.updatePaymentStatus(
+            session.payment_intent || session.id,
+            session.payment_status === 'paid' ? 'succeeded' : 'pending',
+            {
+              stripe_checkout_session_id: session.id,
+              paid_at: session.payment_status === 'paid' ? new Date().toISOString() : null
+            }
+          );
+          console.log('✅ Payment record updated for credit purchase');
+        }
+      } catch (paymentError) {
+        console.error('❌ Failed to create payment record for credit purchase:', paymentError);
+        // Don't fail the webhook if payment record creation fails
+      }
 
       console.log('✅ Credit purchase processed successfully:', {
         purchaseId: purchaseResult.purchaseId,

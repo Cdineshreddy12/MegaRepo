@@ -216,7 +216,7 @@ export default async function subscriptionRoutes(fastify, options) {
             required: ['packageId', 'credits', 'successUrl', 'cancelUrl'],
             properties: {
               packageId: { type: 'string' },
-              credits: { type: 'number', minimum: 100, maximum: 50000 },
+              credits: { type: 'number', minimum: 1, maximum: 10000 }, // Dollar amount for credit purchase
               successUrl: { type: 'string' },
               cancelUrl: { type: 'string' }
             }
@@ -315,18 +315,19 @@ export default async function subscriptionRoutes(fastify, options) {
 
       } else if (isCreditPurchase) {
         // Check if credit package is valid
-        const packages = await SubscriptionService.getAvailablePlans();
+        const { CreditService } = await import('../services/credit-service.js');
+        const packages = await CreditService.getAvailablePackages();
         const selectedPackage = packages.find(p => p.id === packageId);
 
         if (!selectedPackage) {
           return reply.code(400).send({ error: 'Invalid credit package selected' });
         }
 
-        // Validate credits are within package limits
-        if (credits < selectedPackage.minCredits || credits > selectedPackage.maxCredits) {
+        // Validate dollar amount is reasonable
+        if (credits < 1 || credits > 10000) {
           return reply.code(400).send({
-            error: 'Invalid credit amount',
-            message: `Credits must be between ${selectedPackage.minCredits} and ${selectedPackage.maxCredits} for ${selectedPackage.name} package`
+            error: 'Invalid amount',
+            message: `Amount must be between $1 and $10,000`
           });
         }
 
@@ -339,8 +340,8 @@ export default async function subscriptionRoutes(fastify, options) {
           cancelUrl
         };
 
-        itemDescription = `Credit package: ${selectedPackage.name} with ${credits} credits`;
-        console.log('🎯 Checkout - Creating checkout session for credit package:', selectedPackage.name, 'with', credits, 'credits');
+        itemDescription = `Credit purchase: $${credits} for ${selectedPackage.name}`;
+        console.log('🎯 Checkout - Creating checkout session for credit purchase:', selectedPackage.name, 'for $', credits);
       }
 
       // Create Stripe checkout session
@@ -358,7 +359,7 @@ export default async function subscriptionRoutes(fastify, options) {
         responseData.billingCycle = billingCycle;
       } else if (isCreditPurchase) {
         responseData.packageId = packageId;
-        responseData.credits = credits;
+        responseData.amount = credits; // Dollar amount
       }
 
       return {

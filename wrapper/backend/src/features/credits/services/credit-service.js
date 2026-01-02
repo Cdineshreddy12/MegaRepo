@@ -177,11 +177,17 @@ export class CreditService {
           tenantId: tenantId,
           entityId: searchEntityId,
           availableCredits: 0,
+          freeCredits: 0,
+          paidCredits: 0,
+          seasonalCredits: 0,
           reservedCredits: 0,
           lowBalanceThreshold: 100,
           criticalBalanceThreshold: 10,
           lastPurchase: null,
           creditExpiry: null,
+          freeCreditsExpiry: null,
+          paidCreditsExpiry: null,
+          seasonalCreditsExpiry: null,
           plan: 'credit_based',
           status: 'no_credits',
           usageThisPeriod: 0,
@@ -380,13 +386,37 @@ export class CreditService {
         console.warn('⚠️ Error fetching seasonal credit expiry:', expiryError.message);
       }
 
-      // If we couldn't categorize from transactions, use total as free credits (onboarding scenario)
+      // Calculate total available credits
       const totalAvailable = parseFloat(creditBalance.availableCredits || 0);
+      const categorizedTotal = freeCredits + paidCredits + seasonalCredits;
+      
+      // If we couldn't categorize from transactions, use total as free credits (onboarding scenario)
       if (freeCredits === 0 && paidCredits === 0 && seasonalCredits === 0 && totalAvailable > 0) {
         // Likely onboarding credits - categorize as free
         freeCredits = totalAvailable;
         if (subscriptionExpiry) {
           freeCreditsExpiry = subscriptionExpiry;
+        }
+      } else if (totalAvailable > categorizedTotal) {
+        // There's a difference between available credits and categorized credits
+        // This can happen if credits were added but not properly categorized in transactions
+        // Assign the difference to free credits (most common scenario for subscription credits)
+        const uncategorizedCredits = totalAvailable - categorizedTotal;
+        freeCredits += uncategorizedCredits;
+        
+        // Set expiry if subscription expiry is available
+        if (!freeCreditsExpiry && subscriptionExpiry) {
+          freeCreditsExpiry = subscriptionExpiry;
+        }
+        
+        console.log(`📊 Credit categorization: Found ${uncategorizedCredits} uncategorized credits, assigning to free credits`);
+      } else if (totalAvailable < categorizedTotal) {
+        // Categorized credits exceed available (shouldn't happen, but handle gracefully)
+        console.warn(`⚠️ Credit categorization mismatch: Available (${totalAvailable}) < Categorized (${categorizedTotal})`);
+        // Adjust free credits to match available total
+        const adjustment = totalAvailable - categorizedTotal;
+        if (freeCredits > 0) {
+          freeCredits = Math.max(0, freeCredits + adjustment);
         }
       }
 
@@ -520,7 +550,8 @@ export class CreditService {
     entityType = 'organization', // New parameter for hierarchical support
     entityId = null, // New parameter for hierarchical support
     isWebhookCompletion = false, // Flag for webhook completion
-    sessionId = null // Stripe session ID for webhook completion
+    sessionId = null, // Stripe session ID for webhook completion
+    paymentMethodDetails = {} // Stripe payment method details (card.last4, card.brand, etc.)
   }) {
     try {
       // If entityId is not provided, find the root organization for the tenant
@@ -547,7 +578,7 @@ export class CreditService {
       });
 
       // Calculate unit price (example pricing)
-      const unitPrice = 0.10; // $0.10 per credit
+      const unitPrice = 0.001; // $0.001 per credit
       const totalAmount = creditAmount * unitPrice;
 
       let purchase;
@@ -565,14 +596,17 @@ export class CreditService {
           console.log('✅ Found existing purchase:', existingPurchase.purchaseId);
 
           // Update purchase status to completed
+          // Note: Using schema fields: status, paymentStatus, paidAt, creditedAt (not completedAt or processedBy)
+          const updateData = {
+            status: 'completed',
+            paymentStatus: 'completed',
+            paidAt: new Date(), // When payment was completed
+            creditedAt: new Date() // When credits were added to balance
+          };
+
           await db
             .update(creditPurchases)
-            .set({
-              status: 'completed',
-              paymentStatus: 'completed',
-              completedAt: new Date(),
-              processedBy: userId || '00000000-0000-0000-0000-000000000001'
-            })
+            .set(updateData)
             .where(eq(creditPurchases.purchaseId, existingPurchase.purchaseId));
 
           // Create updated purchase object with correct status
@@ -580,8 +614,8 @@ export class CreditService {
             ...existingPurchase,
             status: 'completed',
             paymentStatus: 'completed',
-            completedAt: new Date(),
-            processedBy: userId || '00000000-0000-0000-0000-000000000001'
+            paidAt: updateData.paidAt,
+            creditedAt: updateData.creditedAt
           };
         } else {
           console.log('⚠️ No existing purchase found, creating new one for webhook completion');

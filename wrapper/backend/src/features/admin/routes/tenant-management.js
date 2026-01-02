@@ -5,9 +5,10 @@
 
 import { authenticateToken, requirePermission } from '../../../middleware/auth.js';
 import { db } from '../../../db/index.js';
-import { tenants, tenantUsers, entities, credits } from '../../../db/schema/index.js';
-import { eq, and, desc, sql, count } from 'drizzle-orm';
+import { tenants, tenantUsers, entities, credits, auditLogs } from '../../../db/schema/index.js';
+import { eq, and, desc, sql, count, gte, lte } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
+import ActivityLogger from '../../../services/activityLogger.js';
 
 export default async function adminTenantManagementRoutes(fastify, options) {
 
@@ -328,11 +329,11 @@ export default async function adminTenantManagementRoutes(fastify, options) {
     }
   });
 
-  // Get tenant activity log
+  // Get tenant activity log - Comprehensive activity logs for admin
   fastify.get('/:tenantId/activity', {
     preHandler: [authenticateToken, requirePermission('admin.tenants.view')],
     schema: {
-      description: 'Get tenant activity log',
+      description: 'Get comprehensive tenant activity logs (admin only)',
       params: {
         type: 'object',
         properties: {
@@ -343,48 +344,153 @@ export default async function adminTenantManagementRoutes(fastify, options) {
       querystring: {
         type: 'object',
         properties: {
-          limit: { type: 'integer', default: 50 },
-          offset: { type: 'integer', default: 0 }
+          limit: { type: 'integer', default: 100, minimum: 1, maximum: 500 },
+          offset: { type: 'integer', default: 0, minimum: 0 },
+          startDate: { type: 'string', format: 'date-time' },
+          endDate: { type: 'string', format: 'date-time' },
+          action: { type: 'string' },
+          resourceType: { type: 'string' },
+          userId: { type: 'string', format: 'uuid' },
+          includeDetails: { type: 'boolean', default: true }
         }
       }
     }
   }, async (request, reply) => {
     try {
       const { tenantId } = request.params;
-      const { limit = 50, offset = 0 } = request.query;
+      const {
+        limit = 100,
+        offset = 0,
+        startDate,
+        endDate,
+        action,
+        resourceType,
+        userId,
+        includeDetails = true
+      } = request.query;
 
-      // This would typically come from an activity/audit log table
-      // For now, we'll aggregate activity from various sources
+      const options = {
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        actionFilter: action,
+        resourceTypeFilter: resourceType,
+        userFilter: userId,
+        includeDetails: includeDetails === 'true' || includeDetails === true
+      };
 
-      const userActivity = await db
+      if (startDate) {
+        options.startDate = new Date(startDate);
+      }
+      if (endDate) {
+        options.endDate = new Date(endDate);
+      }
+
+      // Query all activity logs directly from database (not filtered by meaningful actions)
+      const whereConditions = [
+        eq(auditLogs.tenantId, tenantId)
+      ];
+
+      if (options.startDate) {
+        whereConditions.push(gte(auditLogs.createdAt, options.startDate));
+      }
+      if (options.endDate) {
+        whereConditions.push(lte(auditLogs.createdAt, options.endDate));
+      }
+      if (options.actionFilter) {
+        whereConditions.push(sql`${auditLogs.action} ILIKE ${'%' + options.actionFilter + '%'}`);
+      }
+      if (options.resourceTypeFilter) {
+        whereConditions.push(eq(auditLogs.resourceType, options.resourceTypeFilter));
+      }
+      if (options.userFilter) {
+        whereConditions.push(eq(auditLogs.userId, options.userFilter));
+      }
+
+      const logs = await db
         .select({
-          type: sql<string>`'user_activity'`,
-          description: sql<string>`concat(${tenantUsers.firstName}, ' ', ${tenantUsers.lastName}, ' logged in')`,
-          timestamp: tenantUsers.lastLoginAt,
-          userId: tenantUsers.userId
+          logId: auditLogs.logId,
+          userId: auditLogs.userId,
+          userName: tenantUsers.name,
+          userEmail: tenantUsers.email,
+          action: auditLogs.action,
+          resourceType: auditLogs.resourceType,
+          resourceId: auditLogs.resourceId,
+          oldValues: options.includeDetails ? auditLogs.oldValues : sql`NULL`,
+          newValues: options.includeDetails ? auditLogs.newValues : sql`NULL`,
+          details: options.includeDetails ? auditLogs.details : sql`NULL`,
+          ipAddress: auditLogs.ipAddress,
+          createdAt: auditLogs.createdAt
         })
-        .from(tenantUsers)
-        .where(and(
-          eq(tenantUsers.tenantId, tenantId),
-          sql`${tenantUsers.lastLoginAt} is not null`
+        .from(auditLogs)
+        .leftJoin(tenantUsers, and(
+          eq(auditLogs.userId, tenantUsers.userId),
+          eq(auditLogs.tenantId, tenantUsers.tenantId)
         ))
-        .orderBy(desc(tenantUsers.lastLoginAt))
-        .limit(limit);
+        .where(and(...whereConditions))
+        .orderBy(desc(auditLogs.createdAt))
+        .limit(options.limit)
+        .offset(options.offset);
+
+      // Get total count
+      const totalCountResult = await db
+        .select({ count: sql`count(*)` })
+        .from(auditLogs)
+        .where(and(...whereConditions));
+      const total = parseInt(totalCountResult[0]?.count || 0);
+
+      // Format activities from logs
+      const activities = logs.map(log => ({
+        logId: log.logId,
+        action: log.action,
+        appCode: log.details?.appCode || log.details?.app_code,
+        appName: log.details?.appName || log.details?.app_name || log.resourceType,
+        metadata: log.details || log.oldValues || log.newValues || {},
+        ipAddress: log.ipAddress,
+        createdAt: log.createdAt,
+        userId: log.userId,
+        tenantId: tenantId,
+        userName: log.userName,
+        userEmail: log.userEmail,
+        userInfo: log.userName ? {
+          id: log.userId,
+          name: log.userName,
+          email: log.userEmail
+        } : undefined,
+        resourceType: log.resourceType,
+        resourceId: log.resourceId,
+        errorType: log.details?.errorType || log.details?.error_type,
+        severity: log.details?.severity,
+        statusCode: log.details?.statusCode || log.details?.status_code,
+        message: log.details?.message,
+        requestId: log.details?.requestId || log.details?.request_id || log.logId,
+        correlationId: log.details?.correlationId || log.details?.correlation_id
+      }));
 
       return {
         success: true,
         data: {
-          activities: userActivity,
+          activities: activities,
           pagination: {
-            limit,
-            offset,
-            hasMore: userActivity.length === limit
+            limit: parseInt(limit),
+            offset: parseInt(offset),
+            total: total,
+            hasMore: activities.length >= parseInt(limit)
           }
         }
       };
     } catch (error) {
-      console.error('Error fetching tenant activity:', error);
-      return reply.code(500).send({ error: 'Failed to fetch tenant activity' });
+      console.error('❌ Error fetching tenant activity:', error);
+      console.error('Error details:', {
+        tenantId,
+        options,
+        message: error.message,
+        stack: error.stack
+      });
+      return reply.code(500).send({ 
+        success: false,
+        error: 'Failed to fetch tenant activity',
+        message: error.message 
+      });
     }
   });
 
