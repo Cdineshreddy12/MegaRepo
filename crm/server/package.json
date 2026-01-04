@@ -6,13 +6,19 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "temporal:worker": "node temporal/worker.js",
+    "temporal:start": "node temporal/start-workflow.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.70.1",
     "@aws-sdk/client-s3": "^3.901.0",
     "@aws-sdk/lib-storage": "^3.803.0",
     "@aws-sdk/s3-request-presigner": "^3.901.0",
+    "@temporalio/client": "^1.8.0",
+    "@temporalio/worker": "^1.8.0",
+    "@temporalio/workflow": "^1.8.0",
+    "@temporalio/activity": "^1.8.0",
     "axios": "^1.6.0",
     "bcryptjs": "^2.4.3",
     "cloudinary": "^1.41.3",

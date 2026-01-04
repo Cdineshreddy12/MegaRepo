@@ -98,8 +98,9 @@ class InterAppEventConsumer {
     }
   }
 
-  async processInterAppEvent(event) {
+  async processInterAppEvent(event, options = {}) {
     const eventData = event.message;
+    const { skipAck = false } = options; // Allow skipping acknowledgment (e.g., when called from Temporal)
 
     console.log(`\n📨 Processing inter-app event:`, {
       eventId: eventData.eventId,
@@ -134,9 +135,17 @@ class InterAppEventConsumer {
           console.log(`⚠️ Unknown target application: ${eventData.targetApplication}`);
       }
 
-      // Acknowledge successful processing
-      await this.redis.xAck(this.streamKey, this.consumerGroup, event.id);
-      console.log(`✅ Inter-app event acknowledged: ${eventData.eventId}`);
+      // Acknowledge successful processing (only if not skipping - e.g., when called from Temporal)
+      if (!skipAck && this.redis.client && event.id) {
+        try {
+          await this.redis.client.xAck(this.streamKey, this.consumerGroup, event.id);
+          console.log(`✅ Inter-app event acknowledged: ${eventData.eventId}`);
+        } catch (ackError) {
+          console.warn('⚠️ Failed to acknowledge event (may be called outside Redis consumer context):', ackError.message);
+        }
+      } else if (!skipAck) {
+        console.log(`✅ Inter-app event processed: ${eventData.eventId}`);
+      }
 
     } catch (error) {
       console.error(`❌ Failed to process inter-app event ${event.id}:`, error);
@@ -154,8 +163,16 @@ class InterAppEventConsumer {
         console.error('❌ Failed to send failure acknowledgment:', ackError.message);
       }
 
-      // Still acknowledge to prevent infinite retries
-      await this.redis.xAck(this.streamKey, this.consumerGroup, event.id);
+      // Still acknowledge to prevent infinite retries (only if not skipping)
+      if (!skipAck && this.redis.client && event.id) {
+        try {
+          await this.redis.client.xAck(this.streamKey, this.consumerGroup, event.id);
+        } catch (ackError) {
+          console.warn('⚠️ Failed to acknowledge failed event:', ackError.message);
+        }
+      }
+
+      throw error; // Re-throw to let Temporal handle retries
     }
   }
 

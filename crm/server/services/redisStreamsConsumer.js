@@ -1,5 +1,6 @@
 import { createClient } from 'redis';
 import CircuitBreaker from '../utils/circuitBreaker.js';
+import messageProcessingTracker from './messageProcessingTracker.js';
 
 /**
  * 🚀 Redis Streams CRM Consumer
@@ -358,17 +359,80 @@ class RedisStreamsCRMConsumer {
 
       console.log('🔄 Starting consumer loop...');
       let consecutiveEmptyCycles = 0;
+      let circuitBreakerOpenCycles = 0;
+      let lastCleanupTime = Date.now();
+      const CLEANUP_INTERVAL = 30 * 60 * 1000; // 30 minutes
       
       while (this.isRunning) {
+        // Periodic cleanup of stale processing records (every 30 minutes)
+        if (Date.now() - lastCleanupTime > CLEANUP_INTERVAL) {
+          try {
+            const staleCount = await messageProcessingTracker.cleanupStaleProcessingRecords();
+            if (staleCount > 0) {
+              console.log(`🧹 Periodic cleanup: Removed ${staleCount} stale processing record(s)`);
+            }
+            lastCleanupTime = Date.now();
+          } catch (cleanupError) {
+            console.error('❌ Error during periodic cleanup:', cleanupError.message);
+          }
+        }
+        // Check circuit breaker state before processing
+        const circuitBreakerState = this.mongoCircuitBreaker.getState();
+        const circuitBreakerInfo = this.mongoCircuitBreaker.getStateInfo();
+        
+        if (circuitBreakerState === 'OPEN') {
+          const waitTime = circuitBreakerInfo.waitTimeMs;
+          const minWaitTime = 5000; // Minimum 5 seconds wait
+          const actualWaitTime = Math.max(waitTime, minWaitTime);
+          
+          circuitBreakerOpenCycles++;
+          // Log every cycle when circuit breaker is OPEN (but limit verbosity)
+          if (circuitBreakerOpenCycles === 1 || circuitBreakerOpenCycles % 10 === 0) {
+            console.log(`⚠️ MongoDB circuit breaker is OPEN, waiting ${Math.ceil(actualWaitTime / 1000)}s before retry (cycle ${circuitBreakerOpenCycles})`, {
+              nextAttempt: circuitBreakerInfo.nextAttempt,
+              waitTimeMs: actualWaitTime
+            });
+          }
+          
+          // Wait until circuit breaker recovery time or minimum wait time
+          await new Promise(resolve => setTimeout(resolve, actualWaitTime));
+          
+          // Don't process messages when circuit breaker is OPEN - skip this cycle
+          continue;
+        }
+        
+        // Reset circuit breaker open cycles counter when circuit breaker is not OPEN
+        if (circuitBreakerOpenCycles > 0) {
+          console.log(`✅ Circuit breaker recovered (was OPEN for ${circuitBreakerOpenCycles} cycles), resuming message processing`);
+          circuitBreakerOpenCycles = 0;
+        }
+        
         let messagesProcessed = 0;
+        let circuitBreakerBlocked = false;
         
         // Process new messages (only log if messages found)
-        const newMessagesCount = await this.processNewMessages();
-        messagesProcessed += newMessagesCount || 0;
+        const newMessagesResult = await this.processNewMessages();
+        if (typeof newMessagesResult === 'object' && newMessagesResult.circuitBreakerOpen) {
+          circuitBreakerBlocked = true;
+        } else {
+          messagesProcessed += newMessagesResult || 0;
+        }
         
         // Process pending messages (only log if messages found)
-        const pendingMessagesCount = await this.processPendingMessages();
-        messagesProcessed += pendingMessagesCount || 0;
+        const pendingMessagesResult = await this.processPendingMessages();
+        if (typeof pendingMessagesResult === 'object' && pendingMessagesResult.circuitBreakerOpen) {
+          circuitBreakerBlocked = true;
+        } else {
+          messagesProcessed += pendingMessagesResult || 0;
+        }
+        
+        // If circuit breaker blocked processing, wait and retry
+        if (circuitBreakerBlocked) {
+          const waitTime = Math.max(5000, circuitBreakerInfo.waitTimeMs || 5000);
+          console.log(`⏸️ Circuit breaker OPEN blocked message processing, waiting ${Math.ceil(waitTime / 1000)}s`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          continue;
+        }
         
         // Only wait if no messages were processed (avoid tight loop when idle)
         if (messagesProcessed === 0) {
@@ -470,9 +534,14 @@ class RedisStreamsCRMConsumer {
    */
   async processPendingMessages() {
     try {
+      // Check circuit breaker state before processing
+      if (this.mongoCircuitBreaker.getState() === 'OPEN') {
+        return { circuitBreakerOpen: true };
+      }
+
       let totalProcessed = 0;
 
-      // First, claim any unassigned pending messages
+      // First, claim any unassigned pending messages (with stuck message handling)
       await this.claimUnassignedPendingMessages();
 
       // Then try to read messages assigned to this consumer
@@ -489,7 +558,13 @@ class RedisStreamsCRMConsumer {
             const streamData = result[0]; // xReadGroup returns array of stream results
             if (streamData.messages && streamData.messages.length > 0) {
               console.log(`   ✅ Found ${streamData.messages.length} pending messages in ${stream}`);
-              await this.processMessages(result, true); // true = pending messages
+              const processResult = await this.processMessages(result, true); // true = pending messages
+              
+              // Check if processing was blocked by circuit breaker
+              if (processResult && typeof processResult === 'object' && processResult.circuitBreakerOpen) {
+                return { circuitBreakerOpen: true };
+              }
+              
               totalProcessed += streamData.messages.length;
             }
           }
@@ -514,6 +589,8 @@ class RedisStreamsCRMConsumer {
    * Claim pending messages that aren't assigned to any consumer
    */
   async claimUnassignedPendingMessages() {
+    const STUCK_MESSAGE_TIMEOUT = 5 * 60 * 1000; // 5 minutes in milliseconds
+    
     for (const stream of this.streams) {
       try {
         // Get ALL pending messages for this stream (not just unassigned)
@@ -530,6 +607,40 @@ class RedisStreamsCRMConsumer {
           console.log(`   📋 Found ${pendingDetails.length} pending messages in ${stream} to claim`);
 
         for (const msg of pendingDetails) {
+            // Check if message is stuck (pending for more than 5 minutes)
+            const timeSinceDelivery = Date.now() - msg.timeSinceDelivery;
+            const isStuck = timeSinceDelivery > STUCK_MESSAGE_TIMEOUT;
+            
+            if (isStuck) {
+              console.log(`   ⚠️ Stuck message detected: ${msg.id} (pending for ${Math.floor(timeSinceDelivery / 1000)}s, assigned to: ${msg.consumer || 'unassigned'})`);
+              
+              // Try to claim it first
+              try {
+                const claimed = await this.redisClient.xClaim(
+                  stream,
+                  this.options.consumerGroup,
+                  this.options.consumerName,
+                  1000, // Very short min idle time (1 second) to claim even recently active messages
+                  [msg.id]
+                );
+
+                if (claimed && claimed.length > 0) {
+                  console.log(`   ✅ Claimed stuck message: ${msg.id}`);
+                  continue; // Successfully claimed, will be processed normally
+                }
+              } catch (claimError) {
+                // If claim fails, acknowledge to prevent infinite loop
+                console.log(`   ⚠️ Could not claim stuck message ${msg.id}, acknowledging to prevent infinite loop: ${claimError.message}`);
+                try {
+                  await this.redisClient.xAck(stream, this.options.consumerGroup, msg.id);
+                  console.log(`   ✅ Acknowledged stuck message ${msg.id} to prevent infinite retry`);
+                } catch (ackError) {
+                  console.log(`   ❌ Failed to acknowledge stuck message ${msg.id}: ${ackError.message}`);
+                }
+                continue;
+              }
+            }
+            
             // Claim ALL pending messages, even those assigned to other consumers
             // This handles crashed consumers and ensures no messages are lost
             console.log(`   🎯 Claiming message ${msg.id} from ${stream} (was assigned to: ${msg.consumer || 'unassigned'})`);
@@ -567,10 +678,15 @@ class RedisStreamsCRMConsumer {
    */
   async processNewMessages() {
     try {
+      // Check circuit breaker state before processing
+      if (this.mongoCircuitBreaker.getState() === 'OPEN') {
+        return { circuitBreakerOpen: true };
+      }
+
       // Check if Redis client is available
       if (!this.redisClient || !this.redisHealthy) {
         console.log('⚠️ Redis client not ready, skipping message processing');
-        return;
+        return 0;
       }
 
       // PRIORITY 1: Always try to read new messages first (use '>')
@@ -588,7 +704,13 @@ class RedisStreamsCRMConsumer {
         const totalMessages = newResult.reduce((sum, stream) => sum + stream.messages.length, 0);
         if (totalMessages > 0) {
           console.log(`📨 Processing ${totalMessages} new message(s)...`);
-        await this.processMessages(newResult, false); // false = not pending (new messages)
+          const processResult = await this.processMessages(newResult, false); // false = not pending (new messages)
+          
+          // Check if processing was blocked by circuit breaker
+          if (processResult && typeof processResult === 'object' && processResult.circuitBreakerOpen) {
+            return { circuitBreakerOpen: true };
+          }
+          
           newMessagesCount = totalMessages;
         }
       }
@@ -608,7 +730,13 @@ class RedisStreamsCRMConsumer {
           const totalMessages = pendingResult.reduce((sum, stream) => sum + stream.messages.length, 0);
         if (totalMessages > 0) {
           console.log(`📋 Processing ${totalMessages} pending message(s)...`);
-        await this.processMessages(pendingResult, true); // true = pending messages
+          const processResult = await this.processMessages(pendingResult, true); // true = pending messages
+          
+          // Check if processing was blocked by circuit breaker
+          if (processResult && typeof processResult === 'object' && processResult.circuitBreakerOpen) {
+            return { circuitBreakerOpen: true };
+          }
+          
           pendingMessagesCount = totalMessages;
         }
       }
@@ -620,6 +748,7 @@ class RedisStreamsCRMConsumer {
       } else {
         console.log('⚠️ Redis connection closed during message processing');
       }
+      return 0;
     }
   }
 
@@ -635,6 +764,11 @@ class RedisStreamsCRMConsumer {
       return;
     }
 
+    // Check circuit breaker state before processing
+    if (this.mongoCircuitBreaker.getState() === 'OPEN') {
+      return { circuitBreakerOpen: true };
+    }
+
     for (const result of results) {
       const stream = result.name; // xReadGroup returns objects with 'name' property
       const messages = result.messages;
@@ -644,6 +778,11 @@ class RedisStreamsCRMConsumer {
         if (this.isShuttingDown) {
           console.log('⚠️ Shutdown in progress, stopping message processing');
           return;
+        }
+
+        // Check circuit breaker state before each message
+        if (this.mongoCircuitBreaker.getState() === 'OPEN') {
+          return { circuitBreakerOpen: true };
         }
 
         const messageId = String(message.id);
@@ -666,32 +805,68 @@ class RedisStreamsCRMConsumer {
           }
           }
 
-          // EDGE CASE: For pending messages only, check if already processed
-          if (isPending) {
-            const alreadyProcessed = await this.checkPendingMessageProcessed(messageId, stream, this.options.consumerGroup);
-            if (alreadyProcessed) {
-              console.log(`🔄 Pending message ${messageId} already processed, skipping`);
+          // STEP 1: Check idempotency for ALL messages (not just pending)
+          const eventType = event.eventType || 'unknown';
+          const alreadyProcessed = await messageProcessingTracker.checkMessageProcessed(
+            messageId,
+            eventType,
+            stream,
+            this.options.consumerGroup
+          );
+          
+          if (alreadyProcessed) {
+            console.log(`⏭️ Message ${messageId} (${eventType}) already processed or currently processing, skipping`);
+            // Still acknowledge to prevent infinite retry
+            if (this.redisClient && (this.redisHealthy || this.redisClient.status === 'ready')) {
               await this.redisClient.xAck(stream, this.options.consumerGroup, messageId);
-              continue;
             }
+            continue;
           }
 
-          // Process event with circuit breaker protection for MongoDB operations
+          // STEP 2: Determine if this is a complex event (needs Temporal) or simple event (direct processing)
+          const isComplexEvent = this.isComplexEvent(eventType);
+          const workflowId = isComplexEvent ? this.getWorkflowId(event) : null;
+
+          // STEP 3: Mark as processing BEFORE any processing (atomic operation)
+          const markedAsProcessing = await messageProcessingTracker.markMessageProcessing(
+            messageId,
+            eventType,
+            workflowId,
+            stream,
+            this.options.consumerGroup
+          );
+
+          if (!markedAsProcessing) {
+            // Another process is already processing this message
+            console.log(`⚠️ Message ${messageId} could not be marked as processing (race condition), skipping`);
+            if (this.redisClient && (this.redisHealthy || this.redisClient.status === 'ready')) {
+              await this.redisClient.xAck(stream, this.options.consumerGroup, messageId);
+            }
+            continue;
+          }
+
+          // STEP 4: Process event with circuit breaker protection for MongoDB operations
           let processResult;
           try {
             processResult = await this.mongoCircuitBreaker.execute(async () => {
-              return await this.processEvent(event);
+              if (isComplexEvent) {
+                return await this.handleComplexEvent(event, workflowId);
+              } else {
+                return await this.handleSimpleEvent(event);
+              }
             });
           } catch (circuitError) {
             if (circuitError.code === 'CIRCUIT_BREAKER_OPEN') {
-              console.log(`⚠️ MongoDB circuit breaker is OPEN, skipping event processing`);
-              // Don't acknowledge - let it retry later
-              throw circuitError;
+              // Circuit breaker opened during processing - mark as failed and return early
+              await messageProcessingTracker.markMessageFailed(messageId, eventType, 'Circuit breaker OPEN');
+              return { circuitBreakerOpen: true };
             }
+            // Mark as failed on other errors
+            await messageProcessingTracker.markMessageFailed(messageId, eventType, circuitError.message);
             throw circuitError;
           }
 
-          // Handle different result types
+          // STEP 5: Handle different result types and mark completion status
           let shouldAcknowledge = true;
           let wasSuccessful = true;
 
@@ -717,17 +892,21 @@ class RedisStreamsCRMConsumer {
             }
           }
 
-          // Acknowledge message if processing was successful or skipped
-          if (shouldAcknowledge) {
-            // EDGE CASE: Store pending message record only for pending messages
-            if (isPending) {
-              await this.storePendingMessageRecord(messageId, stream, this.options.consumerGroup, wasSuccessful);
-            }
+          // STEP 6: Mark as completed BEFORE acknowledging Redis message
+          if (wasSuccessful) {
+            await messageProcessingTracker.markMessageCompleted(messageId, eventType);
+          } else {
+            // Mark as failed if not already marked
+            const errorMsg = processResult?.error || processResult?.reason || 'Processing failed';
+            await messageProcessingTracker.markMessageFailed(messageId, eventType, errorMsg);
+          }
 
+          // STEP 7: Acknowledge message if processing was successful or skipped
+          if (shouldAcknowledge) {
             // Check if Redis client is still available for acknowledgment
             if (this.redisClient && (this.redisHealthy || this.redisClient.status === 'ready')) {
-            console.log(`🔄 Acknowledging message: stream=${stream}, group=${this.options.consumerGroup}, id=${messageId}`);
-            await this.redisClient.xAck(stream, this.options.consumerGroup, messageId);
+              console.log(`🔄 Acknowledging message: stream=${stream}, group=${this.options.consumerGroup}, id=${messageId}`);
+              await this.redisClient.xAck(stream, this.options.consumerGroup, messageId);
             } else {
               console.log(`⚠️ Cannot acknowledge message ${messageId}: Redis client not available (healthy: ${this.redisHealthy}, status: ${this.redisClient?.status})`);
             }
@@ -743,6 +922,10 @@ class RedisStreamsCRMConsumer {
         } catch (error) {
           console.error(`❌ Failed to process event ${message.id}:`, error);
           this.updateMetrics(null, false, 0);
+
+          // Mark as failed if not already marked
+          const eventType = event?.eventType || 'unknown';
+          await messageProcessingTracker.markMessageFailed(messageId, eventType, error.message);
 
           // Handle processing error
           await this.handleProcessingError(stream, message, error);
@@ -839,10 +1022,122 @@ class RedisStreamsCRMConsumer {
   }
 
   /**
-   * Process a single event
+   * Determine if an event is complex (needs Temporal workflow) or simple (direct processing)
+   * @param {string} eventType - Event type
+   * @returns {boolean} - true if complex event, false if simple
    */
-  async processEvent(event) {
-    console.log(`🔄 Processing event: ${event.eventType} for tenant ${event.tenantId}`);
+  isComplexEvent(eventType) {
+    // Complex events that need Temporal workflows:
+    // - Multi-step processes
+    // - Need retry/compensation logic
+    // - Long-running operations
+    const complexEventTypes = [
+      'organization.assignment.created',
+      'organization.assignment.deleted',
+      'organization.assignment.activated',
+      'organization.assignment.deactivated',
+      'organization.assignment.updated',
+      'tenant.sync.required',
+    ];
+    
+    return complexEventTypes.includes(eventType);
+  }
+
+  /**
+   * Get workflow ID for an event
+   * @param {Object} event - Event object
+   * @returns {string} - Workflow ID
+   */
+  getWorkflowId(event) {
+    const eventType = event.eventType;
+    const tenantId = event.tenantId;
+    
+    if (eventType.includes('organization.assignment')) {
+      return `org-assignment-${tenantId}`;
+    } else if (eventType.includes('tenant.sync')) {
+      return `tenant-sync-${tenantId}`;
+    }
+    
+    // Default: one workflow per tenant per event type
+    return `${eventType}-${tenantId}`.replace(/\./g, '-');
+  }
+
+  /**
+   * Handle complex event via Temporal workflow
+   * @param {Object} event - Event object
+   * @param {string} workflowId - Temporal workflow ID
+   * @returns {Promise<Object>} - Processing result
+   */
+  async handleComplexEvent(event, workflowId) {
+    try {
+      const { getTemporalClient } = await import('../../../temporal-shared/client.js');
+      const temporalClient = await getTemporalClient();
+      
+      if (!temporalClient) {
+        console.warn(`⚠️ Temporal client not available, falling back to direct processing for ${event.eventType}`);
+        return await this.handleSimpleEvent(event);
+      }
+
+      const eventPayload = {
+        tenantId: event.tenantId,
+        ...(event.data || {}),
+        ...event, // Spread all event fields
+      };
+      
+      // Remove data field if it's an object (already spread)
+      if (eventPayload.data && typeof eventPayload.data === 'object') {
+        delete eventPayload.data;
+      }
+
+      try {
+        // Try to signal existing workflow
+        await temporalClient.workflow.signal(
+          workflowId,
+          event.eventType,
+          eventPayload
+        );
+        console.log(`✅ Signaled Temporal workflow ${workflowId} with event ${event.eventType}`);
+        return { success: true, method: 'signaled', workflowId };
+      } catch (notFoundError) {
+        // Workflow doesn't exist, start it first
+        console.log(`🔄 Workflow ${workflowId} doesn't exist, starting it...`);
+        
+        // Determine workflow name based on event type
+        let workflowName = 'organizationAssignmentWorkflow';
+        if (event.eventType.includes('tenant.sync')) {
+          workflowName = 'tenantSyncWorkflow';
+        }
+        
+        await temporalClient.workflow.start(workflowName, {
+          workflowId,
+          taskQueue: 'CRM',
+          args: [{ tenantId: event.tenantId }],
+        });
+        
+        // Then signal it
+        await temporalClient.workflow.signal(
+          workflowId,
+          event.eventType,
+          eventPayload
+        );
+        console.log(`✅ Started and signaled Temporal workflow ${workflowId} with event ${event.eventType}`);
+        return { success: true, method: 'started_and_signaled', workflowId };
+      }
+    } catch (error) {
+      console.error(`❌ Failed to handle complex event via Temporal: ${error.message}`);
+      // Fallback to direct processing on Temporal failure
+      console.log(`🔄 Falling back to direct processing for ${event.eventType}`);
+      return await this.handleSimpleEvent(event);
+    }
+  }
+
+  /**
+   * Handle simple event via direct processing
+   * @param {Object} event - Event object
+   * @returns {Promise<Object>} - Processing result
+   */
+  async handleSimpleEvent(event) {
+    console.log(`🔄 Processing simple event: ${event.eventType} for tenant ${event.tenantId}`);
     
     // Log event structure for debugging (truncated to avoid log spam)
     const eventPreview = {
@@ -870,27 +1165,39 @@ class RedisStreamsCRMConsumer {
   }
 
   /**
+   * Process a single event (legacy method - kept for backward compatibility)
+   * @deprecated Use handleSimpleEvent or handleComplexEvent instead
+   */
+  async processEvent(event) {
+    // Route to appropriate handler
+    const isComplex = this.isComplexEvent(event.eventType);
+    if (isComplex) {
+      const workflowId = this.getWorkflowId(event);
+      return await this.handleComplexEvent(event, workflowId);
+    } else {
+      return await this.handleSimpleEvent(event);
+    }
+  }
+
+  /**
    * Check if pending message was already processed (edge case: consumer crash)
    * 
-   * Only checks for pending messages to prevent duplicate processing after consumer restart.
+   * Uses messageProcessingTracker for comprehensive idempotency checking.
    * 
    * @param {string} messageId - Redis message ID
    * @param {string} stream - Stream name
    * @param {string} consumerGroup - Consumer group name
-   * @returns {Promise<boolean>} - true if already processed, false otherwise
+   * @param {string} eventType - Event type (optional but recommended)
+   * @returns {Promise<boolean>} - true if already processed or currently processing, false otherwise
    */
-  async checkPendingMessageProcessed(messageId, stream, consumerGroup) {
+  async checkPendingMessageProcessed(messageId, stream, consumerGroup, eventType = null) {
     try {
-      const { default: PendingMessageRecord } = await import('../models/PendingMessageRecord.js');
-      
-      const existingRecord = await PendingMessageRecord.findOne({
+      return await messageProcessingTracker.checkMessageProcessed(
         messageId,
+        eventType,
         stream,
-        consumerGroup,
-        status: 'completed'
-      });
-
-      return !!existingRecord; // true if found, false if not
+        consumerGroup
+      );
     } catch (error) {
       console.error('❌ Error checking pending message:', error.message);
       // On error, assume not processed (fail open)
@@ -899,38 +1206,25 @@ class RedisStreamsCRMConsumer {
   }
 
   /**
-   * Store pending message record (edge case only)
+   * Store pending message record (legacy method - now uses messageProcessingTracker)
    * 
-   * Only stores records for pending messages to prevent duplicate processing after consumer restart.
+   * @deprecated Use messageProcessingTracker.markMessageCompleted/Failed instead
    * 
    * @param {string} messageId - Redis message ID
    * @param {string} stream - Stream name
    * @param {string} consumerGroup - Consumer group name
    * @param {boolean} success - Whether processing was successful
+   * @param {string} eventType - Event type (optional)
+   * @param {string} workflowId - Workflow ID (optional)
    */
-  async storePendingMessageRecord(messageId, stream, consumerGroup, success) {
+  async storePendingMessageRecord(messageId, stream, consumerGroup, success, eventType = null, workflowId = null) {
     try {
-      const { default: PendingMessageRecord } = await import('../models/PendingMessageRecord.js');
-      
-      // Use upsert to handle concurrent inserts (atomic operation)
-      await PendingMessageRecord.findOneAndUpdate(
-        {
-          messageId,
-          stream,
-          consumerGroup
-        },
-        {
-          messageId,
-          stream,
-          consumerGroup,
-          processedAt: new Date(),
-          status: success ? 'completed' : 'failed'
-        },
-        {
-          upsert: true, // Create if doesn't exist
-          new: true // Return updated document
-        }
-      );
+      // Use messageProcessingTracker for consistency
+      if (success) {
+        await messageProcessingTracker.markMessageCompleted(messageId, eventType);
+      } else {
+        await messageProcessingTracker.markMessageFailed(messageId, eventType, 'Processing failed');
+      }
     } catch (error) {
       // Log but don't fail - best-effort
       console.error('❌ Error storing pending message record:', error.message);
@@ -946,12 +1240,23 @@ class RedisStreamsCRMConsumer {
     try {
       // Check if Redis client is available - handle both undefined and status checks
       const redisStatus = this.redisClient?.status;
+      // Redis client is available if:
+      // 1. Client exists
+      // 2. Status is 'ready' or 'connected' (not 'end' or 'error' or undefined)
+      // 3. redisHealthy flag is not explicitly false
+      // Note: If status is undefined but healthy is true, the client might be in a transitional state
+      // In that case, we'll trust the healthy flag if the client exists
       const isRedisAvailable = this.redisClient && 
-                                (redisStatus === 'ready' || redisStatus === 'connected') &&
+                                (
+                                  (redisStatus === 'ready' || redisStatus === 'connected') ||
+                                  (redisStatus === undefined && this.redisHealthy === true)
+                                ) &&
                                 this.redisHealthy !== false;
 
       if (!isRedisAvailable) {
-        const statusInfo = this.redisClient ? `status: ${redisStatus}, healthy: ${this.redisHealthy}` : 'undefined';
+        const statusInfo = this.redisClient 
+          ? `status: ${redisStatus || 'undefined'}, healthy: ${this.redisHealthy}` 
+          : 'client is null/undefined';
         console.error(`❌ Cannot handle processing error for ${message.id}: Redis client not available (${statusInfo})`);
         // Don't try to publish retry events if Redis is unavailable
         console.error(`💀 Event ${message.id} failed permanently (Redis unavailable): ${error.message}`);
@@ -1330,26 +1635,39 @@ class RedisStreamsCRMConsumer {
     console.log(`🔍 Full event keys: ${Object.keys(event).join(', ')}`);
     console.log(`🔍 Event.data type: ${typeof event.data}, value: ${event.data ? (typeof event.data === 'string' ? event.data.substring(0, 100) : JSON.stringify(event.data).substring(0, 100)) : 'undefined'}`);
     
-    // Handle both nested data structure and flattened structure
-    // After parseRedisMessage, data is flattened into event, but some events may still have data field
-    // Try multiple ways to get the data
-    let parsedData = event.data || event;
+    // Handle both nested data structure (from Temporal activities) and flattened structure (from Redis streams)
+    let parsedData;
     
-    // If data exists as a string, try to parse it
-    if (typeof parsedData === 'string') {
+    // If event.data exists as a string (Redis stream format), parse it first
+    if (event.data && typeof event.data === 'string') {
       try {
-        parsedData = JSON.parse(parsedData);
+        parsedData = JSON.parse(event.data);
+        // Merge with event to preserve tenantId and other top-level fields
+        parsedData = {
+          ...event,
+          ...parsedData,
+        };
         console.log(`✅ Parsed data from string, keys: ${Object.keys(parsedData).join(', ')}`);
       } catch (e) {
         console.warn(`⚠️ Failed to parse data string: ${e.message}`);
-        // Keep as is if parsing fails
-        parsedData = event;
+        // Fallback: merge event.data (as object) with event
+        parsedData = {
+          ...event,
+          ...(event.data || {}),
+        };
       }
+    } else {
+      // Merge event.data with event to preserve tenantId and other top-level fields
+      // This handles both Temporal activities (object data) and Redis streams (flattened)
+      parsedData = {
+        ...event,
+        ...(event.data || {}),
+      };
     }
     
-    // If parsedData doesn't have the fields we need, check if they're directly on event
+    // Final fallback: if still missing required fields, use event directly
     if (!parsedData.assignmentId && !parsedData.userId && !parsedData.userIdString) {
-      console.log(`⚠️ Data not found in parsedData, checking event directly`);
+      console.log(`⚠️ Data not found in parsedData, using event directly`);
       parsedData = event;
     }
 
@@ -1507,9 +1825,11 @@ class RedisStreamsCRMConsumer {
    * Handle role unassignment event
    */
   async handleRoleUnassigned(event) {
-    // Handle both nested data structure and flattened structure
-    // After parseRedisMessage, data is flattened into event, but some events may still have data field
-    const eventData = event.data || event;
+    // Merge event.data with event to preserve tenantId and other top-level fields
+    const eventData = {
+      ...event,
+      ...(event.data || {}),
+    };
 
     // Validate required fields - need at least assignmentId OR (userId + roleId)
     if (!eventData.assignmentId && (!eventData.userId && !eventData.userIdString) && (!eventData.roleId && !eventData.roleIdString)) {
@@ -1659,7 +1979,19 @@ class RedisStreamsCRMConsumer {
    * Handle role creation events
    */
   async handleRoleCreated(event) {
-    const eventData = event.data || event;
+    // Merge event.data with event to preserve tenantId and other top-level fields
+    const eventData = {
+      ...event,
+      ...(event.data || {}),
+    };
+
+    // Debug: Log what we're receiving
+    console.log(`🔍 [handleRoleCreated] Event keys:`, Object.keys(event));
+    console.log(`🔍 [handleRoleCreated] Event.data keys:`, event.data ? Object.keys(event.data) : 'no data field');
+    console.log(`🔍 [handleRoleCreated] Merged eventData keys:`, Object.keys(eventData));
+    console.log(`🔍 [handleRoleCreated] tenantId:`, eventData.tenantId);
+    console.log(`🔍 [handleRoleCreated] roleId:`, eventData.roleId);
+    console.log(`🔍 [handleRoleCreated] roleName:`, eventData.roleName);
 
     console.log(`🔄 Processing role creation event: ${eventData.roleName || eventData.roleId}`);
 
@@ -1692,8 +2024,11 @@ class RedisStreamsCRMConsumer {
    * Handle role update events
    */
   async handleRoleUpdated(event) {
-    // Handle both nested data structure and flattened structure
-    const eventData = event.data || event;
+    // Merge event.data with event to preserve tenantId and other top-level fields
+    const eventData = {
+      ...event,
+      ...(event.data || {}),
+    };
 
     // Parse data if it's a JSON string
     let parsedData = eventData;
@@ -1748,7 +2083,12 @@ class RedisStreamsCRMConsumer {
    * Handle role deletion events
    */
   async handleRoleDeleted(event) {
-    const eventData = event.data || event;
+    // Merge event.data with event to preserve tenantId and other top-level fields
+    // The activity creates { tenantId, data: data, ...data }, so we need both
+    const eventData = {
+      ...event,
+      ...(event.data || {}),
+    };
 
     console.log(`🔄 Processing role deletion event: ${eventData.roleId}`);
 
@@ -2227,6 +2567,14 @@ class RedisStreamsCRMConsumer {
       // Handle both nested data structure and flattened structure
       const eventData = event.data || event;
 
+      console.log(`🔄 [ORG-ASSIGNMENT-CREATE] Processing creation event:`, {
+        assignmentId: eventData.assignmentId,
+        userId: eventData.userId,
+        organizationId: eventData.organizationId,
+        tenantId: event.tenantId,
+        eventId: event.id || event.eventId
+      });
+
       if (!eventData.assignmentId || !eventData.userId || !eventData.organizationId) {
         throw new Error(`Missing required fields in organization.assignment.created event. Event structure: ${JSON.stringify(event, null, 2)}`);
       }
@@ -2239,15 +2587,70 @@ class RedisStreamsCRMConsumer {
       const { default: Organization } = await import('../models/Organization.js');
       const { default: UserProfile } = await import('../models/UserProfile.js');
 
-      // Check if assignment already exists
-      const existingAssignment = await EmployeeOrgAssignment.findOne({
+      // Strategy 1: Check if assignment already exists by assignmentId
+      let existingAssignment = await EmployeeOrgAssignment.findOne({
         tenantId: event.tenantId,
         assignmentId: eventData.assignmentId
       });
 
       if (existingAssignment) {
-        console.log(`ℹ️ Assignment ${eventData.assignmentId} already exists, skipping creation`);
+        // If exists but inactive, check if there's already an active assignment with same userId+orgId
+        if (!existingAssignment.isActive) {
+          // Check for active assignment with same userId+orgId before reactivating
+          const activeDuplicate = await EmployeeOrgAssignment.findOne({
+            tenantId: event.tenantId,
+            userIdString: eventData.userId,
+            entityIdString: eventData.organizationId,
+            isActive: true,
+            assignmentId: { $ne: eventData.assignmentId } // Exclude the one we're trying to reactivate
+          });
+
+          if (activeDuplicate) {
+            console.log(`ℹ️ [ORG-ASSIGNMENT-CREATE] Active assignment already exists for user ${eventData.userId} and org ${eventData.organizationId} (assignmentId: ${activeDuplicate.assignmentId}), skipping reactivation of ${eventData.assignmentId}`);
+            return { success: true, skipped: true, reason: 'active_duplicate_exists' };
+          }
+
+          // Safe to reactivate - no active duplicate exists
+          console.log(`🔄 [ORG-ASSIGNMENT-CREATE] Reactivating existing inactive assignment: ${eventData.assignmentId}`);
+          try {
+            existingAssignment.isActive = true;
+            existingAssignment.deactivatedAt = undefined;
+            existingAssignment.deactivatedBy = undefined;
+            await existingAssignment.save();
+            return { success: true, assignmentId: eventData.assignmentId, reactivated: true };
+          } catch (saveError) {
+            // Handle duplicate key error gracefully (race condition)
+            if (saveError.code === 11000 && saveError.message.includes('duplicate key error')) {
+              console.log(`⚠️ [ORG-ASSIGNMENT-CREATE] Duplicate key error while reactivating (race condition), checking for active assignment...`);
+              const nowActive = await EmployeeOrgAssignment.findOne({
+                tenantId: event.tenantId,
+                userIdString: eventData.userId,
+                entityIdString: eventData.organizationId,
+                isActive: true
+              });
+              if (nowActive) {
+                console.log(`ℹ️ [ORG-ASSIGNMENT-CREATE] Active assignment now exists (assignmentId: ${nowActive.assignmentId}), acknowledging event`);
+                return { success: true, skipped: true, reason: 'duplicate_key_race_condition' };
+              }
+            }
+            throw saveError;
+          }
+        }
+        console.log(`ℹ️ [ORG-ASSIGNMENT-CREATE] Assignment ${eventData.assignmentId} already exists and is active, skipping creation`);
         return { success: true, skipped: true, reason: 'already_exists' };
+      }
+
+      // Strategy 2: Check if assignment exists by userId+orgId (might have different assignmentId)
+      const duplicateAssignment = await EmployeeOrgAssignment.findOne({
+        tenantId: event.tenantId,
+        userIdString: eventData.userId,
+        entityIdString: eventData.organizationId,
+        isActive: true
+      });
+
+      if (duplicateAssignment) {
+        console.log(`ℹ️ [ORG-ASSIGNMENT-CREATE] Active assignment already exists for user ${eventData.userId} and org ${eventData.organizationId} (assignmentId: ${duplicateAssignment.assignmentId}), skipping creation`);
+        return { success: true, skipped: true, reason: 'duplicate' };
       }
 
       // Use organizationId as the orgCode for this CRM application
@@ -2268,20 +2671,8 @@ class RedisStreamsCRMConsumer {
       }
 
       if (!organization) {
-        console.log(`⚠️ Organization not found with orgCode: ${orgCode} in tenant ${event.tenantId}`);
+        console.error(`❌ [ORG-ASSIGNMENT-CREATE] Organization not found with orgCode: ${orgCode} in tenant ${event.tenantId}`);
         throw new Error(`Organization ${orgCode} not found in tenant ${event.tenantId}`);
-      }
-
-      // Check if assignment already exists by userId+orgId
-      const duplicateAssignment = await EmployeeOrgAssignment.findOne({
-        tenantId: event.tenantId,
-        userIdString: eventData.userId,
-        entityIdString: eventData.organizationId
-      });
-
-      if (duplicateAssignment) {
-        console.log(`ℹ️ Assignment already exists for user ${eventData.userId} and org ${eventData.organizationId}, skipping creation`);
-        return { success: true, skipped: true, reason: 'duplicate' };
       }
 
       // Find user profile
@@ -2291,6 +2682,7 @@ class RedisStreamsCRMConsumer {
       }).lean();
 
       if (!userProfile) {
+        console.error(`❌ [ORG-ASSIGNMENT-CREATE] User profile not found for userId: ${eventData.userId} in tenant ${event.tenantId}`);
         throw new Error(`User profile not found for userId: ${eventData.userId} in tenant ${event.tenantId}`);
       }
 
@@ -2311,13 +2703,46 @@ class RedisStreamsCRMConsumer {
         metadata: eventData.metadata || {}
       });
 
-      await newAssignment.save();
-      console.log(`✅ Created organization assignment: ${eventData.assignmentId} for orgCode: ${organization.orgCode}`);
+      try {
+        await newAssignment.save();
+        console.log(`✅ [ORG-ASSIGNMENT-CREATE] Created organization assignment: ${eventData.assignmentId} for user ${eventData.userId} and orgCode: ${organization.orgCode}`);
 
-      return { success: true, assignmentId: eventData.assignmentId };
+        return { success: true, assignmentId: eventData.assignmentId };
+      } catch (saveError) {
+        // Handle duplicate key error gracefully (race condition - another process created it)
+        if (saveError.code === 11000 && saveError.message.includes('duplicate key error')) {
+          console.log(`⚠️ [ORG-ASSIGNMENT-CREATE] Duplicate key error while creating (race condition), checking if assignment now exists...`);
+          const nowExists = await EmployeeOrgAssignment.findOne({
+            tenantId: event.tenantId,
+            $or: [
+              { assignmentId: eventData.assignmentId },
+              {
+                userIdString: eventData.userId,
+                entityIdString: eventData.organizationId,
+                isActive: true
+              }
+            ]
+          });
+          if (nowExists) {
+            console.log(`ℹ️ [ORG-ASSIGNMENT-CREATE] Assignment now exists (assignmentId: ${nowExists.assignmentId}), acknowledging event`);
+            return { success: true, skipped: true, reason: 'duplicate_key_race_condition' };
+          }
+        }
+        throw saveError;
+      }
 
     } catch (error) {
-      console.error('❌ Failed to create organization assignment:', error);
+      // Handle duplicate key error at top level as well
+      if (error.code === 11000 && error.message.includes('duplicate key error')) {
+        console.log(`⚠️ [ORG-ASSIGNMENT-CREATE] Duplicate key error, acknowledging to prevent infinite retry`);
+        return { acknowledged: true, reason: 'duplicate_key_error' };
+      }
+      
+      console.error('❌ [ORG-ASSIGNMENT-CREATE] Failed to create organization assignment:', {
+        error: error.message,
+        stack: error.stack,
+        eventData: event.data || event
+      });
       throw error;
     }
   }
@@ -2384,45 +2809,97 @@ class RedisStreamsCRMConsumer {
     try {
       const eventData = event.data || event;
 
+      console.log(`🔄 [ORG-ASSIGNMENT-DELETE] Processing deletion event:`, {
+        assignmentId: eventData.assignmentId,
+        userId: eventData.userId,
+        organizationId: eventData.organizationId,
+        tenantId: event.tenantId,
+        eventId: event.id || event.eventId
+      });
+
       if (!eventData.assignmentId || !event.tenantId) {
-        throw new Error(`Missing required fields in organization.assignment.deleted event`);
+        throw new Error(`Missing required fields in organization.assignment.deleted event. Event: ${JSON.stringify({ assignmentId: eventData.assignmentId, tenantId: event.tenantId })}`);
       }
 
       const { default: EmployeeOrgAssignment } = await import('../models/EmployeeOrgAssignment.js');
 
+      // Strategy 1: Try to find by exact assignmentId
       let assignmentToDelete = await EmployeeOrgAssignment.findOne({
         tenantId: event.tenantId,
         assignmentId: eventData.assignmentId
       });
 
-      if (!assignmentToDelete) {
-        const parts = eventData.assignmentId.split('_');
-        if (parts.length >= 2) {
+      if (assignmentToDelete) {
+        console.log(`✅ [ORG-ASSIGNMENT-DELETE] Found assignment by assignmentId: ${eventData.assignmentId}`);
+      } else {
+        // Strategy 2: Try userId + entityId combination
+        if (eventData.userId && eventData.organizationId) {
           assignmentToDelete = await EmployeeOrgAssignment.findOne({
             tenantId: event.tenantId,
-            userIdString: parts[0],
-            entityIdString: parts[1]
+            userIdString: eventData.userId,
+            entityIdString: eventData.organizationId
           });
+          
+          if (assignmentToDelete) {
+            console.log(`✅ [ORG-ASSIGNMENT-DELETE] Found assignment by userId+entityId: ${eventData.userId} + ${eventData.organizationId}`);
+          }
+        }
+
+        // Strategy 3: Try parsing assignmentId format (legacy format: userId_entityId_timestamp)
+        if (!assignmentToDelete) {
+          const parts = eventData.assignmentId.split('_');
+          if (parts.length >= 2) {
+            assignmentToDelete = await EmployeeOrgAssignment.findOne({
+              tenantId: event.tenantId,
+              userIdString: parts[0],
+              entityIdString: parts[1]
+            });
+            
+            if (assignmentToDelete) {
+              console.log(`✅ [ORG-ASSIGNMENT-DELETE] Found assignment by parsed assignmentId parts: ${parts[0]} + ${parts[1]}`);
+            }
+          }
         }
       }
 
       if (!assignmentToDelete) {
-        console.warn(`⚠️ Assignment ${eventData.assignmentId} not found for deletion - acknowledging to prevent infinite retry`);
+        console.warn(`⚠️ [ORG-ASSIGNMENT-DELETE] Assignment not found for deletion:`, {
+          assignmentId: eventData.assignmentId,
+          userId: eventData.userId,
+          organizationId: eventData.organizationId,
+          tenantId: event.tenantId,
+          message: 'Assignment may have already been deleted or never existed in CRM'
+        });
         return { success: false, reason: 'not_found', acknowledged: true }; // Acknowledge to prevent infinite retry
       }
 
-      const result = await EmployeeOrgAssignment.deleteOne({ _id: assignmentToDelete._id });
+      // Instead of deleting, deactivate the assignment (soft delete)
+      // This preserves history and allows for reactivation if needed
+      const result = await EmployeeOrgAssignment.updateOne(
+        { _id: assignmentToDelete._id },
+        {
+          $set: {
+            isActive: false,
+            deactivatedAt: new Date(),
+            deactivatedBy: eventData.deletedBy || 'system_event'
+          }
+        }
+      );
 
-      if (result.deletedCount === 0) {
-        console.warn(`⚠️ Assignment ${assignmentToDelete._id} not deleted (already deleted?) - acknowledging to prevent infinite retry`);
+      if (result.matchedCount === 0) {
+        console.warn(`⚠️ [ORG-ASSIGNMENT-DELETE] Assignment ${assignmentToDelete._id} not updated (already deleted?) - acknowledging to prevent infinite retry`);
         return { success: false, reason: 'already_deleted', acknowledged: true }; // Acknowledge to prevent infinite retry
       }
 
-      console.log(`✅ Deleted organization assignment: ${eventData.assignmentId}`);
+      console.log(`✅ [ORG-ASSIGNMENT-DELETE] Deactivated organization assignment: ${eventData.assignmentId} (was active: ${assignmentToDelete.isActive})`);
       return { success: true, assignmentId: eventData.assignmentId };
 
     } catch (error) {
-      console.error('❌ Failed to delete organization assignment:', error);
+      console.error('❌ [ORG-ASSIGNMENT-DELETE] Failed to delete organization assignment:', {
+        error: error.message,
+        stack: error.stack,
+        eventData: event.data || event
+      });
       throw error;
     }
   }
@@ -2623,7 +3100,11 @@ class RedisStreamsCRMConsumer {
         redisConnected: isConnected,
         consumerLag: totalLag,
         timestamp: new Date().toISOString(),
-        metrics: this.getMetrics()
+        metrics: this.getMetrics(),
+        circuitBreakers: {
+          mongo: this.mongoCircuitBreaker.getStateInfo(),
+          redis: this.redisCircuitBreaker.getStateInfo()
+        }
       };
     } catch (error) {
       return {
@@ -2632,6 +3113,30 @@ class RedisStreamsCRMConsumer {
         timestamp: new Date().toISOString()
       };
     }
+  }
+
+  /**
+   * Reset MongoDB circuit breaker
+   */
+  resetMongoCircuitBreaker() {
+    this.mongoCircuitBreaker.reset();
+    return {
+      success: true,
+      message: 'MongoDB circuit breaker reset',
+      state: this.mongoCircuitBreaker.getStateInfo()
+    };
+  }
+
+  /**
+   * Force MongoDB circuit breaker to HALF_OPEN
+   */
+  forceMongoCircuitBreakerHalfOpen() {
+    this.mongoCircuitBreaker.forceHalfOpen();
+    return {
+      success: true,
+      message: 'MongoDB circuit breaker forced to HALF_OPEN',
+      state: this.mongoCircuitBreaker.getStateInfo()
+    };
   }
 
   /**

@@ -47,23 +47,38 @@ class TenantDataSyncServiceV2 {
    */
   async syncTenant(tenantId, authToken, options = {}) {
     const startTime = Date.now();
+    const correlationId = options.correlationId || `sync-${tenantId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
-    // Initialize file logger for debugging
+    // Initialize file logger for debugging with correlation ID
     const fileLogger = new TenantSyncFileLogger(tenantId, {
       processId: this.processId,
+      correlationId,
       strategy: 'Essential + Background',
       authTokenLength: authToken ? authToken.length : 0
     });
+    
+    const syncContext = {
+      correlationId,
+      tenantId,
+      processId: this.processId,
+      strategy: 'Essential + Background',
+      startTime: new Date().toISOString(),
+      logFile: fileLogger.getLogFilePath() || 'Initializing...'
+    };
     
     console.log(`\n${'='.repeat(70)}`);
     console.log(`🚀 STARTING TENANT SYNC`);
     console.log(`${'='.repeat(70)}`);
     console.log(`📋 Tenant ID: ${tenantId}`);
+    console.log(`🔗 Correlation ID: ${correlationId}`);
     console.log(`🎯 Strategy: Essential + Background`);
     console.log(`🔧 Process ID: ${this.processId}`);
-    console.log(`⏰ Started At: ${new Date().toISOString()}`);
-    console.log(`📝 Log file: ${fileLogger.getLogFilePath() || 'Initializing...'}`);
+    console.log(`⏰ Started At: ${syncContext.startTime}`);
+    console.log(`📝 Log file: ${syncContext.logFile}`);
     console.log(`${'='.repeat(70)}\n`);
+    
+    // Log sync start marker
+    fileLogger.info('SYNC_START', syncContext);
 
     let syncStatus = null;
     let syncResult = null;
@@ -251,11 +266,21 @@ class TenantDataSyncServiceV2 {
       syncResult = {
         success: true,
         tenantId,
+        correlationId,
         duration: essentialDuration,
+        essentialDuration,
         stats: essentialResult.stats,
         backgroundSyncStarted: true,
         logFile: fileLogger.getLogFilePath()
       };
+      
+      // Log essential phase completion marker
+      fileLogger.info('ESSENTIAL_PHASE_COMPLETE', {
+        correlationId,
+        tenantId,
+        duration: essentialDuration,
+        stats: essentialResult.stats
+      });
       
       // Note: We don't finalize the logger here because background sync is still running
       // The background sync will handle finalization when it completes
@@ -263,14 +288,33 @@ class TenantDataSyncServiceV2 {
       return syncResult;
 
     } catch (error) {
+      const duration = Date.now() - startTime;
+      const errorType = error.type || this.classifyError(error).type || 'UNKNOWN_ERROR';
+      
+      const errorContext = {
+        correlationId,
+        tenantId,
+        errorType,
+        errorMessage: error.message,
+        errorStack: error.stack,
+        duration,
+        phase: 'essential_data',
+        timestamp: new Date().toISOString()
+      };
+      
       console.error(`\n${'='.repeat(70)}`);
       console.error(`❌ SYNC FAILED: ${tenantId}`);
       console.error(`${'='.repeat(70)}`);
-      console.error(`Error Type: ${error.type || 'UNKNOWN_ERROR'}`);
+      console.error(`🔗 Correlation ID: ${correlationId}`);
+      console.error(`Error Type: ${errorType}`);
       console.error(`Error Message: ${error.message}`);
       console.error(`Stack Trace: ${error.stack}`);
-      console.error(`Duration: ${Date.now() - startTime}ms`);
+      console.error(`Duration: ${duration}ms`);
+      console.error(`Phase: Essential Data Sync`);
       console.error(`${'='.repeat(70)}\n`);
+      
+      // Log error marker
+      fileLogger.error('SYNC_FAILED', errorContext);
       
       if (syncStatus && syncStatus.syncLock?.locked) {
         console.log('🔓 Releasing sync lock due to error...');
@@ -331,10 +375,10 @@ class TenantDataSyncServiceV2 {
       console.log('🌐 Fetching users...\n');
       
       const [tenantData, organizationsData, rolesData, usersData] = await Promise.all([
-        this.fetchFromWrapper(`/api/wrapper/tenants/${tenantId}`, authToken),
-        this.fetchFromWrapper(`/api/wrapper/tenants/${tenantId}/organizations`, authToken),
-        this.fetchFromWrapper(`/api/wrapper/tenants/${tenantId}/roles`, authToken),
-        this.fetchFromWrapper(`/api/wrapper/tenants/${tenantId}/users`, authToken)
+        this.fetchFromWrapper(`/tenants/${tenantId}`, authToken),
+        this.fetchFromWrapper(`/tenants/${tenantId}/organizations`, authToken),
+        this.fetchFromWrapper(`/tenants/${tenantId}/roles`, authToken),
+        this.fetchFromWrapper(`/tenants/${tenantId}/users`, authToken)
       ]);
 
       const fetchDuration = Date.now() - fetchStartTime;
@@ -413,9 +457,76 @@ class TenantDataSyncServiceV2 {
       
       await session.commitTransaction();
       
-      const phaseDuration = Date.now() - phaseStartTime;
-      console.log(`✅ Transaction committed successfully in ${phaseDuration}ms`);
+      const transactionDuration = Date.now() - phaseStartTime;
+      console.log(`✅ Transaction committed successfully in ${transactionDuration}ms`);
       console.log(`📊 All essential data is now persistent`);
+
+      // CRITICAL: Sync role assignments immediately after transaction (needed for authentication)
+      // Role assignments need reference maps which require the essential data to be committed first
+      console.log(`\n${'─'.repeat(70)}`);
+      console.log('🔐 SYNCING ROLE ASSIGNMENTS (Essential for Authentication)');
+      console.log(`${'─'.repeat(70)}`);
+      console.log('💡 Role assignments are needed before user can authenticate');
+      
+      try {
+        // Build reference maps (needs committed data)
+        const referenceMaps = await this.buildReferenceMaps(tenantId);
+        console.log(`✅ Reference maps built:`);
+        console.log(`   └─ Organizations: ${referenceMaps.orgMap.size} mappings`);
+        console.log(`   └─ Roles: ${referenceMaps.roleMap.size} mappings`);
+        console.log(`   └─ Users: ${referenceMaps.userMap.size} mappings\n`);
+
+        // Fetch role assignments
+        console.log('🌐 Fetching role assignments from wrapper...');
+        const roleAssignmentsData = await this.fetchFromWrapper(`/tenants/${tenantId}/role-assignments`, authToken);
+        console.log(`✅ Fetched ${roleAssignmentsData?.length || 0} role assignment(s)\n`);
+
+        // Store role assignments
+        if (roleAssignmentsData && roleAssignmentsData.length > 0) {
+          console.log('🔐 Storing role assignments...');
+          const roleAssignStartTime = Date.now();
+          const roleAssignCount = await this.storeRoleAssignments(
+            tenantId,
+            roleAssignmentsData,
+            referenceMaps,
+            {} // No session - independent operation after transaction
+          );
+          await syncStatus.markCollectionSynced('roleAssignments', roleAssignCount);
+          const roleAssignDuration = Date.now() - roleAssignStartTime;
+          console.log(`✅ Role assignments stored in ${roleAssignDuration}ms`);
+          console.log(`   └─ Records: ${roleAssignCount}`);
+          console.log(`   └─ References resolved: User + Role + Organization\n`);
+          stats.roleAssignments = roleAssignCount;
+        } else {
+          console.log('⚠️  No role assignments to store\n');
+          stats.roleAssignments = 0;
+        }
+      } catch (roleAssignError) {
+        console.error(`❌ Failed to sync role assignments: ${roleAssignError.message}`);
+        console.error(`⚠️  Authentication may fail - users will have no roles assigned`);
+        // If it's an auth error, mark it in sync status for retry
+        if (roleAssignError.type === 'AUTH_ERROR') {
+          console.error(`🔐 Auth error detected - role assignments will need to be synced manually or on next auth`);
+          // Mark role assignments as failed in sync status
+          if (syncStatus.collections?.roleAssignments) {
+            syncStatus.collections.roleAssignments.status = 'failed';
+            syncStatus.collections.roleAssignments.error = roleAssignError.message;
+            await syncStatus.save();
+          }
+        }
+        
+        // Don't throw - allow sync to complete, but log the issue
+        stats.roleAssignments = 0;
+      }
+
+      // Update phase to 'dependent' after role assignments are synced (essential phase complete)
+      syncStatus.phase = 'dependent';
+      await syncStatus.save();
+      
+      const phaseDuration = Date.now() - phaseStartTime;
+      console.log(`✅ Essential data sync complete in ${phaseDuration}ms`);
+      console.log(`📊 Total essential records: ${stats.totalRecords + (stats.roleAssignments || 0)}`);
+      console.log(`📊 Phase updated to 'dependent' - ready for background sync`);
 
       return { success: true, stats };
 
@@ -477,26 +588,24 @@ class TenantDataSyncServiceV2 {
       const fetchStartTime = Date.now();
       
       console.log('🌐 Fetching employee assignments...');
-      console.log('🌐 Fetching role assignments...');
       console.log('🌐 Fetching credit configs...');
       console.log('🌐 Fetching entity credits...\n');
+      console.log('ℹ️  Role assignments already synced in essential phase\n');
       
       const [
         employeeAssignmentsData,
-        roleAssignmentsData,
         creditConfigsData,
         entityCreditsData
       ] = await Promise.all([
-        this.fetchFromWrapper(`/api/wrapper/tenants/${tenantId}/employee-assignments`, authToken),
-        this.fetchFromWrapper(`/api/wrapper/tenants/${tenantId}/role-assignments`, authToken),
-        this.fetchFromWrapper(`/api/wrapper/tenants/${tenantId}/credit-configs`, authToken),
-        this.fetchFromWrapper(`/api/wrapper/tenants/${tenantId}/entity-credits`, authToken)
+        this.fetchFromWrapper(`/tenants/${tenantId}/employee-assignments`, authToken),
+        this.fetchFromWrapper(`/tenants/${tenantId}/credit-configs`, authToken),
+        this.fetchFromWrapper(`/tenants/${tenantId}/entity-credits`, authToken)
       ]);
 
       const fetchDuration = Date.now() - fetchStartTime;
       console.log(`✅ FETCH COMPLETE in ${fetchDuration}ms:`);
       console.log(`   └─ Employee Assignments: ${employeeAssignmentsData?.length || 0} records`);
-      console.log(`   └─ Role Assignments: ${roleAssignmentsData?.length || 0} records`);
+      console.log(`   └─ Role Assignments: Already synced in essential phase`);
       console.log(`   └─ Credit Configs: ${creditConfigsData?.length || 0} records`);
       console.log(`   └─ Entity Credits: ${entityCreditsData?.length || 0} records\n`);
 
@@ -508,7 +617,6 @@ class TenantDataSyncServiceV2 {
 
       const stats = {
         employeeAssignments: { success: false, count: 0, error: null },
-        roleAssignments: { success: false, count: 0, error: null },
         creditConfigs: { success: false, count: 0, error: null },
         entityCredits: { success: false, count: 0, error: null }
       };
@@ -551,39 +659,7 @@ class TenantDataSyncServiceV2 {
         console.log('⚠️  No employee assignments to store\n');
       }
 
-      // 2. Store role assignments
-      if (roleAssignmentsData && roleAssignmentsData.length > 0) {
-        collectionPromises.push(
-          this.processCollectionSafely(
-            'roleAssignments',
-            '🔐 Storing role assignments...',
-            async () => {
-              const storeStartTime = Date.now();
-              const count = await this.storeRoleAssignments(
-                tenantId,
-                roleAssignmentsData,
-                referenceMaps,
-                {} // No session - independent operation
-              );
-              // Reload syncStatus to avoid parallel save issues
-              const freshSyncStatus = await syncStatus.constructor.findOne({ tenantId });
-              if (freshSyncStatus) {
-                await freshSyncStatus.markCollectionSynced('roleAssignments', count);
-              }
-              const duration = Date.now() - storeStartTime;
-              console.log(`✅ Role assignments stored in ${duration}ms`);
-              console.log(`   └─ Records: ${count}`);
-              console.log(`   └─ References resolved: User + Role + Organization\n`);
-              return count;
-            },
-            stats.roleAssignments
-          )
-        );
-      } else {
-        console.log('⚠️  No role assignments to store\n');
-      }
-
-      // 3. Store credit configs
+      // 2. Store credit configs (role assignments already synced in essential phase)
       if (creditConfigsData && creditConfigsData.length > 0) {
         collectionPromises.push(
           this.processCollectionSafely(
@@ -756,14 +832,17 @@ class TenantDataSyncServiceV2 {
   /**
    * Fetch data from wrapper API with pagination
    */
-  async fetchFromWrapper(endpoint, authToken) {
+  async fetchFromWrapper(endpoint, authToken, retryWithServiceToken = true) {
     try {
-      const response = await axios.get(`${this.wrapperBaseUrl}${endpoint}`, {
+      // Construct full URL: wrapperBaseUrl + /api/wrapper + endpoint
+      // endpoint should be like /tenants/:tenantId (without /api/wrapper prefix)
+      const fullUrl = `${this.wrapperBaseUrl}/api/wrapper${endpoint}`;
+      const response = await axios.get(fullUrl, {
         timeout: this.timeout,
         headers: {
           'Authorization': `Bearer ${authToken}`,
           'Content-Type': 'application/json',
-          'X-Request-Source': 'crm-tenant-sync-v2'
+          'X-Request-Source': 'crm-backend'
         }
       });
 
@@ -773,7 +852,37 @@ class TenantDataSyncServiceV2 {
         throw new Error(`Unexpected response: ${response.status}`);
       }
     } catch (error) {
-      if (error.response?.status === 401) {
+      // Handle 401 errors - token might be expired, try service token as fallback
+      if (error.response?.status === 401 && retryWithServiceToken) {
+        console.warn(`⚠️  Token expired or invalid for ${endpoint}, attempting service token fallback...`);
+        
+        try {
+          // Extract tenantId from endpoint (e.g., /tenants/{tenantId}/...)
+          const tenantIdMatch = endpoint.match(/\/tenants\/([^\/]+)/);
+          const tenantId = tenantIdMatch ? tenantIdMatch[1] : null;
+          
+          if (tenantId) {
+            // Try to get service token
+            const { default: WrapperApiService } = await import('./wrapperApiService.js');
+            const serviceToken = await WrapperApiService.authenticateAsService(tenantId);
+            
+            if (serviceToken) {
+              console.log(`✅ Using service token for ${endpoint}`);
+              // Retry with service token (don't retry again to avoid infinite loop)
+              return await this.fetchFromWrapper(endpoint, serviceToken, false);
+            } else {
+              console.error(`❌ Could not obtain service token for tenant ${tenantId}`);
+            }
+          } else {
+            console.warn(`⚠️  Could not extract tenantId from endpoint ${endpoint} for service token fallback`);
+          }
+        } catch (serviceTokenError) {
+          console.error(`❌ Service token fallback failed: ${serviceTokenError.message}`);
+        }
+        
+        // If service token fallback failed, throw the original 401 error
+        throw this.createError('AUTH_ERROR', `Authentication failed for ${endpoint}. Token may be expired.`, error);
+      } else if (error.response?.status === 401) {
         throw this.createError('AUTH_ERROR', `Authentication failed for ${endpoint}`, error);
       } else if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
         throw this.createError('NETWORK_ERROR', `Network error for ${endpoint}`, error);
@@ -930,6 +1039,39 @@ class TenantDataSyncServiceV2 {
    */
   async storeEmployeeAssignments(tenantId, assignments, referenceMaps, options = {}) {
     let stored = 0;
+    let deactivated = 0;
+
+    // Get all current assignment IDs from wrapper (active assignments)
+    const activeAssignmentIds = new Set(assignments.map(a => a.assignmentId));
+
+    // Find assignments in MongoDB that are not in the active list (should be deactivated)
+    if (activeAssignmentIds.size > 0) {
+      const assignmentsToDeactivate = await EmployeeOrgAssignment.find({
+        tenantId,
+        assignmentId: { $nin: Array.from(activeAssignmentIds) },
+        isActive: true
+      });
+
+      if (assignmentsToDeactivate.length > 0) {
+        console.log(`   🔄 Found ${assignmentsToDeactivate.length} assignment(s) to deactivate (not in active list from wrapper)`);
+        const deactivateResult = await EmployeeOrgAssignment.updateMany(
+          {
+            tenantId,
+            assignmentId: { $nin: Array.from(activeAssignmentIds) },
+            isActive: true
+          },
+          {
+            $set: {
+              isActive: false,
+              deactivatedAt: new Date(),
+              deactivatedBy: 'system_sync'
+            }
+          }
+        );
+        deactivated = deactivateResult.modifiedCount;
+        console.log(`   ✅ Deactivated ${deactivated} assignment(s) that were removed in wrapper`);
+      }
+    }
 
     for (let i = 0; i < assignments.length; i += this.batchSize) {
       const batch = assignments.slice(i, i + this.batchSize);
@@ -937,24 +1079,42 @@ class TenantDataSyncServiceV2 {
         const userId = referenceMaps.userMap.get(assignment.userId);
         const entityId = referenceMaps.orgMap.get(assignment.entityId);
 
+        // Log if references are missing
+        if (!userId && assignment.userId) {
+          console.warn(`   ⚠️  User reference not found for userId: ${assignment.userId} (will store with userIdString only)`);
+        }
+        if (!entityId && assignment.entityId) {
+          console.warn(`   ⚠️  Organization reference not found for entityId: ${assignment.entityId} (will store with entityIdString only)`);
+        }
+
+        const updateDoc = {
+          $set: {
+            tenantId,
+            assignmentId: assignment.assignmentId,
+            ...(userId && { userId }), // Only set if resolved
+            userIdString: assignment.userId,
+            ...(entityId && { entityId }), // Only set if resolved
+            entityIdString: assignment.entityId,
+            assignmentType: assignment.assignmentType || 'primary',
+            isActive: assignment.isActive !== false,
+            assignedAt: assignment.assignedAt ? new Date(assignment.assignedAt) : new Date(),
+            assignedBy: assignment.assignedBy || 'system',
+            priority: assignment.priority || 1
+          }
+        };
+
+        // Clear deactivation fields if assignment is being reactivated
+        if (assignment.isActive !== false) {
+          updateDoc.$unset = {
+            deactivatedAt: '',
+            deactivatedBy: ''
+          };
+        }
+
         return {
           updateOne: {
             filter: { tenantId, assignmentId: assignment.assignmentId },
-            update: {
-              $set: {
-                tenantId,
-                assignmentId: assignment.assignmentId,
-                userId,
-                userIdString: assignment.userId,
-                entityId,
-                entityIdString: assignment.entityId,
-                assignmentType: assignment.assignmentType || 'primary',
-                isActive: assignment.isActive !== false,
-                assignedAt: assignment.assignedAt ? new Date(assignment.assignedAt) : new Date(),
-                assignedBy: assignment.assignedBy || 'system',
-                priority: assignment.priority || 1
-              }
-            },
+            update: updateDoc,
             upsert: true
           }
         };
@@ -962,6 +1122,10 @@ class TenantDataSyncServiceV2 {
 
       const result = await EmployeeOrgAssignment.bulkWrite(bulkOps, { session: options.session });
       stored += result.upsertedCount + result.modifiedCount;
+    }
+
+    if (deactivated > 0) {
+      console.log(`   📊 Summary: Stored ${stored} active assignment(s), deactivated ${deactivated} removed assignment(s)`);
     }
 
     return stored;
@@ -978,7 +1142,26 @@ class TenantDataSyncServiceV2 {
       const bulkOps = batch.map(assignment => {
         const userId = referenceMaps.userMap.get(assignment.userId);
         const roleId = referenceMaps.roleMap.get(assignment.roleId);
-        const entityId = referenceMaps.orgMap.get(assignment.entityId);
+        // Try to resolve entityId - if assignment.entityId is tenantId, it won't be in orgMap
+        // In that case, try to find the primary/default organization for the tenant
+        let entityId = referenceMaps.orgMap.get(assignment.entityId);
+        
+        // If entityId is not found and assignment.entityId equals tenantId, 
+        // this is a tenant-level role assignment - try to find primary org
+        if (!entityId && assignment.entityId === tenantId) {
+          console.warn(`   ⚠️  Role assignment has tenantId as entityId (${assignment.entityId}), attempting to find primary organization...`);
+          // Try to get the first organization as fallback (or primary org if available)
+          const firstOrg = Array.from(referenceMaps.orgMap.entries())[0];
+          if (firstOrg) {
+            entityId = firstOrg[1]; // Use the ObjectId
+            console.log(`   ✅ Using primary organization as fallback: ${firstOrg[0]}`);
+          }
+        }
+        
+        // Log if still not resolved
+        if (!entityId && assignment.entityId && assignment.entityId !== tenantId) {
+          console.warn(`   ⚠️  Organization reference not found for entityId: ${assignment.entityId} (will store with entityIdString only)`);
+        }
 
         return {
           updateOne: {
@@ -991,7 +1174,7 @@ class TenantDataSyncServiceV2 {
                 userIdString: assignment.userId,
                 roleId,
                 roleIdString: assignment.roleId,
-                entityId,
+                ...(entityId && { entityId }), // Only set if resolved
                 entityIdString: assignment.entityId,
                 isActive: assignment.isActive !== false,
                 assignedAt: assignment.assignedAt ? new Date(assignment.assignedAt) : new Date(),
@@ -1116,7 +1299,8 @@ class TenantDataSyncServiceV2 {
         console.warn(`⚠️  Skipping credit record: missing entityId`);
         return false;
       }
-      if (credit.allocatedCredits == null && credit.allocatedCredits !== 0) {
+      // Allow 0 as a valid value, but reject null/undefined
+      if (credit.allocatedCredits == null || credit.allocatedCredits === undefined) {
         console.warn(`⚠️  Skipping credit record for entity ${credit.entityId}: missing allocatedCredits`);
         return false;
       }
@@ -1152,6 +1336,8 @@ class TenantDataSyncServiceV2 {
               update: {
                 // Always update these fields
                 $set: {
+                  tenantId, // Ensure tenantId is always set
+                  entityIdString: credit.entityId, // Ensure entityIdString is always set
                   allocatedCredits: allocatedCreditsValue,
                   usedCredits: usedCreditsValue,
                   availableCredits: availableCreditsValue,
@@ -1160,12 +1346,7 @@ class TenantDataSyncServiceV2 {
                   isActive: credit.isActive !== false,
                   ...(entityId && { entityId }), // Update entityId if we have it
                   ...(allocatedBy && { allocatedBy }), // Update allocatedBy if we have it
-                  allocatedByString: credit.allocatedBy || null
-                },
-                // Only set these on insert
-                $setOnInsert: {
-                  tenantId,
-                  entityIdString: credit.entityId,
+                  allocatedByString: credit.allocatedBy || null,
                   allocatedAt: credit.allocatedAt ? new Date(credit.allocatedAt) : new Date()
                 }
               },
@@ -1177,12 +1358,38 @@ class TenantDataSyncServiceV2 {
 
       if (bulkOps.length > 0) {
         try {
+          // Log the filter being used for debugging
+          if (i === 0 && bulkOps.length > 0) {
+            console.log(`   🔍 Debug: First entity credit filter:`, JSON.stringify(bulkOps[0].updateOne.filter, null, 2));
+            console.log(`   🔍 Debug: First entity credit update:`, JSON.stringify(bulkOps[0].updateOne.update.$set, null, 2));
+          }
+          
           const result = await CrmEntityCredit.bulkWrite(bulkOps, { 
             ordered: false // Continue processing even if some fail
           });
+          
+          // Log detailed result for debugging
+          console.log(`   📊 BulkWrite result:`, {
+            upsertedCount: result.upsertedCount,
+            modifiedCount: result.modifiedCount,
+            matchedCount: result.matchedCount,
+            deletedCount: result.deletedCount,
+            insertedCount: result.insertedCount,
+            writeErrors: result.writeErrors?.length || 0,
+            writeConcernErrors: result.writeConcernErrors?.length || 0
+          });
+          
           // Count both upserted and matched (matched means document exists and was updated/verified)
           const batchStored = result.upsertedCount + result.modifiedCount + result.matchedCount;
           stored += batchStored;
+          
+          if (result.writeErrors && result.writeErrors.length > 0) {
+            console.error(`   ❌ Write errors in batch ${Math.floor(i / this.batchSize) + 1}:`);
+            result.writeErrors.forEach((writeError, idx) => {
+              console.error(`      Error ${idx + 1}: ${writeError.errmsg || writeError.err} (index: ${writeError.index})`);
+            });
+          }
+          
           if (batchStored < bulkOps.length) {
             console.warn(`   ⚠️  Batch ${Math.floor(i / this.batchSize) + 1}: Only stored ${batchStored} out of ${bulkOps.length} entity credit(s) (${result.upsertedCount} upserted, ${result.modifiedCount} modified, ${result.matchedCount} matched)`);
           } else {
@@ -1199,12 +1406,19 @@ class TenantDataSyncServiceV2 {
           console.log(`   🔄 Attempting individual inserts for batch ${Math.floor(i / this.batchSize) + 1}...`);
           for (const op of bulkOps) {
             try {
-              const doc = op.updateOne.update.$set;
               const filter = op.updateOne.filter;
-              await CrmEntityCredit.findOneAndUpdate(filter, { $set: doc }, { upsert: true });
+              const update = op.updateOne.update;
+              // Combine $set and $setOnInsert for individual update
+              const combinedUpdate = {
+                ...update.$set,
+                ...(update.$setOnInsert || {})
+              };
+              await CrmEntityCredit.findOneAndUpdate(filter, combinedUpdate, { upsert: true, setDefaultsOnInsert: true });
               stored++;
+              console.log(`      ✅ Stored entity credit for ${filter.entityIdString}`);
             } catch (individualError) {
               console.error(`      ⚠️  Failed to store entity credit for ${filter.entityIdString}: ${individualError.message}`);
+              console.error(`      ⚠️  Error details:`, individualError);
             }
           }
         }

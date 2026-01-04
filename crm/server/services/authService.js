@@ -13,14 +13,18 @@ import jwt from 'jsonwebtoken';
 import axios from 'axios';
 
 // Dynamic import for services to avoid conflicts
-let WrapperApiService, syncOrchestrationService;
+let WrapperApiService, syncOrchestrationService, temporalSyncService, TEMPORAL_CONFIG;
 (async () => {
-  const [wrapperService, syncService] = await Promise.all([
+  const [wrapperService, syncService, temporalService, temporalConfig] = await Promise.all([
     import('./wrapperApiService.js'),
-    import('./syncOrchestrationService.js')
+    import('./syncOrchestrationService.js'),
+    import('./temporalSyncService.js'),
+    import('../../../temporal-shared/config.js')
   ]);
   WrapperApiService = wrapperService.default;
   syncOrchestrationService = syncService.default;
+  temporalSyncService = temporalService.default;
+  TEMPORAL_CONFIG = temporalConfig.TEMPORAL_CONFIG;
 })();
 
 /**
@@ -116,6 +120,53 @@ class AuthService {
       console.log('🏢 Organization assignments loaded:', userOrgAssignments.length);
       console.log('💰 Credit breakdown loaded:', creditBreakdown.breakdown.length, 'entities');
 
+      // Validate that user has at least one role - critical for access
+      if (!userRoles || userRoles.length === 0) {
+        console.warn(`⚠️ [AUTH] User ${userContext.userId} has no roles assigned in tenant ${tenantContext.tenantId}`);
+        console.warn(`⚠️ [AUTH] This may indicate a sync issue. Checking role assignments...`);
+        
+        // Check if role assignments exist but roles are missing
+        const mongoose = (await import('mongoose')).default;
+        const CrmRoleAssignment = mongoose.model('CrmRoleAssignment');
+        const roleAssignments = await CrmRoleAssignment.find({
+          tenantId: tenantContext.tenantId,
+          $or: [
+            { userIdString: userContext.userId },
+            { userId: userContext.userId }
+          ],
+          isActive: true
+        }).lean();
+        
+        if (roleAssignments.length > 0) {
+          console.error(`❌ [AUTH] Found ${roleAssignments.length} role assignment(s) but role lookup failed!`);
+          console.error(`❌ [AUTH] Role assignments:`, roleAssignments.map(ra => ({
+            assignmentId: ra.assignmentId,
+            roleIdString: ra.roleIdString,
+            roleId: ra.roleId
+          })));
+          
+          // Check if roles exist in database
+          const CrmRole = mongoose.model('CrmRole');
+          const roleIds = roleAssignments.map(ra => ra.roleIdString || ra.roleId).filter(Boolean);
+          const existingRoles = await CrmRole.find({
+            tenantId: tenantContext.tenantId,
+            $or: [
+              { roleId: { $in: roleIds } },
+              { _id: { $in: roleIds } }
+            ]
+          }).lean();
+          
+          console.error(`❌ [AUTH] Found ${existingRoles.length} role(s) in database out of ${roleIds.length} expected`);
+          if (existingRoles.length < roleIds.length) {
+            console.error(`❌ [AUTH] Missing roles! This indicates a sync problem.`);
+            throw new Error('User has role assignments but corresponding roles are missing. Sync may have failed. Please contact administrator.');
+          }
+        } else {
+          console.error(`❌ [AUTH] No role assignments found for user ${userContext.userId}`);
+          throw new Error('No role assigned. Please contact your system administrator to assign a role to your account.');
+        }
+      }
+
       // Step 8: Get user's accessible entities using relationship service
       const userEntities = await this.getUserEntities(tenantContext.tenantId, userContext.userId, tenantContext.orgCode);
       console.log('🏢 User entities loaded:', userEntities.length);
@@ -168,42 +219,89 @@ class AuthService {
 
       // Import wrapper service dynamically to avoid circular imports
       const WrapperApiService = (await import('./wrapperApiService.js')).default;
+      const axios = (await import('axios')).default;
 
-      // We need to get user info, but we don't know the user ID yet
-      // Let's try to decode the token to get the user ID from sub claim
-      let userId = null;
+      // Try to call wrapper API /api/users/me endpoint with the token
+      // This endpoint requires authentication and returns user info including email
+      // Ensure we use localhost:3000 for local development, not production URLs
+      let wrapperBaseUrl = process.env.WRAPPER_API_URL || 'http://localhost:3000';
+      if (wrapperBaseUrl.includes('zopkit.com') || wrapperBaseUrl.includes('production') || wrapperBaseUrl.includes('prod')) {
+        console.warn('⚠️ [AUTH] Production URL detected in WRAPPER_API_URL, using localhost:3000 instead');
+        wrapperBaseUrl = 'http://localhost:3000';
+      }
+      // Remove trailing /api if present to avoid double /api/api/ prefix
+      wrapperBaseUrl = wrapperBaseUrl.replace(/\/api\/?$/, '');
+      console.log(`🔗 [AUTH] Using wrapper API URL for user info: ${wrapperBaseUrl}`);
+      
       try {
-        const parts = token.split('.');
-        if (parts.length === 3) {
-          const payload = Buffer.from(parts[1], 'base64').toString();
-          const decoded = JSON.parse(payload);
-          userId = decoded.sub; // Usually contains user ID
+        console.log('🔍 Attempting to get user info from wrapper /api/users/me endpoint...');
+        // Use /api/users/me (not /api/api/users/me)
+        const fullUrl = `${wrapperBaseUrl}/api/users/me`;
+        const response = await axios.get(fullUrl, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 10000 // 10 second timeout
+        });
+
+        if (response.data && response.data.success && response.data.data) {
+          const userData = response.data.data;
+          const kindeUser = userData.kindeUser || userData.user?.kindeUser;
+          
+          if (kindeUser && kindeUser.email) {
+            console.log('✅ Got email from wrapper API:', kindeUser.email);
+            return {
+              id: kindeUser.id || userData.user?.userId,
+              email: kindeUser.email,
+              name: kindeUser.name || userData.user?.name,
+              given_name: kindeUser.given_name || userData.user?.given_name,
+              family_name: kindeUser.family_name || userData.user?.family_name
+            };
+          }
         }
-      } catch (decodeError) {
-        console.log('⚠️ Could not decode token for user ID extraction');
+      } catch (apiError) {
+        // Capture detailed error information
+        const errorCode = apiError.code; // ECONNREFUSED, ENOTFOUND, ETIMEDOUT, etc.
+        const statusCode = apiError.response?.status;
+        const errorMessage = apiError.response?.data?.message || apiError.message || 'Unknown error';
+        const isConnectionError = !apiError.response;
+        
+        console.log('⚠️ [AUTH] Wrapper /api/users/me endpoint failed:', {
+          status: statusCode,
+          code: errorCode,
+          message: errorMessage,
+          url: `${wrapperBaseUrl}/api/users/me`,
+          isConnectionError
+        });
+        
+        // If connection error, provide helpful message
+        if (isConnectionError && errorCode) {
+          console.error(`❌ [AUTH] Wrapper API connection error (${errorCode}): ${wrapperBaseUrl} is not accessible`);
+          throw new Error(`Wrapper API connection failed: ${errorMessage} (${errorCode}). Please ensure wrapper server is running on ${wrapperBaseUrl}`);
+        }
+        
+        // Fallback: Try to decode token and extract user ID, then look up via tenant verification
+        // This is a last resort since we need email but token doesn't have it
+        let userId = null;
+        try {
+          const parts = token.split('.');
+          if (parts.length === 3) {
+            const payload = Buffer.from(parts[1], 'base64').toString();
+            const decoded = JSON.parse(payload);
+            userId = decoded.sub; // Usually contains user ID
+          }
+        } catch (decodeError) {
+          console.log('⚠️ Could not decode token for user ID extraction');
+        }
+
+        if (userId) {
+          console.log('⚠️ Cannot retrieve email from wrapper API. Token validation required.');
+          throw new Error(`Could not retrieve user email from wrapper API. Token user ID: ${userId}. Wrapper API error: ${errorMessage}${errorCode ? ` (${errorCode})` : ''}${statusCode ? ` [HTTP ${statusCode}]` : ''}. Please ensure wrapper API is accessible and token is valid.`);
+        }
       }
 
-      if (!userId) {
-        throw new Error('Could not extract user ID from token');
-      }
-
-      // For now, we'll create a mock response based on what we know from the wrapper logs
-      // In a real implementation, you'd call a wrapper API endpoint that accepts the token
-      // and returns user info including email
-
-      // Mock response based on wrapper logs showing zopkitexternal@gmail.com
-      if (userId.startsWith('kp_')) {
-        console.log('🎭 Using mock wrapper response for Kinde user');
-        return {
-          id: userId,
-          email: 'zopkitexternal@gmail.com', // This should come from wrapper API
-          name: 'zopkit external',
-          given_name: 'zopkit',
-          family_name: 'external'
-        };
-      }
-
-      throw new Error('Unsupported user ID format');
+      throw new Error('Could not extract user ID from token and wrapper API call failed');
 
     } catch (error) {
       console.error('❌ Wrapper API user info fallback failed:', error.message);
@@ -428,57 +526,357 @@ class AuthService {
   /**
    * Ensure tenant data is synced using new orchestration service
    * Strategy: Essential + Background (5-10s essential, rest in background)
+   * Supports both direct sync and Temporal workflows based on feature flag
    * @param {string} tenantId - Tenant identifier
    * @param {string} authToken - Authentication token
+   * @returns {Promise<Object>} Sync result with detailed context
    */
   async ensureTenantSync(tenantId, authToken) {
-    console.log(`🔍 [SYNC] Checking sync status for tenant: ${tenantId}`);
+    const syncStartTime = Date.now();
+    const correlationId = `sync-${tenantId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    const logContext = {
+      correlationId,
+      tenantId,
+      phase: 'initial_check',
+      timestamp: new Date().toISOString()
+    };
+    
+    console.log(`🔍 [SYNC] Checking sync status for tenant: ${tenantId}`, { ...logContext });
     
     try {
       // Check if sync is needed (idempotency)
       const needsSync = await syncOrchestrationService.needsSync(tenantId);
       
       if (!needsSync) {
-        console.log(`✅ [SYNC] Tenant ${tenantId} already synced, skipping...`);
-        return { alreadySynced: true };
+        // Verify tenant actually exists (safety check for deleted data)
+        const tenant = await Tenant.findOne({ tenantId });
+        if (!tenant) {
+          console.log(`⚠️ [SYNC] Sync status says completed but tenant record not found, forcing re-sync...`, {
+            ...logContext,
+            phase: 'data_missing'
+          });
+          // Force sync by resetting sync status
+          const syncStatus = await TenantSyncStatus.findOne({ tenantId });
+          if (syncStatus) {
+            syncStatus.status = 'pending';
+            syncStatus.phase = 'independent';
+            await syncStatus.save();
+          }
+          // Continue to sync below
+        } else {
+          const duration = Date.now() - syncStartTime;
+          console.log(`✅ [SYNC] Tenant ${tenantId} already synced, skipping...`, {
+            ...logContext,
+            phase: 'already_synced',
+            duration
+          });
+          return { alreadySynced: true, correlationId, duration };
+        }
       }
 
-      console.log(`🚀 [SYNC] Starting sync for tenant: ${tenantId}`);
+      // Determine sync method based on feature flag
+      const useTemporal = await this.shouldUseTemporalForTenant(tenantId);
+      const syncMethod = useTemporal ? 'temporal' : 'direct';
       
-      // Trigger sync via orchestration service
-      // This will sync essential data (blocking) and continue background sync
-      const syncResult = await syncOrchestrationService.syncTenant(tenantId, authToken);
+      logContext.phase = 'sync_started';
+      logContext.syncMethod = syncMethod;
+      console.log(`🚀 [SYNC] Starting sync for tenant: ${tenantId}`, { ...logContext });
+      
+      let syncResult;
+      
+      if (useTemporal) {
+        // Use Temporal workflow for sync
+        syncResult = await this.ensureTenantSyncWithTemporal(tenantId, authToken, {
+          correlationId
+        });
+      } else {
+        // Use direct sync (current implementation)
+        syncResult = await this.ensureTenantSyncDirect(tenantId, authToken, {
+          correlationId
+        });
+      }
+      
+      const essentialDuration = Date.now() - syncStartTime;
       
       if (!syncResult.success) {
-        throw new Error(`Tenant sync failed: ${syncResult.error}`);
+        const errorType = this.classifySyncError(syncResult.error || syncResult.errorType);
+        const error = this.createSyncError(
+          errorType,
+          syncResult.error || 'Tenant sync failed',
+          {
+            tenantId,
+            correlationId,
+            syncMethod,
+            phase: 'essential_data',
+            duration: essentialDuration,
+            retryable: this.isRetryableError(errorType)
+          }
+        );
+        
+        console.error(`❌ [SYNC] Tenant sync failed for ${tenantId}`, {
+          ...logContext,
+          phase: 'sync_failed',
+          errorType,
+          error: syncResult.error,
+          duration: essentialDuration,
+          retryable: error.retryable
+        });
+        
+        throw error;
       }
 
-      console.log(`✅ [SYNC] Essential data synced for tenant: ${tenantId}`);
+      logContext.phase = 'essential_complete';
+      console.log(`✅ [SYNC] Essential data synced for tenant: ${tenantId}`, {
+        ...logContext,
+        duration: essentialDuration,
+        backgroundSyncStarted: syncResult.backgroundSyncStarted
+      });
+      
       if (syncResult.backgroundSyncStarted) {
-        console.log(`🔄 [SYNC] Background sync in progress for remaining data...`);
+        console.log(`🔄 [SYNC] Background sync in progress for remaining data...`, {
+          ...logContext,
+          phase: 'background_sync'
+        });
       }
 
       // Check for failed collections after sync
       const syncStatus = await TenantSyncStatus.findOne({ tenantId });
       if (syncStatus && syncStatus.hasFailedCollections()) {
         const failedCollections = syncStatus.getFailedCollections();
-        console.log(`⚠️ [SYNC] Some collections failed to sync for tenant ${tenantId}:`, failedCollections.map(f => f.collection));
+        logContext.phase = 'partial_failure';
+        console.log(`⚠️ [SYNC] Some collections failed to sync for tenant ${tenantId}`, {
+          ...logContext,
+          failedCollections: failedCollections.map(f => f.collection),
+          totalFailed: failedCollections.length
+        });
 
         // Return sync result with failed collections info
         return {
           ...syncResult,
+          correlationId,
           hasFailedCollections: true,
           failedCollections: failedCollections,
-          syncStatus: syncStatus.toObject()
+          syncStatus: syncStatus.toObject(),
+          duration: essentialDuration
         };
       }
 
-      return syncResult;
+      return {
+        ...syncResult,
+        correlationId,
+        duration: essentialDuration
+      };
       
     } catch (error) {
-      console.error(`❌ [SYNC] Tenant sync error for ${tenantId}:`, error.message);
-      throw error;
+      const duration = Date.now() - syncStartTime;
+      const errorType = this.classifySyncError(error);
+      const isRetryable = this.isRetryableError(errorType);
+      
+      const errorContext = {
+        ...logContext,
+        phase: 'error',
+        errorType,
+        errorMessage: error.message,
+        errorStack: error.stack,
+        duration,
+        retryable: isRetryable,
+        action: isRetryable 
+          ? 'This error may be retried automatically or manually' 
+          : 'This error requires manual intervention'
+      };
+      
+      console.error(`❌ [SYNC] Tenant sync error for ${tenantId}`, errorContext);
+      
+      // Enhance error with context
+      const enhancedError = this.createSyncError(
+        errorType,
+        error.message,
+        {
+          tenantId,
+          correlationId,
+          duration,
+          retryable: isRetryable,
+          originalError: error
+        }
+      );
+      
+      throw enhancedError;
     }
+  }
+
+  /**
+   * Determine if Temporal should be used for tenant sync
+   * @param {string} tenantId - Tenant identifier
+   * @returns {Promise<boolean>} True if Temporal should be used
+   */
+  async shouldUseTemporalForTenant(tenantId) {
+    // Wait for TEMPORAL_CONFIG to be loaded
+    if (!TEMPORAL_CONFIG) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    if (!TEMPORAL_CONFIG || !TEMPORAL_CONFIG.enabled) {
+      return false;
+    }
+    
+    // Check if useTemporalForAuth is enabled
+    if (!TEMPORAL_CONFIG.useTemporalForAuth) {
+      return false;
+    }
+    
+    // Check tenant-based routing if configured
+    if (TEMPORAL_CONFIG.shouldUseTemporalForTenant) {
+      return TEMPORAL_CONFIG.shouldUseTemporalForTenant(tenantId);
+    }
+    
+    return true;
+  }
+
+  /**
+   * Ensure tenant sync using Temporal workflow
+   * @param {string} tenantId - Tenant identifier
+   * @param {string} authToken - Authentication token
+   * @param {Object} options - Sync options
+   * @returns {Promise<Object>} Sync result
+   */
+  async ensureTenantSyncWithTemporal(tenantId, authToken, options = {}) {
+    // Wait for temporalSyncService to be loaded
+    if (!temporalSyncService) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    if (!temporalSyncService) {
+      console.warn(`⚠️ [SYNC] Temporal sync service not available, falling back to direct sync`);
+      return await this.ensureTenantSyncDirect(tenantId, authToken, options);
+    }
+    
+    return await temporalSyncService.ensureTenantSync(tenantId, authToken, options);
+  }
+
+  /**
+   * Ensure tenant sync using direct sync method
+   * @param {string} tenantId - Tenant identifier
+   * @param {string} authToken - Authentication token
+   * @param {Object} options - Sync options
+   * @returns {Promise<Object>} Sync result
+   */
+  async ensureTenantSyncDirect(tenantId, authToken, options = {}) {
+    // Add timeout handling for sync operations
+    const syncTimeout = parseInt(process.env.SYNC_TIMEOUT_MS || '60000', 10); // Default 60s
+    const syncPromise = syncOrchestrationService.syncTenant(tenantId, authToken, {
+      ...options,
+      syncMethod: 'direct'
+    });
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error(`Sync timeout after ${syncTimeout}ms`)), syncTimeout)
+    );
+    
+    try {
+      return await Promise.race([syncPromise, timeoutPromise]);
+    } catch (timeoutError) {
+      if (timeoutError.message.includes('timeout')) {
+        const error = this.createSyncError('SYNC_TIMEOUT', timeoutError.message, {
+          tenantId,
+          correlationId: options.correlationId,
+          timeout: syncTimeout
+        });
+        throw error;
+      }
+      throw timeoutError;
+    }
+  }
+
+  /**
+   * Classify sync error type for better error handling
+   * @param {Error|string} error - Error object or error message
+   * @returns {string} Error type classification
+   */
+  classifySyncError(error) {
+    if (typeof error === 'object' && error.type) {
+      return error.type;
+    }
+    
+    const errorMessage = typeof error === 'string' ? error : error?.message || '';
+    const errorName = error?.name || '';
+    
+    // Authentication errors (non-retryable)
+    if (errorMessage.includes('Authentication') || 
+        errorMessage.includes('401') || 
+        errorMessage.includes('403') ||
+        errorName === 'AUTH_ERROR') {
+      return 'AUTH_ERROR';
+    }
+    
+    // Validation errors (non-retryable)
+    if (errorMessage.includes('validation') || 
+        errorMessage.includes('ValidationError') ||
+        errorName === 'ValidationError') {
+      return 'VALIDATION_ERROR';
+    }
+    
+    // Network errors (retryable)
+    if (errorMessage.includes('timeout') || 
+        errorMessage.includes('ECONNREFUSED') ||
+        errorMessage.includes('ETIMEDOUT') ||
+        errorMessage.includes('network') ||
+        errorName === 'NETWORK_ERROR') {
+      return 'NETWORK_ERROR';
+    }
+    
+    // Database errors (retryable)
+    if (errorMessage.includes('database') || 
+        errorMessage.includes('MongoError') ||
+        errorMessage.includes('transaction') ||
+        errorName === 'DATABASE_ERROR') {
+      return 'DATABASE_ERROR';
+    }
+    
+    // Timeout errors (retryable)
+    if (errorMessage.includes('timeout') || 
+        errorMessage.includes('TIMEOUT')) {
+      return 'TIMEOUT_ERROR';
+    }
+    
+    return 'UNKNOWN_ERROR';
+  }
+
+  /**
+   * Check if error is retryable
+   * @param {string} errorType - Error type classification
+   * @returns {boolean} True if error is retryable
+   */
+  isRetryableError(errorType) {
+    const nonRetryableErrors = ['AUTH_ERROR', 'VALIDATION_ERROR'];
+    return !nonRetryableErrors.includes(errorType);
+  }
+
+  /**
+   * Create structured sync error with context
+   * @param {string} type - Error type
+   * @param {string} message - Error message
+   * @param {Object} context - Additional context
+   * @returns {Error} Enhanced error object
+   */
+  createSyncError(type, message, context = {}) {
+    const error = new Error(message);
+    error.type = type;
+    error.name = `${type}_ERROR`;
+    error.retryable = context.retryable !== undefined ? context.retryable : this.isRetryableError(type);
+    error.correlationId = context.correlationId;
+    error.tenantId = context.tenantId;
+    error.duration = context.duration;
+    error.phase = context.phase;
+    error.originalError = context.originalError;
+    
+    // Add actionable error message
+    if (error.retryable) {
+      error.action = 'This error may be retried. Check network connectivity and service availability.';
+    } else {
+      error.action = 'This error requires manual intervention. Check authentication credentials and data validation.';
+    }
+    
+    return error;
   }
 
   /**
@@ -1068,13 +1466,18 @@ class AuthService {
         {
           $lookup: {
             from: 'crmroles',
-            let: { roleId: '$roleId', tenantId: '$tenantId' },
+            let: { roleIdString: '$roleIdString', roleId: '$roleId', tenantId: '$tenantId' },
             pipeline: [
               {
                 $match: {
                   $expr: {
                     $and: [
-                      { $eq: ['$roleId', '$$roleId'] },
+                      {
+                        $or: [
+                          { $eq: ['$roleId', '$$roleIdString'] }, // Match by roleIdString (UUID string)
+                          { $eq: ['$_id', '$$roleId'] } // Fallback: match by ObjectId if roleId is ObjectId
+                        ]
+                      },
                       { $eq: ['$tenantId', '$$tenantId'] },
                       { $eq: ['$isActive', true] }
                     ]
@@ -1093,14 +1496,19 @@ class AuthService {
         },
         {
           $project: {
-            roleId: 1,
-            roleName: { $ifNull: ['$roleDetails.roleName', '$roleId'] },
+            roleId: { $ifNull: ['$roleDetails.roleId', '$roleIdString'] }, // Use roleId from roleDetails or fallback to roleIdString
+            roleName: { $ifNull: ['$roleDetails.roleName', 'Unknown Role'] },
             entityId: 1,
             permissions: { $ifNull: ['$roleDetails.permissions', []] },
             isActive: 1,
             priority: { $ifNull: ['$roleDetails.priority', 0] },
             assignedAt: 1,
             expiresAt: 1
+          }
+        },
+        {
+          $match: {
+            roleName: { $ne: 'Unknown Role' } // Filter out assignments without valid roles
           }
         }
       ]);

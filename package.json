@@ -1,6 +1,13 @@
 {
+  "type": "module",
   "dependencies": {
     "@types/canvas-confetti": "^1.9.0",
     "canvas-confetti": "^1.9.4"
+  },
+  "scripts": {
+    "temporal:up": "docker-compose -f docker-compose.temporal.yml up -d",
+    "temporal:down": "docker-compose -f docker-compose.temporal.yml down",
+    "temporal:logs": "docker-compose -f docker-compose.temporal.yml logs -f",
+    "temporal:ui": "echo 'Temporal UI: http://localhost:8081 (port 8080 is used by Jenkins)'"
   }
 }

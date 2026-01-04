@@ -1,5 +1,19 @@
 import jwt from 'jsonwebtoken';
 import UserProfile from '../models/UserProfile.js';
+
+// Dynamic imports for services
+let WrapperApiService, syncOrchestrationService, authService;
+(async () => {
+  const [wrapperService, syncService, authServiceModule] = await Promise.all([
+    import('../services/wrapperApiService.js'),
+    import('../services/syncOrchestrationService.js'),
+    import('../services/authService.js')
+  ]);
+  WrapperApiService = wrapperService.default;
+  syncOrchestrationService = syncService.default;
+  authService = authServiceModule.default;
+})();
+
 const auth = async (req, res, next) => {
   try {
     console.log('🔒 Auth middleware executing for path:', req.path);
@@ -169,8 +183,9 @@ const auth = async (req, res, next) => {
     let userTenantId = null;
 
     if (tokenType === 'kinde') {
-      // Kinde token structure - extract email and look up user profile
+      // Kinde token structure - extract email and verify tenant FIRST
       const userEmail = decoded.email;
+      const tokenTenantId = decoded.tenantId; // May be stale/incorrect
 
       if (!userEmail) {
         console.log('❌ Kinde token missing email field');
@@ -178,35 +193,180 @@ const auth = async (req, res, next) => {
       }
 
       console.log('🎯 Extracted email from Kinde token:', userEmail);
+      if (tokenTenantId) {
+        console.log('🔍 Token contains tenantId:', tokenTenantId);
+      }
 
-      // Import UserProfile model dynamically
+      // STEP 1: Verify tenant with wrapper API to get CORRECT tenantId
+      let verifiedTenantId = null;
+      let tenantMismatch = false;
+      
+      try {
+        // Wait for services to be loaded
+        if (!WrapperApiService || !authService) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+        if (WrapperApiService && authService) {
+          console.log('🔐 [AUTH-MIDDLEWARE] Verifying tenant with wrapper API...');
+          const tenantContext = await authService.verifyTenant(userEmail, cleanToken);
+          verifiedTenantId = tenantContext.tenantId;
+          
+          // Check for tenant ID mismatch
+          if (tokenTenantId && tokenTenantId !== verifiedTenantId) {
+            tenantMismatch = true;
+            console.warn('⚠️ [AUTH-MIDDLEWARE] Tenant ID mismatch detected:', {
+              tokenTenantId,
+              wrapperTenantId: verifiedTenantId,
+              email: userEmail,
+              action: 'Using wrapper tenantId (correct one)'
+            });
+          }
+          
+          console.log('✅ [AUTH-MIDDLEWARE] Tenant verified:', verifiedTenantId);
+        } else {
+          console.warn('⚠️ [AUTH-MIDDLEWARE] Services not loaded, using token tenantId');
+          verifiedTenantId = tokenTenantId;
+        }
+      } catch (tenantVerifyError) {
+        console.error('❌ [AUTH-MIDDLEWARE] Tenant verification failed:', tenantVerifyError.message);
+        // Fallback: try to use token tenantId if available
+        verifiedTenantId = tokenTenantId;
+        if (!verifiedTenantId) {
+          return res.status(401).json({ 
+            message: 'Failed to verify tenant',
+            error: tenantVerifyError.message,
+            code: 'TENANT_VERIFICATION_FAILED'
+          });
+        }
+        console.warn('⚠️ [AUTH-MIDDLEWARE] Using token tenantId as fallback:', verifiedTenantId);
+      }
+
+      // STEP 2: Look up user profile by email + tenantId (verified tenantId)
       const UserProfile = (await import('../models/UserProfile.js')).default;
-
-      // Look up user profile by email
-      let userProfile = await UserProfile.findOne({
-        'personalInfo.email': userEmail
-      }).lean();
-
+      
+      let userProfile = null;
+      
+      // First try with verified tenantId
+      if (verifiedTenantId) {
+        userProfile = await UserProfile.findOne({
+          'personalInfo.email': userEmail,
+          tenantId: verifiedTenantId
+        }).lean();
+        
+        if (userProfile) {
+          console.log('✅ [AUTH-MIDDLEWARE] Found user profile with verified tenantId');
+        }
+      }
+      
+      // If not found and token has different tenantId, try token tenantId as fallback
+      if (!userProfile && tokenTenantId && tokenTenantId !== verifiedTenantId) {
+        console.log('🔍 [AUTH-MIDDLEWARE] Trying token tenantId as fallback...');
+        userProfile = await UserProfile.findOne({
+          'personalInfo.email': userEmail,
+          tenantId: tokenTenantId
+        }).lean();
+        
+        if (userProfile) {
+          console.warn('⚠️ [AUTH-MIDDLEWARE] Found user profile with token tenantId (mismatch)');
+          tenantMismatch = true;
+        }
+      }
+      
+      // Last resort: search by email only (for backward compatibility)
       if (!userProfile) {
-        console.log('❌ User profile not found for email:', userEmail);
-        // Return 410 Gone to indicate user was deleted/removed
+        console.log('🔍 [AUTH-MIDDLEWARE] Searching by email only (no tenantId filter)...');
+        userProfile = await UserProfile.findOne({
+          'personalInfo.email': userEmail
+        }).lean();
+        
+        if (userProfile) {
+          console.warn('⚠️ [AUTH-MIDDLEWARE] Found user profile without tenantId filter:', {
+            foundTenantId: userProfile.tenantId,
+            expectedTenantId: verifiedTenantId
+          });
+          
+          // Update verifiedTenantId to match found profile if we don't have one
+          if (!verifiedTenantId) {
+            verifiedTenantId = userProfile.tenantId;
+          }
+        }
+      }
+
+      // STEP 3: If user profile not found, trigger sync
+      if (!userProfile) {
+        console.log('❌ [AUTH-MIDDLEWARE] User profile not found for email:', userEmail);
+        console.log('🔄 [AUTH-MIDDLEWARE] Checking if tenant sync is needed...');
+        
+        // Check if sync is needed and trigger it
+        if (verifiedTenantId && syncOrchestrationService) {
+          try {
+            const needsSync = await syncOrchestrationService.needsSync(verifiedTenantId);
+            
+            if (needsSync) {
+              console.log('🚀 [AUTH-MIDDLEWARE] Triggering tenant sync...');
+              
+              // Trigger sync in background (non-blocking)
+              syncOrchestrationService.syncTenant(verifiedTenantId, cleanToken, {
+                correlationId: `auth-middleware-${Date.now()}`,
+                syncMethod: 'direct'
+              }).catch(syncError => {
+                console.error('❌ [AUTH-MIDDLEWARE] Background sync failed:', syncError.message);
+              });
+              
+              // Return 503 Service Unavailable with retry-after
+              return res.status(503).json({
+                message: 'User data is being synchronized. Please try again in a few seconds.',
+                code: 'SYNC_IN_PROGRESS',
+                retryAfter: 5, // seconds
+                tenantId: verifiedTenantId
+              });
+            } else {
+              // Sync not needed but user not found - user may not exist
+              console.log('⚠️ [AUTH-MIDDLEWARE] Sync not needed but user profile not found');
+              return res.status(410).json({ 
+                message: 'User account not found in the system',
+                code: 'USER_NOT_FOUND',
+                error: 'User profile does not exist for this tenant',
+                tenantId: verifiedTenantId
+              });
+            }
+          } catch (syncCheckError) {
+            console.error('❌ [AUTH-MIDDLEWARE] Error checking sync status:', syncCheckError.message);
+            // Fall through to return error
+          }
+        }
+        
+        // If we can't trigger sync, return appropriate error
         return res.status(410).json({ 
-          message: 'User account has been removed from the system',
-          code: 'USER_DELETED',
-          error: 'User account no longer exists'
+          message: 'User account not found. Please contact support if this persists.',
+          code: 'USER_NOT_FOUND',
+          error: 'User profile does not exist',
+          tenantId: verifiedTenantId || 'unknown'
         });
       }
 
-      // Extract user data from the found profile
+      // STEP 4: Extract user data from found profile
       userId = userProfile.userId;
-      userTenantId = userProfile.tenantId;
+      userTenantId = userProfile.tenantId; // Use tenantId from profile (source of truth)
       userOrgCode = userProfile.organization?.orgCode || null;
 
-      console.log('✅ Found user profile by email:', {
+      // Log tenant mismatch if detected
+      if (tenantMismatch && tokenTenantId && tokenTenantId !== userTenantId) {
+        console.warn('⚠️ [AUTH-MIDDLEWARE] Tenant ID mismatch resolved:', {
+          tokenTenantId,
+          profileTenantId: userTenantId,
+          email: userEmail,
+          action: 'Using profile tenantId'
+        });
+      }
+
+      console.log('✅ [AUTH-MIDDLEWARE] Found user profile:', {
         userId,
         tenantId: userTenantId,
         orgCode: userOrgCode,
-        email: userEmail
+        email: userEmail,
+        tenantMismatch: tenantMismatch
       });
     } else if (tokenType === 'custom') {
       // Custom token structure - use data directly from token
@@ -255,11 +415,20 @@ const auth = async (req, res, next) => {
         const UserProfile = (await import('../models/UserProfile.js')).default;
 
         if (tokenType === 'kinde') {
-          // For Kinde tokens, we already looked up the user by email above
-          // Just verify we still have the user profile
+          // For Kinde tokens, we already looked up the user by email + tenantId above
+          // Verify we still have the user profile with tenantId filter
           userProfile = await UserProfile.findOne({
-            userId: userId
+            userId: userId,
+            tenantId: userTenantId // Include tenantId filter
           }).lean();
+          
+          if (!userProfile && userTenantId) {
+            // Fallback: try without tenantId filter (backward compatibility)
+            console.warn('⚠️ [AUTH-MIDDLEWARE] User profile not found with tenantId filter, trying without...');
+            userProfile = await UserProfile.findOne({
+              userId: userId
+            }).lean();
+          }
         } else if (tokenType === 'custom') {
           // For custom tokens, look up by userId and tenantId
           userProfile = await UserProfile.findOne({
@@ -361,8 +530,41 @@ const auth = async (req, res, next) => {
         } else {
           // Handle case where user profile is not found
           if (tokenType === 'kinde') {
-            console.log('⚠️ Kinde user not found in any tenant, cannot proceed');
-            return res.status(403).json({ message: 'User not authorized for any tenant' });
+            console.log('⚠️ [AUTH-MIDDLEWARE] Kinde user profile not found after initial lookup');
+            
+            // This should not happen if we handled it above, but add fallback
+            if (userTenantId) {
+              // Check if sync is needed
+              if (syncOrchestrationService) {
+                try {
+                  const needsSync = await syncOrchestrationService.needsSync(userTenantId);
+                  if (needsSync) {
+                    console.log('🚀 [AUTH-MIDDLEWARE] Triggering sync for tenant:', userTenantId);
+                    syncOrchestrationService.syncTenant(userTenantId, cleanToken, {
+                      correlationId: `auth-middleware-fallback-${Date.now()}`,
+                      syncMethod: 'direct'
+                    }).catch(syncError => {
+                      console.error('❌ [AUTH-MIDDLEWARE] Fallback sync failed:', syncError.message);
+                    });
+                    
+                    return res.status(503).json({
+                      message: 'User data synchronization in progress. Please retry in a few seconds.',
+                      code: 'SYNC_IN_PROGRESS',
+                      retryAfter: 5,
+                      tenantId: userTenantId
+                    });
+                  }
+                } catch (syncCheckError) {
+                  console.error('❌ [AUTH-MIDDLEWARE] Error in fallback sync check:', syncCheckError.message);
+                }
+              }
+            }
+            
+            return res.status(403).json({ 
+              message: 'User not authorized for any tenant',
+              code: 'USER_NOT_AUTHORIZED',
+              tenantId: userTenantId || 'unknown'
+            });
           } else if (tokenType === 'custom') {
             // For custom tokens, we can accept the token data even if user not in DB
             console.log('⚠️ Custom token user not found in database, using token data directly');

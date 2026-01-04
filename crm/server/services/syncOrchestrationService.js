@@ -10,6 +10,17 @@ class SyncOrchestrationService {
   constructor() {
     this.activeSyncs = new Map(); // tenantId → sync promise
     this.cleanupInterval = null;
+    this.metrics = {
+      totalSyncs: 0,
+      successfulSyncs: 0,
+      failedSyncs: 0,
+      syncDurations: [],
+      errorTypes: {},
+      phaseDurations: {
+        essential: [],
+        background: []
+      }
+    };
   }
 
   /**
@@ -117,39 +128,175 @@ class SyncOrchestrationService {
    */
   async executeSyncWithMonitoring(tenantId, authToken, options) {
     const startTime = Date.now();
+    const correlationId = options.correlationId || `sync-${tenantId}-${Date.now()}`;
+    const syncMethod = options.syncMethod || 'direct';
+    
+    const logContext = {
+      correlationId,
+      tenantId,
+      syncMethod,
+      timestamp: new Date().toISOString()
+    };
+    
+    console.log(`🚀 [SYNC] Starting sync execution`, { ...logContext });
     
     try {
       // Trigger sync via tenantDataSyncServiceV2
-      const result = await tenantDataSyncServiceV2.syncTenant(tenantId, authToken, options);
+      const essentialStartTime = Date.now();
+      const result = await tenantDataSyncServiceV2.syncTenant(tenantId, authToken, {
+        ...options,
+        correlationId
+      });
       
-      const duration = Date.now() - startTime;
-      console.log(`✅ Sync completed for ${tenantId} in ${duration}ms`);
+      const totalDuration = Date.now() - startTime;
+      const essentialDuration = result.essentialDuration || (Date.now() - essentialStartTime);
+      const backgroundDuration = result.backgroundDuration || 0;
+      
+      // Update metrics
+      this.metrics.totalSyncs++;
+      this.metrics.successfulSyncs++;
+      this.metrics.syncDurations.push(totalDuration);
+      this.metrics.phaseDurations.essential.push(essentialDuration);
+      if (backgroundDuration > 0) {
+        this.metrics.phaseDurations.background.push(backgroundDuration);
+      }
+      
+      // Keep only last 1000 metrics entries to prevent memory issues
+      if (this.metrics.syncDurations.length > 1000) {
+        this.metrics.syncDurations.shift();
+        this.metrics.phaseDurations.essential.shift();
+        if (this.metrics.phaseDurations.background.length > 0) {
+          this.metrics.phaseDurations.background.shift();
+        }
+      }
+      
+      const structuredLog = {
+        ...logContext,
+        phase: 'sync_completed',
+        success: true,
+        totalDuration,
+        essentialDuration,
+        backgroundDuration,
+        recordsSynced: result.stats?.totalRecords || 0
+      };
+      
+      console.log(`✅ [SYNC] Sync completed for ${tenantId}`, structuredLog);
       
       return {
         success: true,
         tenantId,
-        duration,
+        correlationId,
+        syncMethod,
+        duration: totalDuration,
+        essentialDuration,
+        backgroundDuration,
+        metrics: {
+          totalDuration,
+          essentialDuration,
+          backgroundDuration
+        },
         ...result
       };
       
     } catch (error) {
       const duration = Date.now() - startTime;
-      console.error(`❌ Sync failed for ${tenantId} after ${duration}ms:`, error.message);
+      const errorType = this.classifyErrorType(error);
+      
+      // Update metrics
+      this.metrics.totalSyncs++;
+      this.metrics.failedSyncs++;
+      this.metrics.errorTypes[errorType] = (this.metrics.errorTypes[errorType] || 0) + 1;
+      
+      const structuredErrorLog = {
+        ...logContext,
+        phase: 'sync_failed',
+        success: false,
+        duration,
+        errorType,
+        errorMessage: error.message,
+        retryable: error.retryable !== undefined ? error.retryable : this.isRetryableErrorType(errorType)
+      };
+      
+      console.error(`❌ [SYNC] Sync failed for ${tenantId}`, structuredErrorLog);
       
       // Record failure in sync status
       const syncStatus = await TenantSyncStatus.findOne({ tenantId });
       if (syncStatus) {
-        await syncStatus.failSync(error.message, this.classifyErrorType(error));
+        await syncStatus.failSync(error.message, errorType);
       }
       
       return {
         success: false,
         tenantId,
+        correlationId,
+        syncMethod,
         duration,
         error: error.message,
-        errorType: this.classifyErrorType(error)
+        errorType,
+        retryable: error.retryable !== undefined ? error.retryable : this.isRetryableErrorType(errorType),
+        metrics: {
+          totalDuration: duration
+        }
       };
     }
+  }
+
+  /**
+   * Check if error type is retryable
+   * @param {string} errorType - Error type
+   * @returns {boolean} True if retryable
+   */
+  isRetryableErrorType(errorType) {
+    const nonRetryableTypes = ['AUTH_ERROR', 'VALIDATION_ERROR'];
+    return !nonRetryableTypes.includes(errorType);
+  }
+
+  /**
+   * Get sync metrics
+   * @returns {Object} Current metrics
+   */
+  getMetrics() {
+    const avgDuration = this.metrics.syncDurations.length > 0
+      ? this.metrics.syncDurations.reduce((a, b) => a + b, 0) / this.metrics.syncDurations.length
+      : 0;
+    
+    const avgEssentialDuration = this.metrics.phaseDurations.essential.length > 0
+      ? this.metrics.phaseDurations.essential.reduce((a, b) => a + b, 0) / this.metrics.phaseDurations.essential.length
+      : 0;
+    
+    const avgBackgroundDuration = this.metrics.phaseDurations.background.length > 0
+      ? this.metrics.phaseDurations.background.reduce((a, b) => a + b, 0) / this.metrics.phaseDurations.background.length
+      : 0;
+    
+    const successRate = this.metrics.totalSyncs > 0
+      ? (this.metrics.successfulSyncs / this.metrics.totalSyncs) * 100
+      : 0;
+    
+    return {
+      ...this.metrics,
+      averageDuration: Math.round(avgDuration),
+      averageEssentialDuration: Math.round(avgEssentialDuration),
+      averageBackgroundDuration: Math.round(avgBackgroundDuration),
+      successRate: Math.round(successRate * 100) / 100,
+      failureRate: Math.round((100 - successRate) * 100) / 100
+    };
+  }
+
+  /**
+   * Reset metrics (for testing or periodic reset)
+   */
+  resetMetrics() {
+    this.metrics = {
+      totalSyncs: 0,
+      successfulSyncs: 0,
+      failedSyncs: 0,
+      syncDurations: [],
+      errorTypes: {},
+      phaseDurations: {
+        essential: [],
+        background: []
+      }
+    };
   }
 
   /**

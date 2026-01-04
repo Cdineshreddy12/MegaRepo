@@ -76,6 +76,10 @@ async function verifyUserTenant(email) {
  * Validates Kinde token, performs tenant sync, and returns enhanced JWT
  */
 export const redirectAuth = async (req, res) => {
+  // Set a longer timeout for this endpoint since it may trigger sync operations
+  req.setTimeout(120000); // 2 minutes
+  res.setTimeout(120000);
+
   try {
     console.log('🔄 Processing redirect authentication...');
 
@@ -95,13 +99,23 @@ export const redirectAuth = async (req, res) => {
     const result = await authService.authenticateUser(token, req.body.email || req.query.email);
 
     console.log('✅ Redirect authentication successful');
-    res.json(result);
+    
+    // Ensure response is sent
+    if (!res.headersSent) {
+      res.json(result);
+    }
 
   } catch (err) {
     console.error('❌ Redirect authentication error:', err);
-    res.status(500).json({
-      message: 'Authentication failed',
-      error: err.message
-    });
+    
+    // Ensure error response is sent
+    if (!res.headersSent) {
+      res.status(500).json({
+        message: 'Authentication failed',
+        error: err.message,
+        type: err.type || 'UNKNOWN_ERROR',
+        retryable: err.retryable || false
+      });
+    }
   }
 };

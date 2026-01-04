@@ -59,6 +59,7 @@ import adminPromotionRoutes from './routes/admin-promotion.js';
 import permissionMatrixRoutes from './routes/permission-matrix.js';
 import enhancedCrmIntegrationRoutes from './routes/enhanced-crm-integration.js';
 import wrapperCrmSyncRoutes from './routes/wrapper-crm-sync.js';
+// crmIntegrationRoutes removed - all routes are now in wrapper-crm-sync.js to avoid duplicates
 // userVerificationRoutes moved to users feature
 import healthRoutes from './routes/health.js';
 import permissionSyncRoutes from './routes/permission-sync.js';
@@ -582,6 +583,9 @@ async function registerRoutes() {
   await fastify.register(demoRoutes, { prefix: '/api/demo' });
   await fastify.register(enhancedCrmIntegrationRoutes, { prefix: '/api/enhanced-crm-integration' });
   await fastify.register(wrapperCrmSyncRoutes, { prefix: '/api/wrapper' });
+  // Register wrapper routes with double /api/api/ prefix for compatibility (handles frontend API base URL that includes /api)
+  await fastify.register(wrapperCrmSyncRoutes, { prefix: '/api/api/wrapper' });
+  // crmIntegrationRoutes removed - all routes are now in wrapper-crm-sync.js to avoid duplicates
   await fastify.register(userVerificationRoutes, { prefix: '/api' });
   await fastify.register(healthRoutes, { prefix: '/api' });
   console.log('📋 Registering entity-scope routes...');

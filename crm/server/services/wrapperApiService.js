@@ -6,8 +6,18 @@ import axios from 'axios';
  */
 class WrapperApiService {
   constructor() {
-    this.baseUrl = process.env.WRAPPER_API_URL || 'http://localhost:3000';
+    // Ensure we use localhost:3000 for local development, not production URLs
+    const envUrl = process.env.WRAPPER_API_URL;
+    if (envUrl && (envUrl.includes('zopkit.com') || envUrl.includes('production') || envUrl.includes('prod'))) {
+      console.warn('⚠️ [WrapperAPI] Production URL detected in WRAPPER_API_URL, using localhost:3000 instead');
+      this.baseUrl = 'http://localhost:3000';
+    } else {
+      this.baseUrl = envUrl || 'http://localhost:3000';
+    }
     this.timeout = 30000; // 30 seconds (increased for local development)
+    
+    // Log the wrapper API URL being used
+    console.log(`🔗 [WrapperAPI] Using wrapper API URL: ${this.baseUrl}`);
   }
 
   /**
@@ -85,15 +95,53 @@ class WrapperApiService {
           // Non-success but 200
           lastError = { status: response.status, message: response.data?.message };
         } catch (err) {
+          // Capture detailed error information
           const status = err.response?.status;
-          const message = err.response?.data?.message || err.message;
-          console.log(`⚠️ [Wrapper] URL failed (${status}): ${url} -> ${message}`);
+          const errorCode = err.code; // ECONNREFUSED, ETIMEDOUT, ENOTFOUND, etc.
+          const errorMessage = err.response?.data?.message || err.message || 'Unknown error';
+          const errorDetails = {
+            status,
+            code: errorCode,
+            message: errorMessage,
+            url,
+            isConnectionError: !err.response // No response means connection error
+          };
+          
+          // Log detailed error information
+          if (errorCode) {
+            console.log(`⚠️ [Wrapper] URL failed - Connection Error (${errorCode}): ${url} -> ${errorMessage}`);
+          } else if (status) {
+            console.log(`⚠️ [Wrapper] URL failed - HTTP ${status}: ${url} -> ${errorMessage}`);
+          } else {
+            console.log(`⚠️ [Wrapper] URL failed - Unknown error: ${url} -> ${errorMessage}`);
+            console.log(`   Error details:`, {
+              code: errorCode,
+              status,
+              message: errorMessage,
+              response: err.response ? 'present' : 'none',
+              stack: err.stack?.split('\n')[0]
+            });
+          }
+          
           // Stop trying for auth errors; bubble up so caller can handle
           if (status === 401) {
-            return { success: false, hasTenant: false, error: message, statusCode: 401 };
+            return { success: false, hasTenant: false, error: errorMessage, statusCode: 401 };
           }
+          
+          // If connection error (ECONNREFUSED, ENOTFOUND, ETIMEDOUT), don't try other URLs
+          if (errorCode === 'ECONNREFUSED' || errorCode === 'ENOTFOUND' || errorCode === 'ETIMEDOUT') {
+            console.error(`❌ [Wrapper] Connection error (${errorCode}): Wrapper API at ${this.baseUrl} is not accessible`);
+            return { 
+              success: false, 
+              hasTenant: false, 
+              error: `Wrapper API connection failed: ${errorMessage} (${errorCode})`,
+              errorCode,
+              isConnectionError: true
+            };
+          }
+          
           // If 404, try next candidate
-          lastError = { status, message };
+          lastError = { status, message: errorMessage, code: errorCode };
           continue;
         }
       }
@@ -102,9 +150,30 @@ class WrapperApiService {
       if (lastError?.status === 404) {
         return { success: true, hasTenant: false, message: 'No tenant assigned' };
       }
-      return { success: false, hasTenant: false, error: lastError?.message || 'Unknown error' };
+      
+      const finalError = lastError?.message || 'Unknown error';
+      const finalErrorCode = lastError?.code;
+      console.error(`❌ [Wrapper] All tenant verification URLs failed. Last error: ${finalError}${finalErrorCode ? ` (${finalErrorCode})` : ''}`);
+      
+      return { 
+        success: false, 
+        hasTenant: false, 
+        error: finalError,
+        errorCode: finalErrorCode
+      };
     } catch (error) {
-      console.error('❌ Error verifying user tenant:', error.message);
+      // Capture detailed error information
+      const errorCode = error.code;
+      const errorMessage = error.response?.data?.message || error.message || 'Unknown error';
+      const statusCode = error.response?.status;
+      
+      console.error('❌ [Wrapper] Error verifying user tenant:', {
+        message: errorMessage,
+        code: errorCode,
+        status: statusCode,
+        url: this.baseUrl,
+        isConnectionError: !error.response
+      });
 
       if (error.response) {
         // If 404, user doesn't have a tenant
@@ -119,15 +188,29 @@ class WrapperApiService {
         return {
           success: false,
           hasTenant: false,
-          error: error.response.data?.message || error.message,
-          statusCode: error.response.status
+          error: errorMessage,
+          statusCode: statusCode,
+          errorCode
+        };
+      }
+
+      // Connection error
+      if (errorCode === 'ECONNREFUSED' || errorCode === 'ENOTFOUND' || errorCode === 'ETIMEDOUT') {
+        console.error(`❌ [Wrapper] Connection error (${errorCode}): Wrapper API at ${this.baseUrl} is not accessible`);
+        return {
+          success: false,
+          hasTenant: false,
+          error: `Wrapper API connection failed: ${errorMessage} (${errorCode})`,
+          errorCode,
+          isConnectionError: true
         };
       }
 
       return {
         success: false,
         hasTenant: false,
-        error: error.message
+        error: errorMessage,
+        errorCode
       };
     }
   }

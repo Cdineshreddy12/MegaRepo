@@ -1,0 +1,88 @@
+version: "3.8"
+
+services:
+  # PostgreSQL database for Temporal
+  postgresql:
+    image: postgres:15-alpine
+    container_name: temporal-postgresql
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_DB: temporal
+    ports:
+      - "127.0.0.1:5432:5432"  # Only expose locally
+    volumes:
+      - temporal-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - temporal-network
+
+  # Elasticsearch for Temporal visibility (optional but recommended)
+  elasticsearch:
+    image: elasticsearch:8.11.0
+    container_name: temporal-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "127.0.0.1:9200:9200"
+    volumes:
+      - temporal-elasticsearch-data:/usr/share/elasticsearch/data
+    restart: always
+    networks:
+      - temporal-network
+
+  # Temporal Server (Auto-setup image handles everything)
+  temporal:
+    image: temporalio/auto-setup:latest
+    container_name: temporal-server
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_started
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=postgresql
+    ports:
+      - "0.0.0.0:7233:7233"  # Expose gRPC port
+      - "0.0.0.0:8088:8088"  # Expose HTTP port
+    volumes:
+      - temporal-data:/var/lib/temporal
+    restart: always
+    networks:
+      - temporal-network
+
+  # Temporal Web UI
+  temporal-ui:
+    image: temporalio/ui:latest
+    container_name: temporal-ui
+    depends_on:
+      - temporal
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:8081
+    ports:
+      - "0.0.0.0:8081:8080"  # Expose UI on port 8081 (8080 is used by Jenkins)
+    restart: always
+    networks:
+      - temporal-network
+
+volumes:
+  temporal-postgres-data:
+  temporal-elasticsearch-data:
+  temporal-data:
+
+networks:
+  temporal-network:
+    driver: bridge
+

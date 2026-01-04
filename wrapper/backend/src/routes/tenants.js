@@ -1987,8 +1987,9 @@ export default async function tenantRoutes(fastify, options) {
       }
 
       // Publish organization assignment deleted event
+      // Use the actual membershipId from the deleted membership record
       const assignmentData = {
-        assignmentId: `${userId}_${organizationId}_${Date.now()}`,
+        assignmentId: membership[0].membershipId, // Use actual membershipId instead of generating new one
         tenantId,
         userId,
         organizationId,

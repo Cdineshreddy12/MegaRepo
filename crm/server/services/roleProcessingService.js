@@ -46,6 +46,12 @@ class RoleProcessingService {
     session.startTransaction();
 
     try {
+      // Debug: Log what we're receiving
+      console.log(`🔍 [processRoleCreate] roleData keys:`, Object.keys(roleData || {}));
+      console.log(`🔍 [processRoleCreate] roleData.tenantId:`, roleData?.tenantId);
+      console.log(`🔍 [processRoleCreate] roleData.roleId:`, roleData?.roleId);
+      console.log(`🔍 [processRoleCreate] roleData.roleName:`, roleData?.roleName);
+      
       // Extract and normalize role data
       const normalizedData = this.normalizeRoleData(roleData);
       const {
@@ -61,10 +67,15 @@ class RoleProcessingService {
         priority
       } = normalizedData;
 
+      console.log(`🔍 [processRoleCreate] normalizedData.tenantId:`, normalizedData.tenantId);
+      console.log(`🔍 [processRoleCreate] normalizedData.roleId:`, normalizedData.roleId);
+      console.log(`🔍 [processRoleCreate] normalizedData.roleName:`, normalizedData.roleName);
       console.log(`🔄 Processing role creation: ${roleName} (${roleId})`);
 
       // Validate required fields
       if (!tenantId || !roleId || !roleName) {
+        console.error(`❌ [processRoleCreate] Missing fields - tenantId: ${tenantId}, roleId: ${roleId}, roleName: ${roleName}`);
+        console.error(`❌ [processRoleCreate] Full roleData:`, JSON.stringify(roleData, null, 2));
         throw new Error('Missing required fields: tenantId, roleId, roleName');
       }
 

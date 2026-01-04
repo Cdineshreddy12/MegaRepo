@@ -70,6 +70,14 @@ export class OrganizationAssignmentService {
   static async publishOrgAssignmentCreated(assignmentData, options = {}) {
     const startTime = Date.now();
 
+    console.log(`📡 [ORG-ASSIGNMENT-CREATE] Publishing creation event:`, {
+      assignmentId: assignmentData.assignmentId,
+      userId: assignmentData.userId,
+      organizationId: assignmentData.organizationId,
+      tenantId: assignmentData.tenantId,
+      assignedBy: assignmentData.assignedBy
+    });
+
     try {
       // Validate input data
       this.validateAssignmentData(assignmentData);
@@ -106,7 +114,11 @@ export class OrganizationAssignmentService {
 
       // Log success with performance metrics
       const duration = Date.now() - startTime;
-      console.log(`✅ Published org assignment created: ${event.data.assignmentId} (${duration}ms)`);
+      console.log(`✅ [ORG-ASSIGNMENT-CREATE] Successfully published creation event: ${event.data.assignmentId} (${duration}ms)`, {
+        eventId: event.eventId,
+        streamId: result.stream,
+        pubsubSubscribers: result.pubsub
+      });
 
       return {
         success: true,
@@ -118,10 +130,15 @@ export class OrganizationAssignmentService {
 
     } catch (error) {
       const duration = Date.now() - startTime;
-      console.error(`❌ Failed to publish org assignment created (${duration}ms):`, {
+      console.error(`❌ [ORG-ASSIGNMENT-CREATE] Failed to publish creation event (${duration}ms):`, {
         error: error.message,
-        assignmentData: { ...assignmentData, metadata: undefined }, // Exclude metadata for logging
-        stack: error.stack
+        stack: error.stack,
+        assignmentData: { 
+          assignmentId: assignmentData.assignmentId,
+          userId: assignmentData.userId,
+          organizationId: assignmentData.organizationId,
+          tenantId: assignmentData.tenantId
+        }
       });
 
       return {
@@ -141,23 +158,31 @@ export class OrganizationAssignmentService {
 
     for (let attempt = 1; attempt <= this.MAX_RETRY_ATTEMPTS; attempt++) {
       try {
-        // Publish to Redis Stream
-        const streamResult = await crmSyncStreams.publishToStream(this.STREAM_KEY, event);
+      // Publish to Redis Stream
+      const streamResult = await crmSyncStreams.publishToStream(this.STREAM_KEY, event);
+      console.log(`✅ [ORG-ASSIGNMENT] Published to Redis stream: ${this.STREAM_KEY}`, {
+        streamId: streamResult,
+        eventType: event.eventType,
+        assignmentId: event.data?.assignmentId,
+        attempt
+      });
 
-        // Publish to Pub/Sub channel
-        const redis = getRedis();
-        let pubsubResult = null;
-        if (redis && redis.isConnected) {
-          const channel = `crm:${tenantId}:organization-assignments`;
-          pubsubResult = await redis.publish(channel, JSON.stringify(event));
-          console.log(`📡 Published to pub/sub channel: ${channel} (${pubsubResult} subscribers)`);
-        }
+      // Publish to Pub/Sub channel
+      const redis = getRedis();
+      let pubsubResult = null;
+      if (redis && redis.isConnected) {
+        const channel = `crm:${tenantId}:organization-assignments`;
+        pubsubResult = await redis.publish(channel, JSON.stringify(event));
+        console.log(`✅ [ORG-ASSIGNMENT] Published to pub/sub channel: ${channel} (${pubsubResult} subscribers)`);
+      } else {
+        console.warn(`⚠️ [ORG-ASSIGNMENT] Redis not connected, skipping pub/sub publish`);
+      }
 
-        return {
-          stream: streamResult,
-          pubsub: pubsubResult,
-          attempts: attempt
-        };
+      return {
+        stream: streamResult,
+        pubsub: pubsubResult,
+        attempts: attempt
+      };
 
       } catch (error) {
         lastError = error;
@@ -338,6 +363,17 @@ export class OrganizationAssignmentService {
    */
   static async publishOrgAssignmentDeleted(assignmentData) {
     const eventId = uuidv4();
+    const startTime = Date.now();
+
+    console.log(`📡 [ORG-ASSIGNMENT-DELETE] Publishing deletion event:`, {
+      assignmentId: assignmentData.assignmentId,
+      userId: assignmentData.userId,
+      organizationId: assignmentData.organizationId,
+      tenantId: assignmentData.tenantId,
+      deletedBy: assignmentData.deletedBy,
+      reason: assignmentData.reason || 'permanent_removal',
+      eventId
+    });
 
     const event = {
       eventId,
@@ -359,19 +395,32 @@ export class OrganizationAssignmentService {
       // Publish to dedicated organization assignments Redis Stream
       const streamKey = `crm:organization-assignments`;
       const streamResult = await crmSyncStreams.publishToStream(streamKey, event);
+      console.log(`✅ [ORG-ASSIGNMENT-DELETE] Published to Redis stream: ${streamKey}`, {
+        streamId: streamResult,
+        assignmentId: assignmentData.assignmentId
+      });
 
       // Also publish to pub/sub channel for CRM consumer
       const redis = getRedis();
       if (redis && redis.isConnected) {
         const channel = `crm:${assignmentData.tenantId}:organization-assignments`;
-        await redis.publish(channel, JSON.stringify(event));
-        console.log(`📡 Published to pub/sub channel: ${channel}`);
+        const pubsubResult = await redis.publish(channel, JSON.stringify(event));
+        console.log(`✅ [ORG-ASSIGNMENT-DELETE] Published to pub/sub channel: ${channel} (${pubsubResult} subscribers)`);
+      } else {
+        console.warn(`⚠️ [ORG-ASSIGNMENT-DELETE] Redis not connected, skipping pub/sub publish`);
       }
 
-      console.log(`📡 Published organization assignment deleted event: ${event.data.assignmentId}`);
+      const duration = Date.now() - startTime;
+      console.log(`✅ [ORG-ASSIGNMENT-DELETE] Successfully published deletion event: ${event.data.assignmentId} (${duration}ms)`);
       return streamResult;
     } catch (error) {
-      console.error('❌ Failed to publish organization assignment deleted event:', error);
+      const duration = Date.now() - startTime;
+      console.error(`❌ [ORG-ASSIGNMENT-DELETE] Failed to publish deletion event (${duration}ms):`, {
+        error: error.message,
+        stack: error.stack,
+        assignmentId: assignmentData.assignmentId,
+        tenantId: assignmentData.tenantId
+      });
       throw error;
     }
   }

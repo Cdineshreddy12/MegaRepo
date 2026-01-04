@@ -231,7 +231,7 @@ export class TenantSyncFileLogger {
   async writeLog(level, category, message, data = {}, error = null) {
     if (!this.initialized) {
       // Fallback to console if not initialized
-      this.originalConsole[level === 'error' ? 'error' : 'log'](message, data, error);
+      originalConsoleMethods[level === 'error' ? 'error' : 'log'](message, data, error);
       return;
     }
 

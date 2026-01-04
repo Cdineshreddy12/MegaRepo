@@ -138,3 +138,4 @@ Only 1 role exists in the database for this tenant:
 5. Validate the consumer is processing events for tenant `62fd1ba9-0ed1-46c9-882a-b4783c8fdfa8`
 
 
+

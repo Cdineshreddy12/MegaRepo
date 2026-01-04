@@ -307,9 +307,27 @@ tenantSyncStatusSchema.statics.needsSync = async function (tenantId) {
     return true;
   }
 
-  // If sync is completed, no need to sync again
+  // If sync is completed, verify that tenant record actually exists
+  // This handles cases where data was deleted but sync status still says "completed"
   if (syncStatus.status === 'completed') {
-    return false;
+    try {
+      const mongoose = (await import('mongoose')).default;
+      const Tenant = mongoose.model('Tenant');
+      const tenant = await Tenant.findOne({ tenantId });
+      
+      // If tenant record doesn't exist, sync is needed (data was deleted)
+      if (!tenant) {
+        console.log(`⚠️ [NEEDSSYNC] Sync status says "completed" but tenant record not found for ${tenantId}, re-sync needed`);
+        return true;
+      }
+      
+      // Tenant exists, no sync needed
+      return false;
+    } catch (error) {
+      // If we can't check, err on the side of caution and trigger sync
+      console.warn(`⚠️ [NEEDSSYNC] Error checking tenant existence for ${tenantId}: ${error.message}, will trigger sync`);
+      return true;
+    }
   }
 
   // If sync is in progress and not expired, no need to trigger another

@@ -3,8 +3,8 @@ import mongoose from 'mongoose';
 /**
  * Pending Message Record
  * 
- * Tracks pending messages that were processed (edge case: consumer crash before ACK).
- * Only stores records for pending messages to prevent duplicate processing after consumer restart.
+ * Tracks messages through their processing lifecycle to prevent duplicate processing.
+ * Handles crash recovery by tracking processing state and ensuring idempotency.
  */
 const pendingMessageRecordSchema = new mongoose.Schema({
   messageId: {
@@ -22,6 +22,21 @@ const pendingMessageRecordSchema = new mongoose.Schema({
     required: true,
     index: true
   },
+  eventType: {
+    type: String,
+    index: true,
+    sparse: true // Optional for backward compatibility
+  },
+  workflowId: {
+    type: String,
+    index: true,
+    sparse: true // Optional - only set for Temporal workflow signals
+  },
+  processingStartedAt: {
+    type: Date,
+    index: true,
+    sparse: true // Set when status changes to 'processing'
+  },
   processedAt: {
     type: Date,
     required: true,
@@ -31,9 +46,13 @@ const pendingMessageRecordSchema = new mongoose.Schema({
   status: {
     type: String,
     required: true,
-    enum: ['completed', 'failed'],
+    enum: ['processing', 'completed', 'failed'],
     default: 'completed',
     index: true
+  },
+  error: {
+    type: String,
+    sparse: true // Only set when status is 'failed'
   }
 }, {
   timestamps: true // Adds createdAt and updatedAt
@@ -43,6 +62,18 @@ const pendingMessageRecordSchema = new mongoose.Schema({
 pendingMessageRecordSchema.index(
   { messageId: 1, stream: 1, consumerGroup: 1 },
   { unique: true } // Prevent duplicate records
+);
+
+// Index for idempotency checks by messageId + eventType
+pendingMessageRecordSchema.index(
+  { messageId: 1, eventType: 1, status: 1 },
+  { unique: false }
+);
+
+// Index for stale record cleanup (processing status + processingStartedAt)
+pendingMessageRecordSchema.index(
+  { status: 1, processingStartedAt: 1 },
+  { sparse: true }
 );
 
 // TTL Index: Auto-delete records older than 30 days
