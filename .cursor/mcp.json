@@ -5,17 +5,15 @@
       "args": [
         "mcp-proxy-for-aws@latest",
         "https://aws-mcp.us-east-1.api.aws/mcp",
-        "--metadata", "AWS_REGION=ap-south-1"
+        "--metadata",
+        "AWS_REGION=ap-south-1"
       ]
-    },
-    "redis-mcp": {
-      "command": "/Users/chintadineshreddy/mcp-redis/.venv/bin/redis-mcp-server",
-      "args": ["--url", "redis://localhost:6379"],
-      "cwd": "/Users/chintadineshreddy/mcp-redis"
     },
     "mongodb-mcp": {
       "command": "npx",
-      "args": ["mongodb-mcp-server@latest"],
+      "args": [
+        "mongodb-mcp-server@latest"
+      ],
       "env": {
         "MDB_MCP_CONNECTION_STRING": "mongodb+srv://letszopkit:t41z0qaCIoK8vnDr@letszop.gog5bym.mongodb.net/zopkit_crm",
         "MDB_MCP_READ_ONLY": "true"
